@@ -127,7 +127,7 @@ struct JobFeedBack_s
 ### 3.1 文件清单
 
 ```
-Include/Util/GenTaskDef.h     ← 生成式任务数据结构定义 (用户提供的结构体)
+Include/Util/GenTaskProcess.h     ← 生成式任务数据结构定义 (用户提供的结构体)
 App/Engine/GenHttpClient.h    ← HTTP 客户端 (同步请求)
 App/Engine/GenHttpClient.cpp  
 App/Engine/GenTaskThread.h    ← generateThread 调度线程
@@ -136,10 +136,10 @@ Include/Core/GenTaskAPI.h     ← SDK 对外接口
 Src/Core/GenTaskAPI.cpp       
 ```
 
-### 3.2 GenTaskDef.h — 整合用户的枚举与结构体
+### 3.2 GenTaskProcess.h — 整合用户的枚举与结构体
 
 ```cpp
-// === 新文件: Include/Util/GenTaskDef.h ===
+// === 新文件: Include/Util/GenTaskProcess.h ===
 
 #pragma once
 #include <string>
@@ -715,7 +715,7 @@ generateThread
 
 | 文件 | 说明 |
 |------|------|
-| `Include/Util/GenTaskDef.h` | 所有生成式任务枚举 + 结构体 + GenJobInfo 序列化 |
+| `Include/Util/GenTaskProcess.h` | 所有生成式任务枚举 + 结构体 + GenJobInfo 序列化 |
 | `App/Engine/GenHttpClient.h` | 同步 HTTP 客户端封装 |
 | `App/Engine/GenHttpClient.cpp` | 实现 submit/queryStatus/queryPoints/cancel |
 | `App/Engine/GenTaskThread.h` | generateThread 声明 |
@@ -881,7 +881,7 @@ void onTaskCompleted(const GenJobInfo& job) {
 > **详细执行清单见 [GenTask_Checklist.md](GenTask_Checklist.md)** — 包含每项的勾选框、伪代码、依赖关系图和文件改动汇总。
 
 ### 概要 Phase: 数据结构基础 (1-2天)
-1. 创建 `GenTaskDef.h` (用户提供的枚举+结构体 + GenJobInfo)
+1. 创建 `GenTaskProcess.h` (用户提供的枚举+结构体 + GenJobInfo)
 2. 修改 `BlockObject.h/cpp` (增加 block_task_category)
 3. 修改 `TaskProcess.h` (JobInfo_s + JobFeedBack_s 扩展)
 4. 编译通过验证

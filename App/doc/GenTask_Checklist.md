@@ -12,25 +12,73 @@ Phase 2 (路径配置) ───────────────────
 Phase 1 + 2 可以并行开工
 ```
 
+## 新增文件与现有系统的对应关系
+
+每项列出"新增了什么、对标现有哪个组件、为什么需要它"。
+
+### 数据结构层
+
+| 新增 | 对标现有 | 说明 |
+|------|---------|------|
+| `GenTaskProcess.h` | `Util/TaskProcess.h` | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo` + 枚举 + API 类型） |
+| `GenJobInfo` | `JobInfo_s` | Job 文件读写结构体。`JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo` 存 `task_uuid/GenerationParams/server_task_id/result_url` |
+| `GenTaskRequest` | 无现成对标 | HTTP submit 请求体，序列化为 JSON POST 到服务端。重建式没有远程 API，所以这是全新概念 |
+| `GenTaskResponse` | 无现成对标 | HTTP 响应体。服务端返回的 task status/progress/result_url |
+| `GenerationParams` | `ATOptions`（局部类似） | 用户填写的生成参数（prompt、模型版本、面数等）。概念上类似 `ATOptions`（空三参数），但结构完全不同 |
+| `GenTaskCategory/SubType/Status` | `jobsta_e`（局部类似） | 生成式任务的状态枚举。`jobsta_e` 是重建式 job 状态（PENDING/RUNNING/COMPLETE...），`GenTaskStatus` 多了 IDLE + 服务端状态 |
+| `block_task_category` (Task_Info 新增) | 无，新增字段 | 在已有的 `BlockObject::Task_Info` 中增加的 int 字段，区分 Block 是重建式(0)还是生成式(1)。类似 `type_` 字段的作用 |
+| `JobFeedBack_s` 新增 6 字段 | 无，字段扩展 | 在已有的 `JobFeedBack_s` 尾部追加 `result_url/preview_url/server_task_id/error_message/cost_credits/points_balance`，重建式不写这些字段 |
+
+### 调度与通信层
+
+| 新增 | 对标现有 | 说明 |
+|------|---------|------|
+| `GenTaskThread` | `searchPendingJobThread2` (CallEngine.cpp) | 调度线程。`searchPendingJobThread2` 遍历 `jobs/` 调度重建式任务，`GenTaskThread::Run()` 遍历 `jobs_gen/` 调度生成式任务。两者独立运行，互不干扰 |
+| `GenHttpClient` | `spawn Task.exe` 子进程 | 任务执行方式。重建式通过文件 IPC + spawn `MoldAITask.exe` 子进程执行，生成式通过 HTTP POST/GET 提交和轮询远程服务端。都是"提交任务→等待结果"的模式 |
+| `jobs_gen/` 目录 | `jobs/` 目录 | 文件系统 IPC 的工作目录。`jobs/` 存重建式 Job 文件（BIN+JSON），`jobs_gen/` 存生成式 Job 文件（仅 JSON） |
+| `getGenEngineJobQueue()` | `getEngineJobQueue()` | 获取队列根路径。`getEngineJobQueue()` 读注册表 `engine` key，`getGenEngineJobQueue()` 取其父目录 + `/jobs_gen`，无需新注册表项 |
+
+### SDK 与接口层
+
+| 新增 | 对标现有 | 说明 |
+|------|---------|------|
+| `GenTaskAPI` | 无现成对标 | 前端 SDK。现有系统前端直接操作 BlockObject + Job 文件（耦合高），`GenTaskAPI` 将生成式任务的"提交/查询/下载/回调"封装为静态方法。回调机制采用 `GenTaskAPI` 存储 → `GenTaskThread` 触发的单向依赖 |
+| `TriggerTaskComplete/TriggerTaskFailed` | 无现成对标 | GenTaskThread 完成后调用 `GenTaskAPI::Trigger*`，`GenTaskAPI` 内部调用前端注册的回调。避免 `GenTaskAPI`（MoldAIData.dll）反向依赖 `GenTaskThread`（MoldAINode.exe） |
+
+### 修改的现有文件
+
+| 文件 | 对标什么 | 说明 |
+|------|---------|------|
+| `BlockObject.h/cpp` | 自身 | `Task_Info` 加 `block_task_category` 区分 Block 类型 |
+| `BlockInfo.h` | 自身 | `BlockFile` 加 `block_task_category`（BIN 格式兼容） |
+| `TaskProcess.h` | 自身 | `JobInfo_s` 加 `task_category`；`JobFeedBack_s` 加 6 个生成式扩展字段，更新 10+ 个序列化方法 |
+| `Settings.h/cpp` | 自身 | 新增 `getGenEngineJobQueue()` |
+| `CallEngine.cpp` | 自身 | MakePath 创建 `jobs_gen/` 目录；main 启动 `GenTaskThread` |
+| `App/Engine/CMakeLists.txt` | 自身 | HEADER_LIST 添加 `GenTaskProcess.h`（唯一需改的 CMakeLists） |
+
 ---
 
 ## Phase 1: 数据结构基础
 
 > 最先做，所有后续 Phase 都依赖这里的结构定义。
 
-### 1.1 新建 GenTaskDef.h
+### 1.1 新建 GenTaskProcess.h
 
-- [ ] 创建 `Include/Util/GenTaskDef.h`
+- [ ] 创建 `Include/Util/GenTaskProcess.h`
 
 ```cpp
-// Include/Util/GenTaskDef.h
-#ifndef _AI3D_UTIL_GEN_TASK_DEF_H_
-#define _AI3D_UTIL_GEN_TASK_DEF_H_
+// Include/Util/GenTaskProcess.h
+// 位置说明: 放在 Util/ 而非 Core/ 是因为 TaskProcess.h (JobInfo_s, JobFeedBack_s)
+// 也在 Util/ 下。GenJobInfo 本质上和 JobInfo_s 是同层级的 job 调度结构体。
+// json 使用项目内 "Core/json.h" (vendored nlohmann 3.7.2), 与 TaskProcess.h 一致。
+
+#ifndef _AI3D_UTIL_GEN_TASK_PROCESS_H_
+#define _AI3D_UTIL_GEN_TASK_PROCESS_H_
 
 #include <string>
 #include <vector>
 #include <optional>
-#include <nlohmann/json.hpp>
+#include "Core/json.h"       // 项目内 vendored nlohmann 3.7.2, 与 TaskProcess.h 一致
 
 namespace AI3D {
 namespace CORE {
@@ -38,136 +86,228 @@ namespace CORE {
 // ========== 枚举 ==========
 
 enum class GenTaskCategory {
-    TEXT_TO_3D,         // 文生3D
-    IMAGE_TO_3D,        // 图生3D
-    TEXTURING,          // 纹理生成
-    UTILITY,            // 工具
-    IMAGE_GENERATION,   // 图片生成
+    TEXT_TO_3D,
+    IMAGE_TO_3D,
+    TEXTURING,
+    UTILITY,
+    IMAGE_GENERATION,
 };
 
 enum class GenTaskSubType {
-    TEXT_TO_MODEL,          // POST /tasks/text-to-model      文字→带纹理模型
-    TEXT_TO_MESH,           // POST /tasks/text-to-mesh       文字→纯白模
-    IMAGE_TO_MODEL,         // POST /tasks/image-to-model     图片→带纹理模型
-    IMAGE_TO_MESH,          // POST /tasks/image-to-mesh      图片→纯白模
-    TEXTURE_MODEL,          // POST /tasks/texture-model      图片+模型→纹理
-    TEXT_TO_TEXTURE,        // POST /tasks/text-to-texture    文字+模型→纹理
-    MODEL_PREVIEW_RENDER,   // POST /tasks/model-preview-render  模型→预览图
-    MODEL_REMESH,           // POST /tasks/model-remesh          重网格/减面
-    CONVERT_MODEL_FORMAT,   // POST /tasks/convert-model-format  格式转换
-    IMAGE_GENERATION,       // POST /tasks/image-generation      文字→图片
+    TEXT_TO_MODEL,
+    TEXT_TO_MESH,
+    IMAGE_TO_MODEL,
+    IMAGE_TO_MESH,
+    TEXTURE_MODEL,
+    TEXT_TO_TEXTURE,
+    MODEL_PREVIEW_RENDER,
+    MODEL_REMESH,
+    CONVERT_MODEL_FORMAT,
+    IMAGE_GENERATION,
 };
 
 enum class GenTaskStatus {
-    IDLE,           // 未提交
-    PENDING,        // 排队等待
-    IN_PROGRESS,    // 处理中
-    COMPLETED,      // 完成
-    FAILED,         // 失败
-    CANCELLED,      // 已取消
+    IDLE,
+    PENDING,
+    IN_PROGRESS,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
 };
 
 enum class AssetKind {
     NONE,
-    FILE_PATH,      // 用户拖的本地文件
-    FILE_KEY,       // 已上传到 Triverse 的文件 key
-    URL,            // 公开链接
+    FILE_PATH,
+    FILE_KEY,
+    URL,
 };
 
-// ========== JSON 序列化宏 (nlohmann::json) ==========
+// ========== 枚举 ↔ 字符串 转换 (nlohmann 3.7.2 无 NLOHMANN_JSON_SERIALIZE_ENUM) ==========
 
-NLOHMANN_JSON_SERIALIZE_ENUM(GenTaskCategory, {
-    {GenTaskCategory::TEXT_TO_3D,         "text_to_3d"},
-    {GenTaskCategory::IMAGE_TO_3D,        "image_to_3d"},
-    {GenTaskCategory::TEXTURING,          "texturing"},
-    {GenTaskCategory::UTILITY,            "utility"},
-    {GenTaskCategory::IMAGE_GENERATION,   "image_generation"},
-})
+inline std::string to_string(GenTaskCategory v) {
+    switch (v) {
+    case GenTaskCategory::TEXT_TO_3D:       return "text_to_3d";
+    case GenTaskCategory::IMAGE_TO_3D:      return "image_to_3d";
+    case GenTaskCategory::TEXTURING:        return "texturing";
+    case GenTaskCategory::UTILITY:          return "utility";
+    case GenTaskCategory::IMAGE_GENERATION: return "image_generation";
+    }
+    return "unknown";
+}
+inline GenTaskCategory to_GenTaskCategory(const std::string& s) {
+    if (s == "text_to_3d")       return GenTaskCategory::TEXT_TO_3D;
+    if (s == "image_to_3d")      return GenTaskCategory::IMAGE_TO_3D;
+    if (s == "texturing")        return GenTaskCategory::TEXTURING;
+    if (s == "utility")          return GenTaskCategory::UTILITY;
+    if (s == "image_generation") return GenTaskCategory::IMAGE_GENERATION;
+    return GenTaskCategory::TEXT_TO_3D;
+}
 
-NLOHMANN_JSON_SERIALIZE_ENUM(GenTaskSubType, {
-    {GenTaskSubType::TEXT_TO_MODEL,         "text_to_model"},
-    {GenTaskSubType::TEXT_TO_MESH,          "text_to_mesh"},
-    {GenTaskSubType::IMAGE_TO_MODEL,        "image_to_model"},
-    {GenTaskSubType::IMAGE_TO_MESH,         "image_to_mesh"},
-    {GenTaskSubType::TEXTURE_MODEL,         "texture_model"},
-    {GenTaskSubType::TEXT_TO_TEXTURE,       "text_to_texture"},
-    {GenTaskSubType::MODEL_PREVIEW_RENDER,  "model_preview_render"},
-    {GenTaskSubType::MODEL_REMESH,          "model_remesh"},
-    {GenTaskSubType::CONVERT_MODEL_FORMAT,  "convert_model_format"},
-    {GenTaskSubType::IMAGE_GENERATION,      "image_generation"},
-})
+inline std::string to_string(GenTaskSubType v) {
+    switch (v) {
+    case GenTaskSubType::TEXT_TO_MODEL:         return "text_to_model";
+    case GenTaskSubType::TEXT_TO_MESH:          return "text_to_mesh";
+    case GenTaskSubType::IMAGE_TO_MODEL:        return "image_to_model";
+    case GenTaskSubType::IMAGE_TO_MESH:         return "image_to_mesh";
+    case GenTaskSubType::TEXTURE_MODEL:         return "texture_model";
+    case GenTaskSubType::TEXT_TO_TEXTURE:       return "text_to_texture";
+    case GenTaskSubType::MODEL_PREVIEW_RENDER:  return "model_preview_render";
+    case GenTaskSubType::MODEL_REMESH:          return "model_remesh";
+    case GenTaskSubType::CONVERT_MODEL_FORMAT:  return "convert_model_format";
+    case GenTaskSubType::IMAGE_GENERATION:      return "image_generation";
+    }
+    return "unknown";
+}
+inline GenTaskSubType to_GenTaskSubType(const std::string& s) {
+    if (s == "text_to_model")         return GenTaskSubType::TEXT_TO_MODEL;
+    if (s == "text_to_mesh")          return GenTaskSubType::TEXT_TO_MESH;
+    if (s == "image_to_model")        return GenTaskSubType::IMAGE_TO_MODEL;
+    if (s == "image_to_mesh")         return GenTaskSubType::IMAGE_TO_MESH;
+    if (s == "texture_model")         return GenTaskSubType::TEXTURE_MODEL;
+    if (s == "text_to_texture")       return GenTaskSubType::TEXT_TO_TEXTURE;
+    if (s == "model_preview_render")  return GenTaskSubType::MODEL_PREVIEW_RENDER;
+    if (s == "model_remesh")          return GenTaskSubType::MODEL_REMESH;
+    if (s == "convert_model_format")  return GenTaskSubType::CONVERT_MODEL_FORMAT;
+    if (s == "image_generation")      return GenTaskSubType::IMAGE_GENERATION;
+    return GenTaskSubType::TEXT_TO_MODEL;
+}
 
-NLOHMANN_JSON_SERIALIZE_ENUM(GenTaskStatus, {
-    {GenTaskStatus::IDLE,         "idle"},
-    {GenTaskStatus::PENDING,      "pending"},
-    {GenTaskStatus::IN_PROGRESS,  "in_progress"},
-    {GenTaskStatus::COMPLETED,    "completed"},
-    {GenTaskStatus::FAILED,       "failed"},
-    {GenTaskStatus::CANCELLED,    "cancelled"},
-})
+inline std::string to_string(GenTaskStatus v) {
+    switch (v) {
+    case GenTaskStatus::IDLE:        return "idle";
+    case GenTaskStatus::PENDING:     return "pending";
+    case GenTaskStatus::IN_PROGRESS: return "in_progress";
+    case GenTaskStatus::COMPLETED:   return "completed";
+    case GenTaskStatus::FAILED:      return "failed";
+    case GenTaskStatus::CANCELLED:   return "cancelled";
+    }
+    return "unknown";
+}
+inline GenTaskStatus to_GenTaskStatus(const std::string& s) {
+    if (s == "idle")        return GenTaskStatus::IDLE;
+    if (s == "pending")     return GenTaskStatus::PENDING;
+    if (s == "in_progress") return GenTaskStatus::IN_PROGRESS;
+    if (s == "completed")   return GenTaskStatus::COMPLETED;
+    if (s == "failed")      return GenTaskStatus::FAILED;
+    if (s == "cancelled")   return GenTaskStatus::CANCELLED;
+    return GenTaskStatus::IDLE;
+}
 
-NLOHMANN_JSON_SERIALIZE_ENUM(AssetKind, {
-    {AssetKind::NONE,      "none"},
-    {AssetKind::FILE_PATH, "file_path"},
-    {AssetKind::FILE_KEY,  "file_key"},
-    {AssetKind::URL,       "url"},
-})
+inline std::string to_string(AssetKind v) {
+    switch (v) {
+    case AssetKind::NONE:      return "none";
+    case AssetKind::FILE_PATH: return "file_path";
+    case AssetKind::FILE_KEY:  return "file_key";
+    case AssetKind::URL:       return "url";
+    }
+    return "none";
+}
+inline AssetKind to_AssetKind(const std::string& s) {
+    if (s == "file_path") return AssetKind::FILE_PATH;
+    if (s == "file_key")  return AssetKind::FILE_KEY;
+    if (s == "url")       return AssetKind::URL;
+    return AssetKind::NONE;
+}
 
-// ========== 结构体 ==========
+// ========== 结构体 + 手动 to_json / from_json ==========
 
 struct AssetRef {
     AssetKind   kind = AssetKind::NONE;
-    std::string value;          // 本地路径 / file_key / URL
-    std::string content_type;   // MIME 类型，如 "image/png"，仅本地上传时用
+    std::string value;
+    std::string content_type;
 };
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AssetRef, kind, value, content_type)
+inline void to_json(nlohmann::json& j, const AssetRef& v) {
+    j["kind"]         = to_string(v.kind);
+    j["value"]        = v.value;
+    j["content_type"] = v.content_type;
+}
+inline void from_json(const nlohmann::json& j, AssetRef& v) {
+    if (j.contains("kind"))         v.kind         = to_AssetKind(j.at("kind").get<std::string>());
+    if (j.contains("value"))        v.value        = j.at("value").get<std::string>();
+    if (j.contains("content_type")) v.content_type = j.value("content_type", "");
+}
 
 struct GenerationParams {
-    // 任务类型
     GenTaskCategory category = GenTaskCategory::TEXT_TO_3D;
     GenTaskSubType  sub_type = GenTaskSubType::TEXT_TO_MODEL;
 
-    // 文字输入
     std::optional<std::string> prompt;
     std::optional<std::string> negative_prompt;
     std::optional<std::string> style;
 
-    // 素材
     std::optional<AssetRef> image_file;
     std::optional<AssetRef> model_file;
 
-    // 生成控制
     std::optional<std::string> model_version;
     std::optional<int>         polygon_limit;
     std::optional<int>         texture_size;
 
-    // 预览渲染 [MPR]
     std::optional<std::string>              render_mode;
     std::optional<int>                      image_count;
     std::optional<std::vector<std::string>> camera_angles;
     std::optional<std::string>              preset_name;
 
-    // 重网格 [RMS]
-    std::optional<int>    target_poly_count;
-
-    // 格式转换 [CVT]
+    std::optional<int>         target_poly_count;
     std::optional<std::string> output_format;
 };
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GenerationParams,
-    category, sub_type,
-    prompt, negative_prompt, style,
-    image_file, model_file,
-    model_version, polygon_limit, texture_size,
-    render_mode, image_count, camera_angles, preset_name,
-    target_poly_count, output_format)
+inline void to_json(nlohmann::json& j, const GenerationParams& v) {
+    j["category"] = to_string(v.category);
+    j["sub_type"] = to_string(v.sub_type);
+    if (v.prompt)           j["prompt"]           = *v.prompt;
+    if (v.negative_prompt)  j["negative_prompt"]  = *v.negative_prompt;
+    if (v.style)            j["style"]            = *v.style;
+    if (v.image_file)       j["image_file"]       = *v.image_file;
+    if (v.model_file)       j["model_file"]       = *v.model_file;
+    if (v.model_version)    j["model_version"]    = *v.model_version;
+    if (v.polygon_limit)    j["polygon_limit"]    = *v.polygon_limit;
+    if (v.texture_size)     j["texture_size"]     = *v.texture_size;
+    if (v.render_mode)      j["render_mode"]      = *v.render_mode;
+    if (v.image_count)      j["image_count"]      = *v.image_count;
+    if (v.camera_angles)    j["camera_angles"]    = *v.camera_angles;
+    if (v.preset_name)      j["preset_name"]      = *v.preset_name;
+    if (v.target_poly_count) j["target_poly_count"] = *v.target_poly_count;
+    if (v.output_format)    j["output_format"]    = *v.output_format;
+}
+inline void from_json(const nlohmann::json& j, GenerationParams& v) {
+    v.category = to_GenTaskCategory(j.value("category", "text_to_3d"));
+    v.sub_type = to_GenTaskSubType(j.value("sub_type", "text_to_model"));
+    auto maybe = [&](const char* key, auto& opt) {
+        if (j.contains(key)) opt = j.at(key).get<typename std::remove_reference_t<decltype(opt)>::value_type>();
+    };
+    maybe("prompt",            v.prompt);
+    maybe("negative_prompt",   v.negative_prompt);
+    maybe("style",             v.style);
+    maybe("image_file",        v.image_file);
+    maybe("model_file",        v.model_file);
+    maybe("model_version",     v.model_version);
+    maybe("polygon_limit",     v.polygon_limit);
+    maybe("texture_size",      v.texture_size);
+    maybe("render_mode",       v.render_mode);
+    maybe("image_count",       v.image_count);
+    maybe("camera_angles",     v.camera_angles);
+    maybe("preset_name",       v.preset_name);
+    maybe("target_poly_count", v.target_poly_count);
+    maybe("output_format",     v.output_format);
+}
 
 struct GenTaskRequest {
-    std::string     task_id;        // 客户端生成的 UUID，全程追踪
-    std::string     engine_id;      // 引擎实例标识，如 "engine-sh-01"
-    std::string     user_account;   // 用户账号
+    std::string     task_id;
+    std::string     engine_id;
+    std::string     user_account;
     GenerationParams params;
 };
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GenTaskRequest, task_id, engine_id, user_account, params)
+inline void to_json(nlohmann::json& j, const GenTaskRequest& v) {
+    j["task_id"]      = v.task_id;
+    j["engine_id"]    = v.engine_id;
+    j["user_account"] = v.user_account;
+    j["params"]       = v.params;
+}
+inline void from_json(const nlohmann::json& j, GenTaskRequest& v) {
+    j.at("task_id").get_to(v.task_id);
+    j.at("engine_id").get_to(v.engine_id);
+    j.at("user_account").get_to(v.user_account);
+    j.at("params").get_to(v.params);
+}
 
 struct GenTaskResponse {
     std::string                task_id;
@@ -180,121 +320,115 @@ struct GenTaskResponse {
     int                        cost_credits = 0;
     int                        points_balance = 0;
 };
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GenTaskResponse,
-    task_id, triverse_task_uuid, status, progress,
-    result_url, preview_url, error_message,
-    cost_credits, points_balance)
+inline void to_json(nlohmann::json& j, const GenTaskResponse& v) {
+    j["task_id"]   = v.task_id;
+    j["status"]    = to_string(v.status);
+    j["progress"]  = v.progress;
+    if (v.triverse_task_uuid) j["triverse_task_uuid"] = *v.triverse_task_uuid;
+    if (v.result_url)         j["result_url"]         = *v.result_url;
+    if (v.preview_url)        j["preview_url"]        = *v.preview_url;
+    if (v.error_message)      j["error_message"]      = *v.error_message;
+    j["cost_credits"]   = v.cost_credits;
+    j["points_balance"] = v.points_balance;
+}
+inline void from_json(const nlohmann::json& j, GenTaskResponse& v) {
+    v.task_id   = j.value("task_id", "");
+    v.progress  = j.value("progress", 0);
+    v.status    = to_GenTaskStatus(j.value("status", "idle"));
+    if (j.contains("triverse_task_uuid")) v.triverse_task_uuid = j.at("triverse_task_uuid").get<std::string>();
+    if (j.contains("result_url"))         v.result_url         = j.at("result_url").get<std::string>();
+    if (j.contains("preview_url"))        v.preview_url        = j.at("preview_url").get<std::string>();
+    if (j.contains("error_message"))      v.error_message      = j.at("error_message").get<std::string>();
+    v.cost_credits   = j.value("cost_credits", 0);
+    v.points_balance = j.value("points_balance", 0);
+}
 
 // ========== GenJobInfo — job 文件顶层结构 ==========
 
 struct GenJobInfo {
-    // 任务标识
-    std::string task_uuid;        // 客户端 UUID (QUuid::createUuid())
-    std::string job_name;         // job 文件名 = blockName + "_" + timestamp
-    std::string engine_id;        // 本机 hostname
-    std::string user_account;     // 用户账号
+    std::string task_uuid;
+    std::string job_name;
+    std::string engine_id;
+    std::string user_account;
 
-    // 关联信息
-    std::string project_path;     // 项目路径 (Block.projectfile_)
-    std::string block_item;       // Block 名称 (Block.block_info_.blockName)
+    std::string project_path;
+    std::string block_item;
 
-    // 任务定义
     GenTaskCategory category = GenTaskCategory::TEXT_TO_3D;
     GenTaskSubType  sub_type = GenTaskSubType::TEXT_TO_MODEL;
     GenerationParams params;
 
-    // 状态追踪
     GenTaskStatus status = GenTaskStatus::IDLE;
-    std::string server_task_id;   // Triverse 返回后回填
-    std::string result_url;       // 下载链接 (完成后回填)
-    int query_retry_count = 0;     // 连续轮询失败计数
+    std::string server_task_id;
+    std::string result_url;
+    int query_retry_count = 0;
 
-    // 序列化 (只用 JSON)
-    bool save(const std::string& filePath) const;
-    static GenJobInfo load(const std::string& filePath);
+    // 保存/加载 (内联实现, 参照 JobInfo_s::WriteToJson 的模式, 无需 .cpp)
+    bool save(const std::string& filePath) const {
+        try {
+            nlohmann::json j = *this;
+            std::ofstream ofs = File::OpenOfstreamUtf8(filePath, std::ios::out);
+            if (!ofs.good()) return false;
+            ofs << j.dump(4);
+            ofs.close();
+            return true;
+        } catch (std::exception& ex) {
+            LOGE(std::string("GenJobInfo::save failed: ") + ex.what());
+            return false;
+        }
+    }
+
+    static GenJobInfo load(const std::string& filePath) {
+        std::ifstream ifs = File::OpenIfstreamUtf8(filePath, std::ios::in);
+        if (!ifs.is_open()) return {};
+        std::string str((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+        ifs.close();
+        if (str.empty()) return {};
+        try {
+            return nlohmann::json::parse(str).get<GenJobInfo>();
+        } catch (std::exception& ex) {
+            LOGE(std::string("GenJobInfo::load failed: ") + ex.what());
+            return {};
+        }
+    }
 };
 
-inline void to_json(nlohmann::json& j, const GenJobInfo& info) {
-    j = nlohmann::json{
-        {"task_uuid",    info.task_uuid},
-        {"job_name",     info.job_name},
-        {"engine_id",    info.engine_id},
-        {"user_account", info.user_account},
-        {"project_path", info.project_path},
-        {"block_item",   info.block_item},
-        {"category",     info.category},
-        {"sub_type",     info.sub_type},
-        {"params",       info.params},
-        {"status",       info.status},
-        {"server_task_id", info.server_task_id},
-        {"result_url",     info.result_url},
-        {"query_retry_count", info.query_retry_count},
-    };
+inline void to_json(nlohmann::json& j, const GenJobInfo& v) {
+    j["task_uuid"]    = v.task_uuid;
+    j["job_name"]     = v.job_name;
+    j["engine_id"]    = v.engine_id;
+    j["user_account"] = v.user_account;
+    j["project_path"] = v.project_path;
+    j["block_item"]   = v.block_item;
+    j["category"]     = to_string(v.category);
+    j["sub_type"]     = to_string(v.sub_type);
+    j["params"]       = v.params;
+    j["status"]       = to_string(v.status);
+    if (!v.server_task_id.empty()) j["server_task_id"] = v.server_task_id;
+    if (!v.result_url.empty())     j["result_url"]     = v.result_url;
+    j["query_retry_count"] = v.query_retry_count;
 }
 
-inline void from_json(const nlohmann::json& j, GenJobInfo& info) {
-    j.at("task_uuid").get_to(info.task_uuid);
-    j.at("job_name").get_to(info.job_name);
-    j.at("engine_id").get_to(info.engine_id);
-    j.at("user_account").get_to(info.user_account);
-    j.at("project_path").get_to(info.project_path);
-    j.at("block_item").get_to(info.block_item);
-    j.at("category").get_to(info.category);
-    j.at("sub_type").get_to(info.sub_type);
-    j.at("params").get_to(info.params);
-    j.at("status").get_to(info.status);
-    if (j.contains("server_task_id")) j.at("server_task_id").get_to(info.server_task_id);
-    if (j.contains("result_url"))     j.at("result_url").get_to(info.result_url);
-    if (j.contains("query_retry_count")) j.at("query_retry_count").get_to(info.query_retry_count);
-}
-
-} // namespace CORE
-} // namespace AI3D
-
-#endif // _AI3D_UTIL_GEN_TASK_DEF_H_
-```
-
-`GenJobInfo::save` / `GenJobInfo::load` 实现放到 `Src/Util/GenTaskDef.cpp`（也可以直接内联在 .h 中）：
-
-```cpp
-// Src/Util/GenTaskDef.cpp
-#include "Util/GenTaskDef.h"
-#include <fstream>
-#include <Core/File.h>
-
-namespace AI3D {
-namespace CORE {
-
-bool GenJobInfo::save(const std::string& filePath) const {
-    try {
-        nlohmann::json j = *this;
-        std::ofstream ofs = File::OpenOfstreamUtf8(filePath, std::ios::out);
-        if (!ofs.good()) return false;
-        ofs << j.dump(4);
-        ofs.close();
-        return true;
-    } catch (std::exception& ex) {
-        LOGE(std::string("GenJobInfo::save failed: ") + ex.what());
-        return false;
-    }
-}
-
-GenJobInfo GenJobInfo::load(const std::string& filePath) {
-    std::ifstream ifs = File::OpenIfstreamUtf8(filePath, std::ios::in);
-    if (!ifs.is_open()) return {};
-    std::string str((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-    ifs.close();
-    if (str.empty()) return {};
-    try {
-        return nlohmann::json::parse(str).get<GenJobInfo>();
-    } catch (std::exception& ex) {
-        LOGE(std::string("GenJobInfo::load failed: ") + ex.what());
-        return {};
-    }
+inline void from_json(const nlohmann::json& j, GenJobInfo& v) {
+    j.at("task_uuid").get_to(v.task_uuid);
+    j.at("job_name").get_to(v.job_name);
+    j.at("engine_id").get_to(v.engine_id);
+    j.at("user_account").get_to(v.user_account);
+    j.at("project_path").get_to(v.project_path);
+    j.at("block_item").get_to(v.block_item);
+    v.category = to_GenTaskCategory(j.at("category").get<std::string>());
+    v.sub_type = to_GenTaskSubType(j.at("sub_type").get<std::string>());
+    j.at("params").get_to(v.params);
+    v.status = to_GenTaskStatus(j.value("status", "idle"));
+    v.server_task_id    = j.value("server_task_id", "");
+    v.result_url        = j.value("result_url", "");
+    v.query_retry_count = j.value("query_retry_count", 0);
 }
 
 } // namespace CORE
 } // namespace AI3D
+
+#endif // _AI3D_UTIL_GEN_TASK_PROCESS_H_
 ```
 
 ### 1.2 修改 BlockObject — Task_Info 扩展
@@ -513,10 +647,38 @@ if (value.HasMember("points_balance") && value["points_balance"].IsInt())
 
 **BIN 相关（LoadFeedbackBin / WriteToBin）** — 不修改。生成式任务只用 JSON，BIN 路径仅服务于重建式任务，新字段保持默认值即可。
 
-### 1.5 编译验证
+### 1.5 编译验证与 CMake 修改
 
 - [ ] 头文件变更后全量编译通过
-- [ ] 确认无遗漏的序列化方法
+
+#### App/Engine/CMakeLists.txt — 增加 Util/ 下的 GenTaskProcess.h
+
+`App/Engine/CMakeLists.txt` 对 Engine 目录使用 `FILE(GLOB *.cpp *.h)` 自动拾取，但 `Include/Util/` 下的文件需要**显式添加**（模仿已有的 `TaskProcess.h` 模式）。
+
+找到 HEADER_LIST GLOB（约 line 28-37），在 `TaskProcess.h` 下方新增一行：
+
+```cmake
+FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/CatchProcess.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/Settings.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/TaskProcess.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/GenTaskProcess.h     # ← 新增
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/Statistic.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/JobMonitor.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/OTA.h
+)
+```
+
+> `GenHttpClient.h/cpp` 和 `GenTaskThread.h/cpp` 放在 `App/Engine/` 目录下，被 GLOB 自动拾取，**不需要**显式添加。
+
+#### Src/Core/CMakeLists.txt — 无需修改
+
+`GenTaskAPI.h` 在 `Include/Core/` 下，`GenTaskAPI.cpp` 在 `Src/Core/` 下，被 `FILE(GLOB)` 自动拾取。`Qt6::Network` 已链接。
+
+#### 不需要 GenTaskProcess.cpp
+
+`GenJobInfo::save/load` 内联在 `GenTaskProcess.h` 头文件中（参照 `JobInfo_s::WriteToJson` 的同款写法），不需要单独的 `.cpp` 文件，也无需修改 `Src/Util/` 下的 CMakeLists。
 
 ---
 
@@ -604,7 +766,7 @@ std::string genCancelledJobPath;
 #ifndef _AI3D_ENGINE_GEN_HTTP_CLIENT_H_
 #define _AI3D_ENGINE_GEN_HTTP_CLIENT_H_
 
-#include "Util/GenTaskDef.h"
+#include "Util/GenTaskProcess.h"
 #include <QString>
 
 namespace AI3D {
@@ -959,22 +1121,11 @@ std::string GenHttpClient::UploadFile(const std::string& local_path,
 }} // namespace AI3D::CORE
 ```
 
-### 3.2 修改 CMakeLists
+### 3.2 CMakeLists — 无需修改
 
-- [ ] `App/Engine/CMakeLists.txt`
+`GenHttpClient.h/cpp` 放在 `App/Engine/` 目录下，被现有 `FILE(GLOB *.cpp *.h)` 自动拾取。`Qt6::Network` 已在 `App/Engine/CMakeLists.txt` line 55 链接，无需额外添加。
 
-```cmake
-# 在现有 target_sources 中增加:
-target_sources(MoldAINode PRIVATE
-    GenHttpClient.cpp
-    GenTaskThread.cpp
-)
-
-# 在现有 target_link_libraries 中增加:
-target_link_libraries(MoldAINode PRIVATE
-    Qt6::Network
-)
-```
+> 参照: `App/Engine/CMakeLists.txt` line 40-43 的 `FILE(GLOB SRC_LIST ... "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")`，所有 `App/Engine/*.cpp` 自动编译。
 
 ### 3.3 手动验证
 
@@ -996,6 +1147,8 @@ target_link_libraries(MoldAINode PRIVATE
 #ifndef _AI3D_ENGINE_GEN_TASK_THREAD_H_
 #define _AI3D_ENGINE_GEN_TASK_THREAD_H_
 
+#include <string>
+
 namespace AI3D {
 namespace CORE {
 
@@ -1005,22 +1158,13 @@ public:
     // 线程入口 — 在独立 std::thread 中调用
     static void Run();
 
-    // 注册回调 (供 GenTaskAPI 设置)
-    using TaskCompleteCallback = std::function<void(const std::string& task_uuid,
-                                                     const std::string& result_url)>;
-    using TaskFailedCallback   = std::function<void(const std::string& task_uuid,
-                                                     const std::string& error)>;
-
-    static void SetTaskCompleteCallback(TaskCompleteCallback cb);
-    static void SetTaskFailedCallback(TaskFailedCallback cb);
+    // 取消任务 (需要在 App/Engine 层, 因为依赖 GenHttpClient)
+    static bool CancelGenTask(const std::string& task_uuid);
 
 private:
     static void ProcessPendingJobs();
     static void ProcessRunningJobs();
     static void SleepMs(int ms);
-
-    static TaskCompleteCallback s_completeCallback;
-    static TaskFailedCallback   s_failedCallback;
 };
 
 }} // namespace AI3D::CORE
@@ -1034,7 +1178,8 @@ private:
 // App/Engine/GenTaskThread.cpp
 #include "GenTaskThread.h"
 #include "GenHttpClient.h"
-#include "Util/GenTaskDef.h"
+#include "Core/GenTaskAPI.h"       // ← 回调触发: GenTaskAPI::TriggerTaskComplete
+#include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
 #include "Util/Settings.h"
 #include "Core/Types.h"
@@ -1047,7 +1192,7 @@ private:
 #include <thread>
 #include <chrono>
 
-// extern from CallEngine.cpp (MakePath 中赋值的全局变量)
+// extern from CallEngine.cpp
 extern std::string genPendingJobPath;
 extern std::string genRunningJobPath;
 extern std::string genCompletedJobPath;
@@ -1058,16 +1203,6 @@ namespace AI3D {
 namespace CORE {
 
 using namespace AI3D::CORE;
-
-GenTaskThread::TaskCompleteCallback GenTaskThread::s_completeCallback = nullptr;
-GenTaskThread::TaskFailedCallback   GenTaskThread::s_failedCallback   = nullptr;
-
-void GenTaskThread::SetTaskCompleteCallback(TaskCompleteCallback cb) {
-    s_completeCallback = std::move(cb);
-}
-void GenTaskThread::SetTaskFailedCallback(TaskFailedCallback cb) {
-    s_failedCallback = std::move(cb);
-}
 
 // ========== 工具函数 ==========
 
@@ -1284,8 +1419,7 @@ void GenTaskThread::ProcessRunningJobs()
                 job.status = GenTaskStatus::FAILED;
                 UpdateFeedback(job);
                 MoveFile(filePathStr, genFailedJobPath);
-                if (s_failedCallback) {
-                    s_failedCallback(job.task_uuid, "连续 5 次轮询超时");
+                GenTaskAPI::TriggerTaskFailed(job.task_uuid, "连续 5 次轮询超时");
                 }
             } else {
                 job.save(filePathStr);  // 仅更新计数
@@ -1308,9 +1442,7 @@ void GenTaskThread::ProcessRunningJobs()
             UpdateFeedback(job);
             MoveFile(filePathStr, genCompletedJobPath);
             LOGI("Completed: " + job.task_uuid);
-            if (s_completeCallback) {
-                s_completeCallback(job.task_uuid, job.result_url);
-            }
+            GenTaskAPI::TriggerTaskComplete(job.task_uuid, job.result_url);
             break;
         }
 
@@ -1320,10 +1452,8 @@ void GenTaskThread::ProcessRunningJobs()
             UpdateFeedback(job);
             MoveFile(filePathStr, genFailedJobPath);
             LOGE("Failed: " + job.task_uuid);
-            if (s_failedCallback) {
-                s_failedCallback(job.task_uuid,
-                    resp.error_message.value_or("server returned failed"));
-            }
+            GenTaskAPI::TriggerTaskFailed(job.task_uuid,
+                resp.error_message.value_or("server returned failed"));
             break;
         }
 
@@ -1351,31 +1481,28 @@ void GenTaskThread::SleepMs(int ms) {
 }} // namespace AI3D::CORE
 ```
 
-### 4.4 启动线程
+### 4.4 启动线程 + CMakeLists
 
-- [ ] `App/Engine/CallEngine.cpp` `main()` — 在 `MakePath()` 调用之后、现有 `searchPendingJob1` 启动之前增加：
+- [ ] `App/Engine/CallEngine.cpp` `main()` — 在 `MakePath()` 调用之后增加：
 
 ```cpp
 // ===== 新增: 初始化 HTTP 客户端 =====
 std::string configpath = apppath + "/" + "MoldAIConfig.ini";
 GenHttpClient::Init(configpath);
 
-// ===== 新增: 声明全局变量 (extern) =====
-// genPendingJobPath, genRunningJobPath 等在 MakePath() 中已赋值
-
 // ===== 新增: 生成式任务线程 =====
 std::thread genTaskThread(GenTaskThread::Run);
 genTaskThread.detach();
 ```
 
-同时需要在 `CallEngine.cpp` 顶部 include：
+同时在 `CallEngine.cpp` 顶部 include：
 
 ```cpp
 #include "GenHttpClient.h"
 #include "GenTaskThread.h"
 ```
 
-- [ ] `App/Engine/CMakeLists.txt`：增加 `GenTaskThread.cpp` + `GenHttpClient.cpp` + `GenTaskDef.cpp`
+- [ ] **CMakeLists**: `GenTaskThread.h/cpp` + `GenHttpClient.h/cpp` 均在 `App/Engine/` 下，被 `FILE(GLOB)` 自动拾取，**无需修改 CMakeLists**。
 
 ### 4.5 并行验证
 
@@ -1397,7 +1524,7 @@ genTaskThread.detach();
 #ifndef _AI3D_CORE_GEN_TASK_API_H_
 #define _AI3D_CORE_GEN_TASK_API_H_
 
-#include "Util/GenTaskDef.h"
+#include "Util/GenTaskProcess.h"
 #include <string>
 #include <functional>
 
@@ -1429,25 +1556,19 @@ public:
         int           cost_credits = 0;
     };
 
-    // ========== 核心接口 ==========
+    // ========== 核心接口 (前端 SDK, 编译进 MoldAIData.dll) ==========
 
-    // 提交生成式任务 — 写入 jobs_gen/Pending/ 并创建 feedback
     static SubmitResult SubmitGenTask(
         const AI3D::CORE::BlockObject::Task_Info& blockInfo,
         const GenerationParams& params,
         const std::string& user_account);
 
-    // 查询任务状态 — 读取 feedback 文件
     static TaskStatusResult QueryTaskStatus(const std::string& task_uuid);
 
-    // 下载结果到本地
     static bool DownloadResult(const std::string& task_uuid,
                                 const std::string& save_path);
 
-    // 取消任务
-    static bool CancelGenTask(const std::string& task_uuid);
-
-    // ========== 回调 (在 generateThread 线程中调用) ==========
+    // ========== 回调 — 前端注册, GenTaskThread 触发 ==========
 
     using TaskCompleteCallback = std::function<void(
         const std::string& task_uuid,
@@ -1460,13 +1581,19 @@ public:
     static void SetTaskCompleteCallback(TaskCompleteCallback cb);
     static void SetTaskFailedCallback(TaskFailedCallback cb);
 
-private:
-    // 通过 task_uuid 查找 feedback 文件路径
-    // 遍历 project_path 下的 Block 目录, 查找 JF_<job_name>.json
-    static std::string FindFeedbackPath(const std::string& task_uuid);
+    // 由 GenTaskThread 调用 (不依赖 App/Engine, 单向依赖)
+    static void TriggerTaskComplete(const std::string& task_uuid,
+                                     const std::string& result_url);
+    static void TriggerTaskFailed(const std::string& task_uuid,
+                                   const std::string& error);
 
-    // 通过 feedback 文件找到 job 文件中的 server_task_id
+private:
+    static std::string FindFeedbackPath(const std::string& task_uuid);
     static std::string FindServerTaskId(const std::string& task_uuid);
+
+    // 回调存储 (文件级静态变量, 在 GenTaskAPI.cpp 中定义)
+    static TaskCompleteCallback s_completeCallback;
+    static TaskFailedCallback   s_failedCallback;
 };
 
 }} // namespace AI3D::CORE
@@ -1478,23 +1605,56 @@ private:
 
 ```cpp
 // Src/Core/GenTaskAPI.cpp
+// 编译进 MoldAIData.dll, 不依赖 App/Engine/ 下的任何文件
 #include "Core/GenTaskAPI.h"
 #include "Core/BlockObject.h"
-#include "Util/GenTaskDef.h"
+#include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
 #include "Util/Settings.h"
-#include "Util/JobMonitor.h"
-#include "Engine/GenTaskThread.h"
-#include "Engine/GenHttpClient.h"
+#include "Core/json.h"
 #include <QUuid>
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QHostInfo>
 #include <QDateTime>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QEventLoop>
+#include <QTimer>
 #include <fstream>
 
 namespace AI3D {
 namespace CORE {
+
+// 回调存储
+GenTaskAPI::TaskCompleteCallback GenTaskAPI::s_completeCallback = nullptr;
+GenTaskAPI::TaskFailedCallback   GenTaskAPI::s_failedCallback   = nullptr;
+
+// ========== 回调注册 (前端调用) ==========
+
+void GenTaskAPI::SetTaskCompleteCallback(TaskCompleteCallback cb) {
+    s_completeCallback = std::move(cb);
+}
+void GenTaskAPI::SetTaskFailedCallback(TaskFailedCallback cb) {
+    s_failedCallback = std::move(cb);
+}
+
+// ========== 回调触发 (GenTaskThread 调用) ==========
+
+void GenTaskAPI::TriggerTaskComplete(const std::string& task_uuid,
+                                      const std::string& result_url) {
+    if (s_completeCallback) {
+        s_completeCallback(task_uuid, result_url);
+    }
+}
+void GenTaskAPI::TriggerTaskFailed(const std::string& task_uuid,
+                                    const std::string& error) {
+    if (s_failedCallback) {
+        s_failedCallback(task_uuid, error);
+    }
+}
 
 // ========== SubmitGenTask ==========
 
@@ -1653,27 +1813,6 @@ bool GenTaskAPI::DownloadResult(const std::string& task_uuid,
     return true;
 }
 
-// ========== CancelGenTask ==========
-
-bool GenTaskAPI::CancelGenTask(const std::string& task_uuid)
-{
-    std::string serverTaskId = FindServerTaskId(task_uuid);
-    if (serverTaskId.empty()) {
-        LOGE("CancelGenTask: cannot find server_task_id for " + task_uuid);
-        return false;
-    }
-    return GenHttpClient::CancelTask(serverTaskId);
-}
-
-// ========== 回调 ==========
-
-void GenTaskAPI::SetTaskCompleteCallback(TaskCompleteCallback cb) {
-    GenTaskThread::SetTaskCompleteCallback(std::move(cb));
-}
-void GenTaskAPI::SetTaskFailedCallback(TaskFailedCallback cb) {
-    GenTaskThread::SetTaskFailedCallback(std::move(cb));
-}
-
 // ========== 内部辅助 ==========
 
 std::string GenTaskAPI::FindFeedbackPath(const std::string& task_uuid)
@@ -1724,32 +1863,49 @@ std::string GenTaskAPI::FindServerTaskId(const std::string& task_uuid)
 }} // namespace AI3D::CORE
 ```
 
-### 5.3 线程安全说明
+### 5.3 GenTaskAPI 与 GenTaskThread 的调用关系
 
-回调在 `generateThread`（非 Qt 主线程）中执行。调用者如需更新 UI，需自行处理线程切换：
+`GenTaskAPI.cpp` 在 `Src/Core/` 下，编译进 **MoldAIData.dll**。它不能反向依赖 `App/Engine/` 下的 `GenHttpClient` / `GenTaskThread`。
+
+因此回调采用 **GenTaskAPI 存储 → GenTaskThread 调用** 的单向依赖：
+
+```
+GenTaskThread (App/Engine, MoldAINode.exe)
+    │  #include "Core/GenTaskAPI.h"   ← GenTaskThread 可以看到 GenTaskAPI
+    │  任务完成时调用:
+    │    GenTaskAPI::TriggerTaskComplete(task_uuid, result_url)
+    │    GenTaskAPI::TriggerTaskFailed(task_uuid, error)
+    ▼
+GenTaskAPI (Src/Core, MoldAIData.dll)
+    │  存储回调指针 (静态变量)
+    │  TriggerTaskComplete() 内部调用已注册的回调
+    ▼
+前端 (GUI 进程)
+    │  SetTaskCompleteCallback(cb) 注册回调
+```
+
+`CancelGenTask` 也需要 `GenHttpClient`，实现放在 `GenTaskThread` 中（或前期不实现，由前端直接操作文件取消）：
 
 ```cpp
-// 前端使用示例:
+// GenTaskThread 中额外提供:
+static bool CancelGenTask(const std::string& task_uuid);
+```
+
+### 5.4 线程安全
+
+回调在 `generateThread`（非 Qt 主线程）中执行。调用者如需更新 UI，自行处理：
+
+```cpp
 GenTaskAPI::SetTaskCompleteCallback([](const std::string& task_uuid, const std::string& url) {
-    // 此回调在 generateThread 线程中执行!
-    // 如需更新 UI, 使用:
     QMetaObject::invokeMethod(qApp, [=]() {
-        // UI 更新代码...
+        // UI 更新...
     }, Qt::QueuedConnection);
 });
 ```
 
-### 5.4 编译配置
+### 5.5 CMakeLists — 无需修改
 
-- [ ] `Src/Core/CMakeLists.txt`：增加 `GenTaskAPI.cpp`
-
-```cmake
-target_sources(MoldAIData PRIVATE
-    GenTaskAPI.cpp
-)
-```
-
-> **注意**: `GenTaskAPI.cpp` 引用了 `GenHttpClient` 和 `GenTaskThread`（App/Engine/ 下的文件）。如果 `MoldAIData.dll` 不应依赖 Engine 层，可以把 `GenTaskAPI.cpp` 放到 `App/Engine/` 目录下，或把回调设置函数拆分到 Engine 侧。
+`GenTaskAPI.h` 在 `Include/Core/` 下，`GenTaskAPI.cpp` 在 `Src/Core/` 下，被 `FILE(GLOB)` 自动拾取。`Qt6::Network` 已在 `Src/Core/CMakeLists.txt` line 56 链接。
 
 ---
 
@@ -2085,31 +2241,31 @@ MaxRetries=3
 
 ## 文件改动汇总
 
-### 新建（7 个）
+### 新建（6 个，无需修改 CMakeLists 即可自动编译）
 
-| 文件 | Phase |
-|------|-------|
-| `Include/Util/GenTaskDef.h` | P1 |
-| `App/Engine/GenHttpClient.h` | P3 |
-| `App/Engine/GenHttpClient.cpp` | P3 |
-| `App/Engine/GenTaskThread.h` | P4 |
-| `App/Engine/GenTaskThread.cpp` | P4 |
-| `Include/Core/GenTaskAPI.h` | P5 |
-| `Src/Core/GenTaskAPI.cpp` | P5 |
+| 文件 | 位置 | CMake | 说明 |
+|------|------|-------|------|
+| `Include/Util/GenTaskProcess.h` | Util/ | 需显式添加 | 对标 TaskProcess.h，`GenJobInfo` + 枚举 + API 类型 |
+| `App/Engine/GenHttpClient.h` | Engine/ | GLOB 自动拾取 | 同步 HTTP 客户端 |
+| `App/Engine/GenHttpClient.cpp` | Engine/ | GLOB 自动拾取 | |
+| `App/Engine/GenTaskThread.h` | Engine/ | GLOB 自动拾取 | generateThread 调度线程 |
+| `App/Engine/GenTaskThread.cpp` | Engine/ | GLOB 自动拾取 | |
+| `Include/Core/GenTaskAPI.h` | Core/ | GLOB 自动拾取 | 前端 SDK 接口 |
+| `Src/Core/GenTaskAPI.cpp` | Core/ | GLOB 自动拾取 | 编译进 MoldAIData.dll |
 
-### 修改（7 个）
+### 修改（6 个）
 
-| 文件 | Phase | 风险 |
+| 文件 | Phase | 改动 |
 |------|-------|------|
-| `Include/Core/BlockObject.h` | P1 | 低 |
-| `Include/Core/BlockObject.cpp` | P1 | 低 |
-| `Include/Util/TaskProcess.h` | P1 | 中 — 序列化方法多 |
-| `Include/Util/Settings.h` | P2 | 低 |
-| `Src/Util/Settings.cpp` | P2 | 低 |
-| `App/Engine/CallEngine.cpp` | P2+P4 | 低 |
-| `App/Engine/CMakeLists.txt` | P3+P4 | 低 |
-| `Src/Core/CMakeLists.txt` | P5 | 低 |
+| `Include/Core/BlockObject.h` | P1 | `Task_Info` 增加 `block_task_category` |
+| `Include/Core/BlockObject.cpp` | P1 | 4 个序列化方法增加新字段 |
+| `Include/Core/BlockInfo.h` | P1 | `BlockFile` 增加 `block_task_category` (BIN 格式) |
+| `Include/Util/TaskProcess.h` | P1 | `JobInfo_s` + `JobFeedBack_s` 增加新字段; 更新 10+ 序列化方法 |
+| `Include/Util/Settings.h` | P2 | 增加 `getGenEngineJobQueue()` |
+| `Src/Util/Settings.cpp` | P2 | 实现 `getGenEngineJobQueue()` |
+| `App/Engine/CallEngine.cpp` | P2+P4 | MakePath 创建 jobs_gen/ 目录; main 启动 generateThread |
+| `App/Engine/CMakeLists.txt` | P1 | HEADER_LIST 显式添加 `GenTaskProcess.h` (唯一需改的 CMakeLists) |
 
-### 不动（5 个）
+### 不动
 
-`TaskGraph_s`、`Task_s`、`ATTaskInfo`、`ExecTaskFileV2`、`GetPendingJob` — 全部不动。
+`TaskGraph_s`、`Task_s`、`ATTaskInfo`、`ExecTaskFileV2`、`GetPendingJob`、`Src/Core/CMakeLists.txt` — 全部不动。

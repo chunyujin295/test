@@ -363,8 +363,8 @@ public:
     };
 
     // 同步请求 (在 generateThread 中调用)
-    // submitTask 接受 GenTaskRequest (来自 GenTaskDef.h)
-    // 返回 GenTaskResponse (来自 GenTaskDef.h)
+    // submitTask 接受 GenTaskRequest (来自 GenTaskProcess.h)
+    // 返回 GenTaskResponse (来自 GenTaskProcess.h)
     GenTaskResponse submitTask(const GenTaskRequest& req, int timeout_ms = 5000);
     GenTaskResponse queryStatus(const std::string& server_task_id, int timeout_ms = 2000);
     PointsResult    queryPoints(const std::string& user_account, int timeout_ms = 2000);
@@ -737,7 +737,7 @@ if (result.status == "completed") {
 
 | 文件 | 说明 |
 |------|------|
-| `Include/Util/GenTaskDef.h` | 生成式任务数据结构 (GenTaskCategory, GenerationParams, GenTaskRequest, GenTaskResponse, GenJobInfo 等) |
+| `Include/Util/GenTaskProcess.h` | 生成式任务数据结构 (GenTaskCategory, GenerationParams, GenTaskRequest, GenTaskResponse, GenJobInfo 等) |
 | `App/Engine/GenHttpClient.h` | HTTP 客户端封装 |
 | `App/Engine/GenHttpClient.cpp` | HTTP 客户端实现 |
 | `App/Engine/GenTaskThread.h` | generateThread 线程逻辑 |
@@ -769,7 +769,7 @@ if (result.status == "completed") {
 
 ```
 Phase 1: 基础设施
-  1.1 GenTaskDef.h — 数据结构定义
+  1.1 GenTaskProcess.h — 数据结构定义
   1.2 Settings — 从现有 engine 路径推导 jobs_gen
   1.3 main() — jobs_gen 目录创建
 
