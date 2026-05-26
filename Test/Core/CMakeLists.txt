@@ -1,0 +1,21 @@
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testTimer)
+	add_subdirectory(testTimer)
+endif()
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testAI3DProject)
+	add_subdirectory(testAI3DProject)
+endif()
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testAI3DGCPsrs)
+	add_subdirectory(testAI3DGCPsrs)
+endif()
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testAI3DImportGcp)
+	add_subdirectory(testAI3DImportGcp)
+endif()
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testAI3DGCP)
+	add_subdirectory(testAI3DGCP)
+endif()
+if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testPreview)
+	add_subdirectory(testPreview)
+endif()
+
+
+

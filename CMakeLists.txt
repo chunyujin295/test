@@ -1,0 +1,140 @@
+cmake_minimum_required(VERSION 2.8)
+#cmake_minimum_required(VERSION 3.10)
+set(PROJECT_NAME MoldAI)
+
+# Qt 6.10+ official msvc2022_64 kits expect a recent VS2022 MSVC (v143, ~VS 17.14+). Using the older v142
+# toolset (VS2019) can trigger C2065 'result' in QtCore/qtmochelpers.h (MSVC constexpr / moc codegen).
+# - Default: do not pin a toolset (VS picks v143 when installed) — compatible with Qt 6.10.
+# - MSB8020 without v143: install "MSVC v143" in VS Installer, or set -DAI3D_FORCE_MSVC_TOOLSET_V142=ON (may break Qt 6.10).
+option(AI3D_FORCE_MSVC_TOOLSET_V142 "Pin MSVC platform toolset to v142 (VS2019); incompatible with Qt 6.10 msvc2022_64 on some setups" OFF)
+if(AI3D_FORCE_MSVC_TOOLSET_V142 AND NOT CMAKE_GENERATOR_TOOLSET)
+  set(CMAKE_GENERATOR_TOOLSET "v142" CACHE STRING "MSVC platform toolset (v142=VS2019, v143=VS2022)" FORCE)
+endif()
+
+project(${PROJECT_NAME})
+
+if(MSVC)
+	add_compile_options(/utf-8)
+endif()
+
+# MSVC: UTF-8 source + execution charsets via /utf-8 above (replaces former /source-charset:utf-8 + /execution-charset:gbk in subdirs).
+
+# C++17: std::filesystem::u8path + path-aware fstreams for UTF-8 paths (see Core/File.cpp).
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(USE_PROJ ON)
+
+set(AI3D_DIR           ${PROJECT_SOURCE_DIR}/)
+set(AI3D_DATA_DIR      ${AI3D_DIR}data)
+
+set(AI3D_TEST_DIR      ${AI3D_DIR}/Test)
+
+set(AI3D_MODULES_DIR      ${AI3D_DIR}/Modules)
+
+set(AI3D_THIRDPARTY_DIR ${AI3D_DIR}/Externals)
+set(AI3D_TEST_TARGETDIR ${PROJECT_NAME})
+
+
+set(AI3D_BUILD_DIR  ${AI3D_DIR}CMakeModules) 
+set(CMAKE_MODULE_PATH	${CMAKE_MODULE_PATH}    ${AI3D_BUILD_DIR}/CMake)
+ #开启的话用咱们的，也就是proj.db的路线
+ OPTION(INCLUDE_PROJ  "INCLUDE PROJ" ON)
+ 
+if(INCLUDE_PROJ)
+
+	ADD_DEFINITIONS("-DUSE_AI3D_PROJ")
+endif(INCLUDE_PROJ)
+
+#ADD_DEFINITIONS("-DWIN32_LEAN_AND_MEAN")
+OPTION(USE_QT  "ENABLE QT" ON)
+
+set(USE_OPENGL ON)
+#set(USE_OPENMP ON)
+OPTION(USE_OPENMP "ENABLE OPENMP" ON)								 
+include(Prequisite)  
+include(CMakeExternalLibs)
+include(CMakePushCheckState) 
+include(CheckCXXCompilerFlag) 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include	)
+
+
+message("c_CMAKE_BINARY_DIR:          " ${CMAKE_BINARY_DIR} )
+message("c_CMAKE_CURRENT_SOURCE_DIR:  " ${CMAKE_CURRENT_SOURCE_DIR} )
+message("c_CMAKE_SOURCE_DIR:          " ${CMAKE_SOURCE_DIR} )
+
+
+AI3D_USING_EIGEN()
+AI3D_USING_GFLAGS()
+AI3D_USING_GLOG()
+AI3D_USING_PROJ()
+AI3D_USING_FREEIMAGE()
+AI3D_USING_SQLITE()
+AI3D_USING_EXIV2()
+AI3D_USING_BOOST()
+AI3D_USING_EXPAT()
+AI3D_USING_GDAL()
+AI3D_USING_GEOGRAPHICLIB()
+AI3D_USING_RAPIDJSON()
+AI3D_USING_PUGIXML()
+AI3D_USING_OPENSSL()
+AI3D_USING_OPENCV()
+AI3D_USING_ICONV()
+AI3D_USING_FREEXL()
+AI3D_USING_XLNT()
+AI3D_USING_KML()
+AI3D_USING_GEOS()
+
+set(EXTER_DEPENDS_LIBS 
+		${AI3D_GLOG_LIB} 
+		${AI3D_KML_LIB} 
+		${AI3D_GDAL_LIB}
+		${AI3D_SQLITE_LIB}
+		${AI3D_GFLAGS_LIB}  
+		${AI3D_OPENCV_LIB}
+		${AI3D_FREEIMAGE_LIB} 
+		${AI3D_BOOST_LIB} 
+		${AI3D_EXIV2_LIB}
+		${AI3D_EXPAT_LIB}
+		${AI3D_PROJ_LIB}
+		${AI3D_GEOGRAPHICLIB_LIB}
+		${AI3D_OPENSSL_LIB}
+		${AI3D_PUGIXML_LIB}
+		${AI3D_ICONV_LIB}
+		${AI3D_FREEXL_LIB}
+		${AI3D_XLNT_LIB}
+		${AI3D_GEOS_LIB}
+		)
+if(USE_PROJ )
+else(USE_PROJ)
+	set(EXTER_DEPENDS_LIBS ${EXTER_DEPENDS_LIBS} ${AI3D_GDAL_LIB})
+endif()
+
+OPTION(USE_TEST "ENABLE TEST" ON)
+
+IF(USE_TEST)
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Test)
+
+	add_subdirectory(Test)  
+endif()
+ENDIF(USE_TEST)
+OPTION(USE_WIN_DEBUG "ENABLE WINDEBUG" ON)
+if(USE_WIN_DEBUG)
+	ADD_DEFINITIONS(-DUSE_WIN_DEBUG)
+endif()
+ADD_DEFINITIONS(-DHAVE_GEOS)
+
+OPTION(USE_POS_DEBUG "ENABLE POS DEBUG " OFF)
+if(USE_POS_DEBUG)
+	ADD_DEFINITIONS(-DUSE_POS_DEBUG)
+endif()
+
+OPTION(USE_OSGVIEWER  "ENABLE OSGVIEWER " OFF)
+if(USE_OSGVIEWER)
+	ADD_DEFINITIONS(-DUSE_OSGVIEWER)
+endif()
+add_subdirectory(Src)  
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/App)
+add_subdirectory(App)  
+endif()

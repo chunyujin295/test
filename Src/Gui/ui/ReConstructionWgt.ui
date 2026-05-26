@@ -1,0 +1,1563 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CReConstructionWgt</class>
+ <widget class="QWidget" name="CReConstructionWgt">
+  <property name="enabled">
+   <bool>true</bool>
+  </property>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1243</width>
+    <height>1462</height>
+   </rect>
+  </property>
+  <property name="focusPolicy">
+   <enum>Qt::ClickFocus</enum>
+  </property>
+  <property name="windowTitle">
+   <string>CBlockWgt</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">font: 14px &quot;Arial&quot;;
+color: rgb(255, 255, 255);
+background-color: #222222;
+
+
+
+
+</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_15">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>2</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <property name="horizontalSpacing">
+    <number>0</number>
+   </property>
+   <property name="verticalSpacing">
+    <number>2</number>
+   </property>
+   <item row="1" column="0">
+    <widget class="QWidget" name="widget_2" native="true">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>65</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>65</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">border: 2px solid #222222;
+border-left:none;
+background-color: #3C3D3F;
+</string>
+     </property>
+     <widget class="QFrame" name="frame">
+      <property name="geometry">
+       <rect>
+        <x>5</x>
+        <y>5</y>
+        <width>115</width>
+        <height>55</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>113</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:1px solid;
+border-color: #A5A5A5;
+background-color: #222222;</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_8" rowstretch="10,30">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>1</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>5</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <spacer name="horizontalSpacer_2">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>13</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_addsig">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">
+QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Import_photo_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Import_photo_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Import_photo_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Import_photo_no1x.png);
+}
+
+
+
+
+</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>36</width>
+             <height>36</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_adddir">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Import_directory_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Import_directory_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Import_directory_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Import_directory_no1x.png);
+}
+
+
+
+
+</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_push_removePgtable">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Remove_selected_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_selected_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_selected_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_selected_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_3">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>18</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_Pho">
+         <property name="minimumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="font">
+          <font>
+           <family>Arial</family>
+           <pointsize>-1</pointsize>
+           <weight>50</weight>
+           <italic>false</italic>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;
+color: rgb(165, 165, 165);
+background-color:#3C3D3F;
+border:0px solid;
+
+</string>
+         </property>
+         <property name="text">
+          <string>Photos</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QFrame" name="frame_2">
+      <property name="geometry">
+       <rect>
+        <x>126</x>
+        <y>5</y>
+        <width>78</width>
+        <height>55</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>78</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>78</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:1px solid;
+border-color: #A5A5A5;
+background-color: #222222;</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_7" rowstretch="10,0">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>1</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>5</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="1,1">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="btn_addpos">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Add_POS_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Add_POS_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Add_POS_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Add_POS_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_delpos">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Remove_POS_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_POS_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_POS_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Remove_POS_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_Pos">
+         <property name="minimumSize">
+          <size>
+           <width>76</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;
+color: rgb(165, 165, 165);
+background-color:#3C3D3F;
+border:0px solid;</string>
+         </property>
+         <property name="text">
+          <string>POS</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QFrame" name="frame_4">
+      <property name="geometry">
+       <rect>
+        <x>210</x>
+        <y>5</y>
+        <width>115</width>
+        <height>55</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:1px solid;
+border-color: #A5A5A5;
+background-color:#222222;</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_9" rowstretch="10,0">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>1</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_5">
+         <property name="minimumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;
+color: rgb(165, 165, 165);
+background-color:#3C3D3F;
+border:0px solid;</string>
+         </property>
+         <property name="text">
+          <string>GCP</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_10" stretch="0,1,1">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="btn_Siggcp">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Sig_GCP1x_nor.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Sig_GCP1x_hor.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Sig_GCP1x_pressed.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Sig_GCP1x_no.png);
+}
+
+</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_addgcp">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Import_GCP_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Import_GCP_hon1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Import_GCP_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Import_GCP_no1x.png);
+}
+
+</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_delgcp">
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Import_RGCP_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Import_RGCP_hon1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Import_RGCP_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Import_RGCP_no1x.png);
+}
+
+</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QFrame" name="frame_3">
+      <property name="geometry">
+       <rect>
+        <x>331</x>
+        <y>5</y>
+        <width>115</width>
+        <height>55</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:1px solid;
+border-color: #A5A5A5;
+background-color:#222222;</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_6" rowstretch="10,30">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>1</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>5</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_AT_2">
+         <property name="minimumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;
+color: rgb(165, 165, 165);
+background-color:#3C3D3F;
+border:0px solid;</string>
+         </property>
+         <property name="text">
+          <string>AT</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_5">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <spacer name="horizontalSpacer_6">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_at">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/SubmitAT_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/SubmitAT_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/SubmitAT_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/SubmitAT_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_paus">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	image: url(:/new/button/skinbutton/CancelAT_nor1x.png);
+	border:0px solid;
+}
+QPushButton:hover
+{
+	image: url(:/new/button/skinbutton/CancelAT_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	image: url(:/new/button/skinbutton/CancelAT_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	image: url(:/new/button/skinbutton/CancelAT_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_rec">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>36</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/ResubmitAT_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_7">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QFrame" name="frame_5">
+      <property name="geometry">
+       <rect>
+        <x>451</x>
+        <y>5</y>
+        <width>115</width>
+        <height>55</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>115</width>
+        <height>55</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:1px solid;
+border-color: #A5A5A5;
+background-color:#222222;</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_11" rowstretch="10,30">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>1</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>5</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_AT_3">
+         <property name="minimumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>113</width>
+           <height>17</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;
+color: rgb(165, 165, 165);
+background-color:#3C3D3F;
+border:0px solid;</string>
+         </property>
+         <property name="text">
+          <string>Reconstruction</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_11">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <spacer name="horizontalSpacer_9">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_submit_rec">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/Reconstruction3D_norlight1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/Reconstruction3D_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/Reconstruction3D_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/Reconstruction3D_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_cancle_recon">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	image: url(:/new/button/skinbutton/CancelAT_nor1x.png);
+	border:0px solid;
+}
+QPushButton:hover
+{
+	image: url(:/new/button/skinbutton/CancelAT_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	image: url(:/new/button/skinbutton/CancelAT_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	image: url(:/new/button/skinbutton/CancelAT_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_resubmit_recon">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>36</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton
+{
+	border-image: url(:/new/button/skinbutton/ResubmitAT_nor1x.png);
+}
+QPushButton:hover
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_honor1x.png);
+}
+QPushButton:pressed
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_press1x.png);
+}
+
+QPushButton:disabled 
+{
+
+	border-image: url(:/new/button/skinbutton/ResubmitAT_no1x.png);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_11">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item row="0" column="0">
+    <widget class="QWidget" name="widget_3" native="true">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>25</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>25</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">background-color: #3C3D3F;</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_14">
+      <property name="leftMargin">
+       <number>4</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item row="0" column="0">
+       <layout class="QGridLayout" name="gridLayout_10" columnstretch="1">
+        <item row="0" column="0">
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <property name="spacing">
+           <number>2</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="label_AddData">
+            <property name="enabled">
+             <bool>true</bool>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <family>Arial</family>
+              <pointsize>-1</pointsize>
+              <weight>50</weight>
+              <italic>false</italic>
+              <bold>false</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QLabel
+{
+	image: url(:/new/prefix1/skin/adddatapho.png);
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+}
+
+QLabel:disabled
+{
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+	image: url(:/new/prefix1/skin/adddatapho_no.png);
+}
+</string>
+            </property>
+            <property name="text">
+             <string>1.Add data</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_AT">
+            <property name="enabled">
+             <bool>true</bool>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QLabel
+{
+	image: url(:/new/prefix1/skin/adddatapho.png);
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+}
+
+QLabel:disabled
+{
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+	image: url(:/new/prefix1/skin/adddatapho_no.png);
+}
+
+</string>
+            </property>
+            <property name="text">
+             <string>2.AT</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_Reconstruction">
+            <property name="minimumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QLabel
+{
+	image: url(:/new/prefix1/skin/adddatapho.png);
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+}
+
+QLabel:disabled
+{
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+	image: url(:/new/prefix1/skin/adddatapho_no.png);
+}</string>
+            </property>
+            <property name="text">
+             <string>3.Reconstruction</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_Production">
+            <property name="minimumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>120</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QLabel
+{
+	image: url(:/new/prefix1/skin/adddatapho.png);
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+}
+
+QLabel:disabled
+{
+	font: 14px &quot;Arial&quot;;
+	color: rgb(255, 255, 255);
+	image: url(:/new/prefix1/skin/adddatapho_no.png);
+}</string>
+            </property>
+            <property name="text">
+             <string>4.Production</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer_10">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="2" column="0">
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="focusPolicy">
+      <enum>Qt::ClickFocus</enum>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QTabWidget::pane { /* The tab widget frame */
+      border-top: 1px solid #222222;
+	 
+  }
+
+  QTabWidget::tab-bar {
+      left: 4px; /* move to the right by 5px */
+	 
+  }
+
+  /* Style the tab using the tab sub-control. Note that
+      it reads QTabBar _not_ QTabWidget */
+  QTabBar::tab {
+      background: #000000;
+      border: 0px solid #C4C4C3;
+      border-bottom-color: #222222; /* same as the pane color */
+      border-top-left-radius: 3px;
+      border-top-right-radius: 3px;
+      min-width: 150px;
+	  min-heith: 50px;
+      padding: 6px;
+  }
+
+  QTabBar::tab:selected, QTabBar::tab:hover {
+      background: #333333;
+  }
+
+  QTabBar::tab:selected {
+      border-color: #9B9B9B;
+      border-bottom-color: #C2C7CB; /* same as pane color */
+  }
+
+  QTabBar::tab:!selected {
+      margin-top: 2px; /* make non-selected tabs look smaller */
+  }</string>
+     </property>
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tab">
+      <property name="focusPolicy">
+       <enum>Qt::ClickFocus</enum>
+      </property>
+      <property name="autoFillBackground">
+       <bool>false</bool>
+      </property>
+      <property name="styleSheet">
+       <string notr="true"/>
+      </property>
+      <attribute name="title">
+       <string>Photos</string>
+      </attribute>
+      <layout class="QGridLayout" name="gridLayout">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QWidget" name="widget" native="true"/>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tab_4">
+      <attribute name="title">
+       <string>AT</string>
+      </attribute>
+      <layout class="QGridLayout" name="gridLayout_3">
+       <item row="0" column="0">
+        <layout class="QVBoxLayout" name="verticalLayout_6">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+        </layout>
+       </item>
+       <item row="1" column="0" alignment="Qt::AlignRight">
+        <widget class="QPushButton" name="btn_newContruction">
+         <property name="text">
+          <string>New reconstruction</string>
+         </property>
+         <property name="default">
+          <bool>false</bool>
+         </property>
+         <property name="flat">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources>
+  <include location="../MoldAI.qrc"/>
+ </resources>
+ <connections/>
+</ui>

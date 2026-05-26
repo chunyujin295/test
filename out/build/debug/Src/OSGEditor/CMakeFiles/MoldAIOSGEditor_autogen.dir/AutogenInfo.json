@@ -1,0 +1,334 @@
+{
+	"AUTOGEN_COMMAND_LINE_LENGTH_MAX" : 32000,
+	"BUILD_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/MoldAIOSGEditor_autogen",
+	"CMAKE_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug",
+	"CMAKE_CURRENT_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor",
+	"CMAKE_CURRENT_SOURCE_DIR" : "D:/Code/moldaiengine/Src/OSGEditor",
+	"CMAKE_EXECUTABLE" : "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+	"CMAKE_LIST_FILES" : 
+	[
+		"D:/Code/moldaiengine/Src/OSGEditor/CMakeLists.txt",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindOpenGL.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindPackageHandleStandardArgs.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/FindPackageMessage.cmake"
+	],
+	"CMAKE_SOURCE_DIR" : "D:/Code/moldaiengine",
+	"CROSS_CONFIG" : false,
+	"DEP_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/MoldAIOSGEditor_autogen/deps",
+	"DEP_FILE_RULE_NAME" : "MoldAIOSGEditor_autogen/timestamp",
+	"HEADERS" : 
+	[
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/AT3DViewInterface.h",
+			"Mu",
+			"DM2BZCPGUX/moc_AT3DViewInterface.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/Base.h",
+			"Mu",
+			"DM2BZCPGUX/moc_Base.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/BoxSelect.h",
+			"Mu",
+			"DM2BZCPGUX/moc_BoxSelect.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/CoordinateAxis.h",
+			"Mu",
+			"DM2BZCPGUX/moc_CoordinateAxis.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/CustomNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_CustomNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/EventManager.h",
+			"Mu",
+			"DM2BZCPGUX/moc_EventManager.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/FileLibrary.h",
+			"Mu",
+			"DM2BZCPGUX/moc_FileLibrary.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/LODTree.h",
+			"Mu",
+			"DM2BZCPGUX/moc_LODTree.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/LodTreeProcessor.h",
+			"Mu",
+			"DM2BZCPGUX/moc_LodTreeProcessor.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/ModelNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_ModelNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/OsgEngine.h",
+			"Mu",
+			"DM2BZCPGUX/moc_OsgEngine.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/OsgEngineManipulator.h",
+			"Mu",
+			"DM2BZCPGUX/moc_OsgEngineManipulator.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PhotoGeometry.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PhotoGeometry.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PhotosNodeManager.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PhotosNodeManager.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PickEventHandler.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PickEventHandler.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PointIntersector.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PointIntersector.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PointNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PointNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PolygonNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PolygonNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/PolygonSelect.h",
+			"Mu",
+			"DM2BZCPGUX/moc_PolygonSelect.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/ROINode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_ROINode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/SurveyPointsNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_SurveyPointsNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/TMesh.h",
+			"Mu",
+			"DM2BZCPGUX/moc_TMesh.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/TMeshBase.h",
+			"Mu",
+			"DM2BZCPGUX/moc_TMeshBase.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/TModelIO.h",
+			"Mu",
+			"DM2BZCPGUX/moc_TModelIO.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/ThreadManager.h",
+			"Mu",
+			"DM2BZCPGUX/moc_ThreadManager.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/TileNode.h",
+			"Mu",
+			"DM2BZCPGUX/moc_TileNode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/OSGEditor/Unitl.h",
+			"Mu",
+			"DM2BZCPGUX/moc_Unitl.cpp",
+			null
+		]
+	],
+	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
+	"INCLUDE_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/MoldAIOSGEditor_autogen/include",
+	"MOC_COMPILATION_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/MoldAIOSGEditor_autogen/mocs_compilation.cpp",
+	"MOC_DEFINITIONS" : 
+	[
+		"ACCEPT_USE_OF_DEPRECATED_PROJ_API_H",
+		"AI3D_GFLAGS_NAMESPACE=",
+		"AI3D_MAKE_DLL",
+		"GLOG_NO_ABBREVIATED_SEVERITIES",
+		"HAVE_GEOS",
+		"MoldAIOSGEditor_EXPORTS",
+		"QT_CORE_LIB",
+		"QT_GUI_LIB",
+		"QT_NETWORK_LIB",
+		"QT_OPENGL_LIB",
+		"QT_SQL_LIB",
+		"QT_USE_QSTRINGBUILDER",
+		"QT_WIDGETS_LIB",
+		"QT_XML_LIB",
+		"UNICODE",
+		"USE_AI3D_PROJ",
+		"USE_OPENMP",
+		"USE_WIN_DEBUG",
+		"WIN32",
+		"WIN64",
+		"_ENABLE_EXTENDED_ALIGNED_STORAGE",
+		"_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS",
+		"_UNICODE",
+		"_USE_BOOST",
+		"_USE_EIGEN",
+		"_WIN64"
+	],
+	"MOC_DEPEND_FILTERS" : 
+	[
+		[
+			"Q_PLUGIN_METADATA",
+			"[\n][ \t]*Q_PLUGIN_METADATA[ \t]*\\([^\\)]*FILE[ \t]*\"([^\"]+)\""
+		]
+	],
+	"MOC_INCLUDES" : 
+	[
+		"D:/Code/moldaiengine/out/build/debug/Src/OSGEditor",
+		"D:/Code/moldaiengine/Src/OSGEditor",
+		"D:/Code/moldaiengine/Externals",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtConcurrent",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtPrintSupport",
+		"D:/Code/moldaiengine/Include",
+		"D:/vc142/Eigen/3.3.4/include",
+		"D:/vc142/gflags/2.2.0/include",
+		"D:/vc142/glog/0.4.0/include",
+		"D:/vc142/proj/6.3.2/include",
+		"D:/vc142/Freeimage/3.18.0/include",
+		"D:/vc142/sqlite3/3.36/include",
+		"D:/vc142/exiv2/0.28.0/include",
+		"D:/vc142/boost/1.71.0/include",
+		"D:/vc142/expat/2.4.1/include",
+		"D:/vc142/gdal/3.3.0/include",
+		"D:/vc142/geographiclib/1.50.1/include",
+		"D:/vc142/rapidjson/include",
+		"D:/vc142/pugixml/1.11.0/include",
+		"D:/vc142/openssl/1.1.1k/include",
+		"D:/vc142/opencv/4100/include",
+		"D:/vc142/libiconv/1.17/include",
+		"D:/vc142/libfreexl/1.0.6/include",
+		"D:/vc142/xlnt/1.5.0/include",
+		"D:/vc142/libkml/0.0.2/include",
+		"D:/vc142/geos/3.7.1/include",
+		"D:/vc142/OSG/3.7.5/include",
+		"D:/vc142/glew/2.1.0/include",
+		"D:/vc142/ceres/2.0.0/include",
+		"D:/vc142/vcg/0/include",
+		"D:/Code/moldaiengine/Src",
+		"D:/Code/moldaiengine/Include",
+		"D:/Code/moldaiengine/Include/OSGEditor",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtOpenGL",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtCore",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtGui",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtWidgets",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtXml",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtSql",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtNetwork",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/mkspecs/win32-msvc"
+	],
+	"MOC_MACRO_NAMES" : 
+	[
+		"Q_OBJECT",
+		"Q_GADGET",
+		"Q_NAMESPACE",
+		"Q_NAMESPACE_EXPORT",
+		"Q_GADGET_EXPORT",
+		"Q_ENUM_NS"
+	],
+	"MOC_OPTIONS" : [],
+	"MOC_PATH_PREFIX" : false,
+	"MOC_PREDEFS_CMD" : [],
+	"MOC_PREDEFS_FILE" : "",
+	"MOC_RELAXED_MODE" : false,
+	"MOC_SKIP" : [],
+	"MULTI_CONFIG" : false,
+	"PARALLEL" : 12,
+	"PARSE_CACHE_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/CMakeFiles/MoldAIOSGEditor_autogen.dir/ParseCache.txt",
+	"QT_MOC_EXECUTABLE" : "D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/bin/moc.exe",
+	"QT_UIC_EXECUTABLE" : "",
+	"QT_VERSION_MAJOR" : 6,
+	"QT_VERSION_MINOR" : 10,
+	"SETTINGS_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/OSGEditor/CMakeFiles/MoldAIOSGEditor_autogen.dir/AutogenUsed.txt",
+	"SOURCES" : 
+	[
+		[
+			"D:/Code/moldaiengine/Src/OSGEditor/AT3DViewInterface.cpp",
+			"Mu",
+			null
+		],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/BoxSelect.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/CoordinateAxis.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/CustomNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/EventInfo.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/EventManager.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/FileLibrary.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/LODTree.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/LodTreeProcessor.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/ModelNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/OsgEngine.cpp", "Mu", null ],
+		[
+			"D:/Code/moldaiengine/Src/OSGEditor/OsgEngineManipulator.cpp",
+			"Mu",
+			null
+		],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PhotoGeometry.cpp", "Mu", null ],
+		[
+			"D:/Code/moldaiengine/Src/OSGEditor/PhotosNodeManager.cpp",
+			"Mu",
+			null
+		],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PickEventHandler.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PointIntersector.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PointNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PolygonNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/PolygonSelect.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/ROINode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/SurveyPointsNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/TMesh.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/TModelIO.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/ThreadManager.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/TileNode.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/OSGEditor/Unitl.cpp", "Mu", null ]
+	],
+	"USE_BETTER_GRAPH" : true,
+	"VERBOSITY" : 0
+}

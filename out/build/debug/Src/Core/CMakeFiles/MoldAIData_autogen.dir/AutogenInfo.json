@@ -1,0 +1,758 @@
+{
+	"AUTOGEN_COMMAND_LINE_LENGTH_MAX" : 32000,
+	"BUILD_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/Core/MoldAIData_autogen",
+	"CMAKE_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug",
+	"CMAKE_CURRENT_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/Core",
+	"CMAKE_CURRENT_SOURCE_DIR" : "D:/Code/moldaiengine/Src/Core",
+	"CMAKE_EXECUTABLE" : "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+	"CMAKE_LIST_FILES" : [ "D:/Code/moldaiengine/Src/Core/CMakeLists.txt" ],
+	"CMAKE_SOURCE_DIR" : "D:/Code/moldaiengine",
+	"CROSS_CONFIG" : false,
+	"DEP_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/Core/MoldAIData_autogen/deps",
+	"DEP_FILE_RULE_NAME" : "MoldAIData_autogen/timestamp",
+	"HEADERS" : 
+	[
+		[
+			"D:/Code/moldaiengine/Include/Core/ATCommandSet.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ATCommandSet.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ATData.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ATData.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ATDefinition.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ATDefinition.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ATGroup.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ATGroup.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ATOptions.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ATOptions.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/AlgorithmBase.h",
+			"Mu",
+			"NOLSO6VGNE/moc_AlgorithmBase.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Application.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Application.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Bitmap.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Bitmap.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/BlockInfo.h",
+			"Mu",
+			"NOLSO6VGNE/moc_BlockInfo.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/BlockObject.h",
+			"Mu",
+			"NOLSO6VGNE/moc_BlockObject.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Camera.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Camera.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/CameraDatabase.h",
+			"Mu",
+			"NOLSO6VGNE/moc_CameraDatabase.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/CameraModels.h",
+			"Mu",
+			"NOLSO6VGNE/moc_CameraModels.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/CameraSpecs.h",
+			"Mu",
+			"NOLSO6VGNE/moc_CameraSpecs.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ControlPoint.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ControlPoint.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/CoordinateSystem.h",
+			"Mu",
+			"NOLSO6VGNE/moc_CoordinateSystem.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/DataStruct.h",
+			"Mu",
+			"NOLSO6VGNE/moc_DataStruct.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/DepthMap.h",
+			"Mu",
+			"NOLSO6VGNE/moc_DepthMap.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Endian.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Endian.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ExifIO.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ExifIO.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/File.h",
+			"Mu",
+			"NOLSO6VGNE/moc_File.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/GCPATAlgorithm.h",
+			"Mu",
+			"NOLSO6VGNE/moc_GCPATAlgorithm.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/GaussAlg.h",
+			"Mu",
+			"NOLSO6VGNE/moc_GaussAlg.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Image.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Image.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/KML.h",
+			"Mu",
+			"NOLSO6VGNE/moc_KML.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Logging.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Logging.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Loransac.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Loransac.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Mat.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Mat.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Math.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Math.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/MeasurePoint.h",
+			"Mu",
+			"NOLSO6VGNE/moc_MeasurePoint.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/OBB.h",
+			"Mu",
+			"NOLSO6VGNE/moc_OBB.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/PhotoGroup.h",
+			"Mu",
+			"NOLSO6VGNE/moc_PhotoGroup.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Point2d.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Point2d.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Point3d.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Point3d.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/PointCloud.h",
+			"Mu",
+			"NOLSO6VGNE/moc_PointCloud.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ProductionObject.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ProductionObject.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ProductionPurpose.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ProductionPurpose.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ProductionTemplate.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ProductionTemplate.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/AuthIdToSrsIdMap.h",
+			"Mu",
+			"KPD2I3BZGN/moc_AuthIdToSrsIdMap.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateReferenceSystem.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateReferenceSystem.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateReferenceSystemRegistry.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateReferenceSystemRegistry.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateReferenceSystemUtils.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateReferenceSystemUtils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateReferenceSystem_p.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateReferenceSystem_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateTransform.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateTransform.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateTransformContext.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateTransformContext.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CoordinateTransform_p.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CoordinateTransform_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/Coordinatetransformcontext_p.h",
+			"Mu",
+			"KPD2I3BZGN/moc_Coordinatetransformcontext_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/CrsSettings.h",
+			"Mu",
+			"KPD2I3BZGN/moc_CrsSettings.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/DatumTransform.h",
+			"Mu",
+			"KPD2I3BZGN/moc_DatumTransform.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/Exception.h",
+			"Mu",
+			"KPD2I3BZGN/moc_Exception.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/Localec.h",
+			"Mu",
+			"KPD2I3BZGN/moc_Localec.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/OgcUtils.h",
+			"Mu",
+			"KPD2I3BZGN/moc_OgcUtils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/ProjCore.h",
+			"Mu",
+			"KPD2I3BZGN/moc_ProjCore.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/ProjOperation.h",
+			"Mu",
+			"KPD2I3BZGN/moc_ProjOperation.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/ProjUtils.h",
+			"Mu",
+			"KPD2I3BZGN/moc_ProjUtils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/ProjectionFactors.h",
+			"Mu",
+			"KPD2I3BZGN/moc_ProjectionFactors.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/QProj.h",
+			"Mu",
+			"KPD2I3BZGN/moc_QProj.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/ReadWriteLocker.h",
+			"Mu",
+			"KPD2I3BZGN/moc_ReadWriteLocker.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/SqliteUtils.h",
+			"Mu",
+			"KPD2I3BZGN/moc_SqliteUtils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Proj/VariantUtils.h",
+			"Mu",
+			"KPD2I3BZGN/moc_VariantUtils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ProjectObject.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ProjectObject.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Random.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Random.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/RandomSampler.h",
+			"Mu",
+			"NOLSO6VGNE/moc_RandomSampler.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Ransac.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Ransac.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Rapidjson.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Rapidjson.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ReconstructionCommandSet.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ReconstructionCommandSet.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ReconstructionObject.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ReconstructionObject.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ReconstructionOptions.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ReconstructionOptions.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ReturnCode.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ReturnCode.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/ReturnState.h",
+			"Mu",
+			"NOLSO6VGNE/moc_ReturnState.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/S3DProjectFile.h",
+			"Mu",
+			"NOLSO6VGNE/moc_S3DProjectFile.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Sampler.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Sampler.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/SimilarityTransform.h",
+			"Mu",
+			"NOLSO6VGNE/moc_SimilarityTransform.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/String.h",
+			"Mu",
+			"NOLSO6VGNE/moc_String.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/StringResource.h",
+			"Mu",
+			"NOLSO6VGNE/moc_StringResource.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/SupportMeasurement.h",
+			"Mu",
+			"NOLSO6VGNE/moc_SupportMeasurement.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/TaskCommandSet.h",
+			"Mu",
+			"NOLSO6VGNE/moc_TaskCommandSet.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/TaskDef.h",
+			"Mu",
+			"NOLSO6VGNE/moc_TaskDef.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/TaskInfo.h",
+			"Mu",
+			"NOLSO6VGNE/moc_TaskInfo.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Tiling.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Tiling.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/TilingImpl.h",
+			"Mu",
+			"NOLSO6VGNE/moc_TilingImpl.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Timer.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Timer.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Track.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Track.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Types.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Types.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/VectorFile.h",
+			"Mu",
+			"NOLSO6VGNE/moc_VectorFile.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/Warp.h",
+			"Mu",
+			"NOLSO6VGNE/moc_Warp.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/WorkPath.h",
+			"Mu",
+			"NOLSO6VGNE/moc_WorkPath.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/alignment.h",
+			"Mu",
+			"NOLSO6VGNE/moc_alignment.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/htmlDoc.hpp",
+			"Mu",
+			"NOLSO6VGNE/moc_htmlDoc.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/json.h",
+			"Mu",
+			"NOLSO6VGNE/moc_json.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Include/Core/yunjing_client.h",
+			"Mu",
+			"NOLSO6VGNE/moc_yunjing_client.cpp",
+			null
+		]
+	],
+	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
+	"INCLUDE_DIR" : "D:/Code/moldaiengine/out/build/debug/Src/Core/MoldAIData_autogen/include",
+	"MOC_COMPILATION_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/Core/MoldAIData_autogen/mocs_compilation.cpp",
+	"MOC_DEFINITIONS" : 
+	[
+		"ACCEPT_USE_OF_DEPRECATED_PROJ_API_H",
+		"AI3D_GFLAGS_NAMESPACE=",
+		"AI3D_MAKE_DLL",
+		"GLOG_NO_ABBREVIATED_SEVERITIES",
+		"HAVE_GEOS",
+		"MOLDAI_GLOG_LOGSINK_API=1",
+		"MoldAIData_EXPORTS",
+		"QT_CORE_LIB",
+		"QT_GUI_LIB",
+		"QT_NETWORK_LIB",
+		"QT_OPENGL_LIB",
+		"QT_SQL_LIB",
+		"QT_USE_QSTRINGBUILDER",
+		"QT_WIDGETS_LIB",
+		"QT_XML_LIB",
+		"UNICODE",
+		"USE_AI3D_PROJ",
+		"USE_OPENMP",
+		"USE_WIN_DEBUG",
+		"WIN32",
+		"WIN64",
+		"_ENABLE_EXTENDED_ALIGNED_STORAGE",
+		"_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS",
+		"_UNICODE",
+		"_USE_BOOST",
+		"_USE_EIGEN",
+		"_WIN64"
+	],
+	"MOC_DEPEND_FILTERS" : 
+	[
+		[
+			"Q_PLUGIN_METADATA",
+			"[\n][ \t]*Q_PLUGIN_METADATA[ \t]*\\([^\\)]*FILE[ \t]*\"([^\"]+)\""
+		]
+	],
+	"MOC_INCLUDES" : 
+	[
+		"D:/Code/moldaiengine/out/build/debug/Src/Core",
+		"D:/Code/moldaiengine/Src/Core",
+		"D:/Code/moldaiengine/Externals",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtConcurrent",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtPrintSupport",
+		"D:/Code/moldaiengine/Include",
+		"D:/vc142/Eigen/3.3.4/include",
+		"D:/vc142/gflags/2.2.0/include",
+		"D:/vc142/glog/0.4.0/include",
+		"D:/vc142/proj/6.3.2/include",
+		"D:/vc142/Freeimage/3.18.0/include",
+		"D:/vc142/sqlite3/3.36/include",
+		"D:/vc142/exiv2/0.28.0/include",
+		"D:/vc142/boost/1.71.0/include",
+		"D:/vc142/expat/2.4.1/include",
+		"D:/vc142/gdal/3.3.0/include",
+		"D:/vc142/geographiclib/1.50.1/include",
+		"D:/vc142/rapidjson/include",
+		"D:/vc142/pugixml/1.11.0/include",
+		"D:/vc142/openssl/1.1.1k/include",
+		"D:/vc142/opencv/4100/include",
+		"D:/vc142/libiconv/1.17/include",
+		"D:/vc142/libfreexl/1.0.6/include",
+		"D:/vc142/xlnt/1.5.0/include",
+		"D:/vc142/libkml/0.0.2/include",
+		"D:/vc142/geos/3.7.1/include",
+		"D:/vc142/eigen3",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtOpenGL",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtCore",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtGui",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtWidgets",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtXml",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtSql",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtNetwork",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/mkspecs/win32-msvc"
+	],
+	"MOC_MACRO_NAMES" : 
+	[
+		"Q_OBJECT",
+		"Q_GADGET",
+		"Q_NAMESPACE",
+		"Q_NAMESPACE_EXPORT",
+		"Q_GADGET_EXPORT",
+		"Q_ENUM_NS"
+	],
+	"MOC_OPTIONS" : [],
+	"MOC_PATH_PREFIX" : false,
+	"MOC_PREDEFS_CMD" : [],
+	"MOC_PREDEFS_FILE" : "",
+	"MOC_RELAXED_MODE" : false,
+	"MOC_SKIP" : [],
+	"MULTI_CONFIG" : false,
+	"PARALLEL" : 12,
+	"PARSE_CACHE_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/Core/CMakeFiles/MoldAIData_autogen.dir/ParseCache.txt",
+	"QT_MOC_EXECUTABLE" : "D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/bin/moc.exe",
+	"QT_UIC_EXECUTABLE" : "",
+	"QT_VERSION_MAJOR" : 6,
+	"QT_VERSION_MINOR" : 10,
+	"SETTINGS_FILE" : "D:/Code/moldaiengine/out/build/debug/Src/Core/CMakeFiles/MoldAIData_autogen.dir/AutogenUsed.txt",
+	"SOURCES" : 
+	[
+		[ "D:/Code/moldaiengine/Src/Core/ATCommandSet.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ATData.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ATDefinition.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ATGroup.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/AlgorithmBase.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Application.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Bitmap.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/BlockObject.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Camera.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/CameraDatabase.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/CameraModels.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/CameraSpecs.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ControlPoint.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/CoordinateSystem.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/DataStruct.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/DepthMap.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ExifIO.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/File.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/GCPATAlgorithm.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Image.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Logging.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Math.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/MeasurePoint.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/PhotoGroup.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Point2d.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Point3d.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ProductionObject.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ProductionPurpose.cpp", "Mu", null ],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateReferenceSystem.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateReferenceSystemRegistry.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateReferenceSystemUtils.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateTransform.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateTransformContext.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Src/Core/Proj/CoordinateTransform_p.cpp",
+			"Mu",
+			null
+		],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/CrsSettings.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/DatumTransform.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/Localec.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/OgcUtils.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/ProjCore.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/ProjUtils.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/QProj.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/ReadWriteLocker.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/SqliteUtils.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Proj/VariantUtils.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/ProjectObject.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Random.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/RandomSampler.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Rapidjson.cpp", "Mu", null ],
+		[
+			"D:/Code/moldaiengine/Src/Core/ReconstructionCommandSet.cpp",
+			"Mu",
+			null
+		],
+		[ "D:/Code/moldaiengine/Src/Core/ReconstructionObject.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/SimilarityTransform.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/String.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/SupportMeasurement.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/TaskCommandSet.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Tiling.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/TilingImpl.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Timer.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Track.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/VectorFile.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/Warp.cpp", "Mu", null ],
+		[ "D:/Code/moldaiengine/Src/Core/WorkPath.cpp", "Mu", null ]
+	],
+	"USE_BETTER_GRAPH" : true,
+	"VERBOSITY" : 0
+}

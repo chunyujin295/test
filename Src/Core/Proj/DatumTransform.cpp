@@ -1,0 +1,406 @@
+
+
+
+
+#include "Core/Proj/CoordinateTransform.h"
+#include "Core/Proj/CoordinateTransform_p.h"
+#include "Core/Proj/QProj.h"
+#include "Core/Proj/Exception.h"
+
+#include "Core/Proj/ReadWriteLocker.h"
+#include "Core/Proj/ProjUtils.h"
+#include <sqlite3.h>
+#include "Core/Application.h"
+
+#include <proj.h>
+namespace AI3D
+{
+    namespace PROJ
+    {
+        QList<DatumTransform::TransformDetails> DatumTransform::operations(const CoordinateReferenceSystem& source, const CoordinateReferenceSystem& destination, bool includeSuperseded)
+        {
+            QList< DatumTransform::TransformDetails > res;
+            if (!source.projObject() || !destination.projObject())
+                return res;
+
+            PJ_CONTEXT* pjContext = ProjContext::get();
+
+            PJ_OPERATION_FACTORY_CONTEXT* operationContext = proj_create_operation_factory_context(pjContext, nullptr);
+
+            
+            proj_operation_factory_context_set_grid_availability_use(pjContext, operationContext, PROJ_GRID_AVAILABILITY_IGNORED);
+
+            
+            proj_operation_factory_context_set_spatial_criterion(pjContext, operationContext, PROJ_SPATIAL_CRITERION_PARTIAL_INTERSECTION);
+
+            if (includeSuperseded)
+                proj_operation_factory_context_set_discard_superseded(pjContext, operationContext, false);
+
+            if (PJ_OBJ_LIST* ops = proj_create_operations(pjContext, source.projObject(), destination.projObject(), operationContext))
+            {
+                int count = proj_list_get_count(ops);
+                for (int i = 0; i < count; ++i)
+                {
+                    ProjUtils::proj_pj_unique_ptr op(proj_list_get(pjContext, ops, i));
+                    if (!op)
+                        continue;
+
+                    DatumTransform::TransformDetails details = transformDetailsFromPj(op.get());
+                    if (!details.proj.isEmpty())
+                        res.push_back(details);
+
+                }
+                proj_list_destroy(ops);
+            }
+            proj_operation_factory_context_destroy(operationContext);
+            return res;
+        }
+
+        QList< DatumTransform::TransformPair > DatumTransform::datumTransformations(const CoordinateReferenceSystem& srcCRS, const CoordinateReferenceSystem& destCRS)
+        {
+            QList< DatumTransform::TransformPair > transformations;
+
+            QString srcGeoId = srcCRS.geographicCrsAuthId();
+            QString destGeoId = destCRS.geographicCrsAuthId();
+
+            if (srcGeoId.isEmpty() || destGeoId.isEmpty())
+            {
+                return transformations;
+            }
+
+            QStringList srcSplit = srcGeoId.split(':');
+            QStringList destSplit = destGeoId.split(':');
+
+            if (srcSplit.size() < 2 || destSplit.size() < 2)
+            {
+                return transformations;
+            }
+
+            int srcAuthCode = srcSplit.at(1).toInt();
+            int destAuthCode = destSplit.at(1).toInt();
+
+            if (srcAuthCode == destAuthCode)
+            {
+                return transformations; 
+            }
+
+            QList<int> directTransforms;
+            searchDatumTransform(QStringLiteral("SELECT coord_op_code FROM tbl_datum_transform WHERE source_crs_code=%1 AND target_crs_code=%2 ORDER BY deprecated ASC,preferred DESC").arg(srcAuthCode).arg(destAuthCode),
+                directTransforms);
+            QList<int> reverseDirectTransforms;
+            searchDatumTransform(QStringLiteral("SELECT coord_op_code FROM tbl_datum_transform WHERE source_crs_code = %1 AND target_crs_code=%2 ORDER BY deprecated ASC,preferred DESC").arg(destAuthCode).arg(srcAuthCode),
+                reverseDirectTransforms);
+            QList<int> srcToWgs84;
+            searchDatumTransform(QStringLiteral("SELECT coord_op_code FROM tbl_datum_transform WHERE (source_crs_code=%1 AND target_crs_code=%2) OR (source_crs_code=%2 AND target_crs_code=%1) ORDER BY deprecated ASC,preferred DESC").arg(srcAuthCode).arg(4326),
+                srcToWgs84);
+            QList<int> destToWgs84;
+            searchDatumTransform(QStringLiteral("SELECT coord_op_code FROM tbl_datum_transform WHERE (source_crs_code=%1 AND target_crs_code=%2) OR (source_crs_code=%2 AND target_crs_code=%1) ORDER BY deprecated ASC,preferred DESC").arg(destAuthCode).arg(4326),
+                destToWgs84);
+
+            
+            for (int transform : std::as_const(directTransforms))
+            {
+                transformations.push_back(DatumTransform::TransformPair(transform, -1));
+            }
+
+            
+            for (int transform : std::as_const(reverseDirectTransforms))
+            {
+                transformations.push_back(DatumTransform::TransformPair(-1, transform));
+            }
+
+            for (int srcTransform : std::as_const(srcToWgs84))
+            {
+                for (int destTransform : std::as_const(destToWgs84))
+                {
+                    transformations.push_back(DatumTransform::TransformPair(srcTransform, destTransform));
+                }
+            }
+
+            return transformations;
+        }
+
+        void DatumTransform::searchDatumTransform(const QString& sql, QList< int >& transforms)
+        {
+            sqlite3_database_unique_ptr database;
+            int openResult = database.open_v2(QString::fromStdString(AI3D::CORE::Application::Getinstance().GetProjInnerSrsFullPath()), SQLITE_OPEN_READONLY, nullptr);
+            if (openResult != SQLITE_OK)
+            {
+                return;
+            }
+
+            sqlite3_statement_unique_ptr statement;
+            int prepareRes;
+            statement = database.prepare(sql, prepareRes);
+            if (prepareRes != SQLITE_OK)
+            {
+                return;
+            }
+
+            QString cOpCode;
+            while (statement.step() == SQLITE_ROW)
+            {
+                cOpCode = statement.columnAsText(0);
+                transforms.push_back(cOpCode.toInt());
+            }
+        }
+
+        QString DatumTransform::datumTransformToProj(int datumTransform)
+        {
+            QString transformString;
+
+            sqlite3_database_unique_ptr database;
+            int openResult = database.open_v2(QString::fromStdString(AI3D::CORE::Application::Getinstance().GetProjInnerSrsFullPath()), SQLITE_OPEN_READONLY, nullptr);
+            if (openResult != SQLITE_OK)
+            {
+                return transformString;
+            }
+
+            sqlite3_statement_unique_ptr statement;
+            QString sql = QStringLiteral("SELECT coord_op_method_code,p1,p2,p3,p4,p5,p6,p7 FROM tbl_datum_transform WHERE coord_op_code=%1").arg(datumTransform);
+            int prepareRes;
+            statement = database.prepare(sql, prepareRes);
+            if (prepareRes != SQLITE_OK)
+            {
+                return transformString;
+            }
+
+            if (statement.step() == SQLITE_ROW)
+            {
+                
+                int methodCode = statement.columnAsInt64(0);
+                if (methodCode == 9615) 
+                {
+                    transformString = "+nadgrids=" + statement.columnAsText(1);
+                }
+                else if (methodCode == 9603 || methodCode == 9606 || methodCode == 9607)
+                {
+                    transformString += QLatin1String("+towgs84=");
+                    double p1 = statement.columnAsDouble(1);
+                    double p2 = statement.columnAsDouble(2);
+                    double p3 = statement.columnAsDouble(3);
+                    double p4 = statement.columnAsDouble(4);
+                    double p5 = statement.columnAsDouble(5);
+                    double p6 = statement.columnAsDouble(6);
+                    double p7 = statement.columnAsDouble(7);
+                    if (methodCode == 9603) 
+                    {
+                        transformString += QStringLiteral("%1,%2,%3").arg(QString::number(p1), QString::number(p2), QString::number(p3));
+                    }
+                    else 
+                    {
+                        transformString += QStringLiteral("%1,%2,%3,%4,%5,%6,%7").arg(QString::number(p1), QString::number(p2), QString::number(p3), QString::number(p4), QString::number(p5), QString::number(p6), QString::number(p7));
+                    }
+                }
+            }
+
+            return transformString;
+        }
+
+        int DatumTransform::projStringToDatumTransformId(const QString& string)
+        {
+            sqlite3_database_unique_ptr database;
+            int openResult = database.open_v2(QString::fromStdString(AI3D::CORE::Application::Getinstance().GetProjInnerSrsFullPath()), SQLITE_OPEN_READONLY, nullptr);
+            if (openResult != SQLITE_OK)
+            {
+                return -1;
+            }
+
+            sqlite3_statement_unique_ptr statement;
+            QString sql = QStringLiteral("SELECT coord_op_method_code,p1,p2,p3,p4,p5,p6,p7,coord_op_code FROM tbl_datum_transform");
+            int prepareRes;
+            statement = database.prepare(sql, prepareRes);
+            if (prepareRes != SQLITE_OK)
+            {
+                return -1;
+            }
+
+            while (statement.step() == SQLITE_ROW)
+            {
+                QString transformString;
+                
+                int methodCode = statement.columnAsInt64(0);
+                if (methodCode == 9615) 
+                {
+                    transformString = "+nadgrids=" + statement.columnAsText(1);
+                }
+                else if (methodCode == 9603 || methodCode == 9606 || methodCode == 9607)
+                {
+                    transformString += QLatin1String("+towgs84=");
+                    double p1 = statement.columnAsDouble(1);
+                    double p2 = statement.columnAsDouble(2);
+                    double p3 = statement.columnAsDouble(3);
+                    double p4 = statement.columnAsDouble(4);
+                    double p5 = statement.columnAsDouble(5);
+                    double p6 = statement.columnAsDouble(6);
+                    double p7 = statement.columnAsDouble(7);
+                    if (methodCode == 9603) 
+                    {
+                        transformString += QStringLiteral("%1,%2,%3").arg(QString::number(p1), QString::number(p2), QString::number(p3));
+                    }
+                    else 
+                    {
+                        transformString += QStringLiteral("%1,%2,%3,%4,%5,%6,%7").arg(QString::number(p1), QString::number(p2), QString::number(p3), QString::number(p4), QString::number(p5), QString::number(p6), QString::number(p7));
+                    }
+                }
+
+                if (transformString.compare(string, Qt::CaseInsensitive) == 0)
+                {
+                    return statement.columnAsInt64(8);
+                }
+            }
+
+            return -1;
+        }
+
+        DatumTransform::TransformInfo DatumTransform::datumTransformInfo(int datumTransform)
+        {
+            DatumTransform::TransformInfo info;
+
+            sqlite3_database_unique_ptr database;
+            int openResult = database.open_v2(QString::fromStdString(AI3D::CORE::Application::Getinstance().GetProjInnerSrsFullPath()), SQLITE_OPEN_READONLY, nullptr);
+            if (openResult != SQLITE_OK)
+            {
+                return info;
+            }
+
+            sqlite3_statement_unique_ptr statement;
+            QString sql = QStringLiteral("SELECT epsg_nr,source_crs_code,target_crs_code,remarks,scope,preferred,deprecated FROM tbl_datum_transform WHERE coord_op_code=%1").arg(datumTransform);
+            int prepareRes;
+            statement = database.prepare(sql, prepareRes);
+            if (prepareRes != SQLITE_OK)
+            {
+                return info;
+            }
+
+            int srcCrsId, destCrsId;
+            if (statement.step() != SQLITE_ROW)
+            {
+                return info;
+            }
+
+            info.datumTransformId = datumTransform;
+            info.epsgCode = statement.columnAsInt64(0);
+            srcCrsId = statement.columnAsInt64(1);
+            destCrsId = statement.columnAsInt64(2);
+            info.remarks = statement.columnAsText(3);
+            info.scope = statement.columnAsText(4);
+            info.preferred = statement.columnAsInt64(5) != 0;
+            info.deprecated = statement.columnAsInt64(6) != 0;
+
+            CoordinateReferenceSystem srcCrs = CoordinateReferenceSystem::fromOgcWmsCrs(QStringLiteral("EPSG:%1").arg(srcCrsId));
+            info.sourceCrsDescription = srcCrs.description();
+            info.sourceCrsAuthId = srcCrs.authid();
+            CoordinateReferenceSystem destCrs = CoordinateReferenceSystem::fromOgcWmsCrs(QStringLiteral("EPSG:%1").arg(destCrsId));
+            info.destinationCrsDescription = destCrs.description();
+            info.destinationCrsAuthId = destCrs.authid();
+
+            return info;
+        }
+
+        DatumTransform::TransformDetails DatumTransform::transformDetailsFromPj(PJ* op)
+        {
+            PJ_CONTEXT* pjContext = ProjContext::get();
+            TransformDetails details;
+            if (!op)
+                return details;
+
+            ProjUtils::proj_pj_unique_ptr normalized(proj_normalize_for_visualization(pjContext, op));
+            if (normalized)
+                details.proj = QString(proj_as_proj_string(pjContext, normalized.get(), PJ_PROJ_5, nullptr));
+
+            if (details.proj.isEmpty())
+                details.proj = QString(proj_as_proj_string(pjContext, op, PJ_PROJ_5, nullptr));
+
+            if (details.proj.isEmpty())
+                return details;
+
+            details.name = QString(proj_get_name(op));
+            details.accuracy = proj_coordoperation_get_accuracy(pjContext, op);
+            details.isAvailable = proj_coordoperation_is_instantiable(pjContext, op);
+
+            details.authority = QString(proj_get_id_auth_name(op, 0));
+            details.code = QString(proj_get_id_code(op, 0));
+
+            const char* areaOfUseName = nullptr;
+            double westLon = 0;
+            double southLat = 0;
+            double eastLon = 0;
+            double northLat = 0;
+            if (proj_get_area_of_use(pjContext, op, &westLon, &southLat, &eastLon, &northLat, &areaOfUseName))
+            {
+                details.areaOfUse = QString(areaOfUseName);
+                
+              
+              
+              
+              
+            }
+
+            details.remarks = QString(proj_get_remarks(op));
+            details.scope = QString(proj_get_scope(op));
+
+            for (int j = 0; j < proj_coordoperation_get_grid_used_count(pjContext, op); ++j)
+            {
+                const char* shortName = nullptr;
+                const char* fullName = nullptr;
+                const char* packageName = nullptr;
+                const char* url = nullptr;
+                int directDownload = 0;
+                int openLicense = 0;
+                int isAvailable = 0;
+                proj_coordoperation_get_grid_used(pjContext, op, j, &shortName, &fullName, &packageName, &url, &directDownload, &openLicense, &isAvailable);
+                GridDetails gridDetails;
+                gridDetails.shortName = QString(shortName);
+                gridDetails.fullName = QString(fullName);
+                gridDetails.packageName = QString(packageName);
+                gridDetails.url = QString(url);
+                gridDetails.directDownload = directDownload;
+                gridDetails.openLicense = openLicense;
+                gridDetails.isAvailable = isAvailable;
+
+                details.grids.append(gridDetails);
+            }
+
+            if (proj_get_type(op) == PJ_TYPE_CONCATENATED_OPERATION)
+            {
+                for (int j = 0; j < proj_concatoperation_get_step_count(pjContext, op); ++j)
+                {
+                    ProjUtils::proj_pj_unique_ptr step(proj_concatoperation_get_step(pjContext, op, j));
+                    if (step)
+                    {
+                        SingleOperationDetails singleOpDetails;
+                        singleOpDetails.remarks = QString(proj_get_remarks(step.get()));
+                        singleOpDetails.scope = QString(proj_get_scope(step.get()));
+                        singleOpDetails.authority = QString(proj_get_id_auth_name(step.get(), 0));
+                        singleOpDetails.code = QString(proj_get_id_code(step.get(), 0));
+
+                        const char* areaOfUseName = nullptr;
+                        if (proj_get_area_of_use(pjContext, step.get(), nullptr, nullptr, nullptr, nullptr, &areaOfUseName))
+                        {
+                            singleOpDetails.areaOfUse = QString(areaOfUseName);
+                        }
+                        details.operationDetails.append(singleOpDetails);
+                    }
+                }
+            }
+            else
+            {
+                SingleOperationDetails singleOpDetails;
+                singleOpDetails.remarks = QString(proj_get_remarks(op));
+                singleOpDetails.scope = QString(proj_get_scope(op));
+                singleOpDetails.authority = QString(proj_get_id_auth_name(op, 0));
+                singleOpDetails.code = QString(proj_get_id_code(op, 0));
+
+                const char* areaOfUseName = nullptr;
+                if (proj_get_area_of_use(pjContext, op, nullptr, nullptr, nullptr, nullptr, &areaOfUseName))
+                {
+                    singleOpDetails.areaOfUse = QString(areaOfUseName);
+                }
+                details.operationDetails.append(singleOpDetails);
+            }
+
+            return details;
+        }
+    }
+}

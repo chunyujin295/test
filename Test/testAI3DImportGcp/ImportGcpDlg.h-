@@ -1,0 +1,46 @@
+#pragma once
+
+#include <QDialog>
+#include<QStandardItemModel>
+#include"ui_ImportGcp.h"
+//#include "QSensorIntDelegate.h"
+
+class ImportGcpDlg : public QDialog
+{
+	Q_OBJECT
+
+public:
+	ImportGcpDlg(QDialog *parent = Q_NULLPTR);
+	~ImportGcpDlg();
+
+	//弹出打开文件对话框
+	void openFileDialog();
+	void setOldFileName(QString strFile);
+	QString getFilePath();
+	void showList(QString fileName);
+	void showTitle(int num);
+	void recordIndex(int index);
+	QMap<int, QString> getRecordData() { return m_RecordMap; };
+	void readFile();
+	QList<QStringList> getPosList() { return vlist; };
+	QString itemList;
+	QString getSelectIndex();
+	void setIndexString(QStringList strList);
+signals:
+	//void sig_VecString(QVector<QStringList> );
+	void sign_posFileReadError();
+private:
+	Ui::ImportGcpUI ui;
+	QString oldFileName;
+	QString posFile_path;
+	//QSensorIntDelegate* comboxSelf;
+	QList<QComboBox*> p_List;
+	QMap<int, QString> m_RecordMap;
+	QStandardItemModel* model;
+	QList<QStringList> vlist;
+	QString coordinate;
+	int nameIt = 0;
+	int longitudeIt = 1; 
+	int latitudeIt = 2;
+	int heightIt = 3;
+};

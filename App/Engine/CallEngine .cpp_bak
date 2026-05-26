@@ -1,0 +1,5384 @@
+#include <conio.h>
+
+#include "Util/CatchProcess.h"
+#include "Util/OTA.h"
+#include <atomic>
+#include <list>
+#include <map>
+#include <vector>
+#include <mutex>
+#include <sstream>
+#include <iostream>
+//#include <math>
+#include <condition_variable>
+#include "Core/ReturnCode.h"
+#include "Core/TaskDef.h"
+//#include "MyrapidJson.h"
+
+
+#include <QList>
+#include <QSettings>
+
+#include <QDir>
+#include <QFileInfoList>
+#include <QStringList>
+#include <QTime>
+#include <QtGlobal>
+#include <QTextCodec>
+#include <stdio.h>
+#include <share.h>
+#include <QHostInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QVector>
+#include <QMap>
+#include <QJsonArray>
+#include <QApplication>
+#include <QCoreApplication>
+#include <QProcess>
+#include <QDateTime>
+#include <QMessageBox>
+#include <QThread>
+#include <boost/algorithm/string.hpp>
+#include "boost/filesystem.hpp"
+#include "time.h"
+#include <stdlib.h>
+#include <QMutex>
+#include <signal.h>
+
+#include <sstream>
+#include "Core/File.h"
+#include "Core/Logging.h"
+#include "Util/Settings.h"
+#include "Util/TaskProcess.h"
+#include "Util/JobMonitor.h"
+#ifdef _MSC_VER
+#include "Windows.h"
+#include "DbgHelp.h"
+#endif // _MSC_VER
+
+#include "Util/Statistic.h"
+
+#include "boost/filesystem/path.hpp"  
+#include "boost/filesystem/operations.hpp"  
+
+#include <Windows.h>
+
+#define ENGINEJOBPATH Settings::getEngineJobQueue()
+#define APPPATH QCoreApplication::applicationDirPath()
+namespace bfs = boost::filesystem;
+namespace AICORE = AI3D::CORE;
+
+//todo
+/*
+*1：区分AT和Tile类型，并加入tile的逻辑
+* 2：加入msg，主要是当软件失败时
+* 3：异常机制，retry的问题，所以需要更多状态码.
+* 4：每个文件加锁时间和机制的梳理
+* 
+*/
+
+
+//todo看一下cc两个节点的机制runninginfo:runninginfo用的是最后处理结果的机子
+//0和1是分开的
+//todo：如果某个文件不在会尝试几次cc为10次，测试方法：将某个taskdef去掉则会尝试10次
+namespace fs = boost::filesystem;
+//该容器用于输出time文件时的函数名的记录
+std::map<int, std::string> maptaskfunction;
+int ExecTaskFile();
+int ExecTaskFileV2();
+//chy 作用：是否抢到了pending任务
+bool gotNewPendingJobFile = false;
+//该文件主要用于engine的信息记录文件需要记录project文件；
+std::string projectfilefullpath = "";
+QString NewFileForRun;
+bool taskrunning = false;
+std::string engineinfofile;
+QString cancelledJobFile;
+QString failedJobFile;
+QString pathSeperator;
+//engine启动时间记录，并输出到engines文件夹下的文件
+QString enginestarttime = "";
+std::string versionName;
+
+bool bTestTaskKill4RunningTooLong = false;
+QDateTime dtTestTaskKillStart;
+// if true,doesn't go on a new job or a new task while a feedback-file rewrite behaviour has not been completed.
+bool bNeedRewriteFeedbackFile = false;
+
+FILE* fpTaskLock = NULL;
+bool bQuitingApplication = false;
+bool bWorkingOnEngineFile = false;
+qint64 taskPid = -1;
+QString taskPidFile;
+
+QSet<QString> toCheckNetworkPathSet;
+bool bNetworkPathAlreadyInvalid = false;
+
+MsgBoxThread* msgBoxThread = nullptr;
+
+extern bool CheckNetworkState(QStringList& networkPathList, QStringList& errorPathList);
+
+bool checkTaskInstanceStatus(QString& sTmpNewFileForRun);
+
+/*
+The following points is the essential steps to process feedback file:
+1)start a seperate feedback rewriting thread
+2)try locking the feedback file's lock file until writing it.
+3)if locked successfully,write the feedback file and then unlock the feedback lock.
+4)if failed to lock,write the feedback_json_processid temporarily,and just go on related execution flow.
+5)inside feedback thread,check whether feedback related temporary file exits.if some file has been found,
+  make some functional check,for example whether the data is not obsolete.if data is ok,update the feedback.
+6)meta data for feedback file,mainly including:job status,percent,msg is less important.
+*/
+
+/*
+do post checking after all the taskfile.log(may consider check such situations during running job.),
+to see whether the progress has come into some confusion. 
+*/
+void PostQuitProcess();
+
+
+
+void init();
+void init()
+{
+	projectfilefullpath = "";
+	taskrunning = false;
+	gotNewPendingJobFile = false;
+	NewFileForRun = "";//对应taskdef文件
+
+	if (fpTaskLock != NULL)
+	{
+		LOGI("unlock taskfile.");
+		fclose(fpTaskLock);
+		fpTaskLock = NULL;
+	}
+}
+
+std::string getATBlockJobPath(std::string& jobFilename);
+QString getATBlockJobPath(QString& jobFilename);
+
+QString progName;//程序全路径名
+//QString progFileName;//程序名字
+//是否有正在执行的task，写进status文件
+
+//机器基本信息
+QString userName;
+QString hostName;
+QString ipAddr;
+
+//各种状态的路径
+QString pendingJobPath;
+QString runningJobPath;
+QString completedJobPath;
+QString failedJobPath;
+QString cancelledJobPath;
+
+CatchProcess catchProcess;
+
+//chy sfm内存逻辑
+// 如果是sfm任务，获取算法给的参考值，比较当前物理内存，
+// if 满足要求则正常执行；
+// if 不满足，sleep 3s 退出当前循环，给其他engine机会来抢;
+// 如果抢到其他任务了则sfm重试次数清零，如果连续抢了20次sfm任务则执行
+// SfM Task 内存策略重试次数.
+int previousSfmRetryTimes = 0;
+// 当前主机拥有的物理内存(GB)
+int enginePhysicalMemory = 0;
+
+extern bool bSpecialLog;
+bool bSpecialLog = false;
+
+//chy  job排序逻辑按时间
+QStringList SortJobFile(const QString& runningJobPath, bool bRunning = false);
+bool continueCurrentTask(QString &);
+
+//jobName,projectBlockJobPath
+QMap<QString, QString> toBeCleanedJobMap;
+// jobName,job state.
+QMap<QString,int> hasFinishedJobMap;
+
+void DoCleanupJobLockOnceWhileEngineStart()
+{
+	//QString lockFile = "D:\\worksp\\测试job目录\\Pending\\Highjob_20230526171137_AT.json.lock";
+
+	QString lsPendingHighJobPath = pendingJobPath + pathSeperator + "High"; 
+	QString lsRunningJobPath = runningJobPath; 
+
+	QDir pendingHighDir(lsPendingHighJobPath);
+	QDir runningDir(lsRunningJobPath);
+
+	QStringList toBeRemovedFileList;
+
+	if(pendingHighDir.exists())
+	{
+		QFileInfoList fileInfoList = pendingHighDir.entryInfoList(QDir::NoDotAndDotDot | QDir::Files);
+		foreach(QFileInfo fileInfo, fileInfoList)
+		{
+			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive))
+			{
+				QString jobJson = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + ".json";
+				if (!QFileInfo(jobJson).exists())
+				{
+					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
+				}
+			}
+		}
+	}
+
+	if (runningDir.exists())
+	{
+		QFileInfoList fileInfoList = runningDir.entryInfoList(QDir::NoDotAndDotDot|QDir::Files);
+		foreach(QFileInfo fileInfo, fileInfoList)
+		{
+			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive))
+			{
+				QString jobJson = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + ".json";
+				if (!QFileInfo(jobJson).exists())
+				{
+					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
+				}
+			}
+		}
+	}
+
+	foreach(QString filePath, toBeRemovedFileList)
+	{
+		QFile(filePath).remove();
+	}
+}
+
+void DoCleanupLockFiles()
+{
+	while (true)
+	{
+		if (bQuitingApplication)
+			return;
+
+		QStringList deleteJobs;
+
+		for (auto& it : toBeCleanedJobMap.toStdMap())
+		{
+			QString jobName = it.first;
+			QString jobProjectBlockPath = it.second;
+
+			if (hasFinishedJobMap.contains(jobName))
+			{
+				int jobState = hasFinishedJobMap[jobName];
+				//std::cout << qstr2str(jobName) << " state:" << jobState << std::endl;
+
+				if (jobState >= 2)
+				{
+					// for jobState,0:pending 1:running 2:completed 3:cancelled 4:failed.
+					//  1) delete task.pid and task.lock inside project-block-job directory.
+					//  2) delete job's lock file inside job queue including running and pending.
+
+///					std::string job_file = Settings::getEngineJobQueue().toStdString() + "/Running/" + attask.job_ + ".json";
+///					std::string feedbakpath = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+///					std::string current_feedback_file = MAKE_FEEDBAK_FILE(feedbakpath, attask.job_);// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+///					QString jobFileName = QString::fromStdString(job_file);
+///					QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+
+					QString lsRunningJobFileName = jobName + ".json";
+
+					QString lsPendingJobFile = pendingJobPath + pathSeperator + "High" + pathSeperator + lsRunningJobFileName;
+					QString lsRunningJobFile = runningJobPath + pathSeperator + lsRunningJobFileName;
+
+					QString lsPendingJobFileLock = lsPendingJobFile + ".lock";
+					QString lsRunningJobFileLock = lsRunningJobFile + ".lock";
+
+					QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+					QString lsCancelledJobFile = cancelledJobPath + pathSeperator + lsRunningJobFileName;
+					QString lsFailedJobFile = failedJobPath + pathSeperator + lsRunningJobFileName;
+
+					if (QFileInfo(lsPendingJobFile).exists() || QFileInfo(lsRunningJobFile).exists())
+					{
+						// impossible,some errors must occur.
+					}
+					else if(QFileInfo(lsCompletedJobFile).exists() || QFileInfo(lsCancelledJobFile).exists() || QFileInfo(lsFailedJobFile).exists())
+					{
+						if (QFileInfo(lsPendingJobFileLock).exists())
+						{
+							QFile(lsPendingJobFileLock).remove();
+						}
+
+						if (QFileInfo(lsRunningJobFileLock).exists())
+						{
+							QFile(lsRunningJobFileLock).remove();
+						}
+
+						// delete task.pid / task.lock.
+
+						QDir dir(jobProjectBlockPath);
+						if (dir.exists())
+						{
+							QFileInfoList entries = dir.entryInfoList(QDir::NoDotAndDotDot|
+							QDir::Files);
+
+							foreach(QFileInfo entryInfo, entries)
+							{
+								// in fact,don't need to make such a check,for having limited the conditions without dirs inside
+								// when searching parent dir.
+								if (!entryInfo.isDir())
+								{
+									QString taskPath = entryInfo.absoluteFilePath();
+									if (taskPath.endsWith(".pid") || taskPath.endsWith(".lock"))
+									{
+										QFile(taskPath).remove();
+									}
+								}
+							}
+						}
+
+						deleteJobs.append(jobName);
+					}
+				}
+			}
+		}
+
+		for (auto& job : deleteJobs)
+		{
+			hasFinishedJobMap.remove(job);
+			toBeCleanedJobMap.remove(job);
+		}
+
+		// delay about at least 500 msecs.
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+	}
+}
+
+void DoCleaningUpLocks4OneJobFile(QString oldJobFile,QString newJobFile,jobsta_e newJobStatus)
+{
+	// Clean up all the locks generated for one specific job file at one time,including pending queue,running queue,feedback file,and all the job's task  related.
+	// Only do cleaning-up works on locks for one job file which has already been moved successfully into 
+	// new job queue directory,and surely the same job file which has disappeared from its original location inside specific job queue.
+
+	// single dedicated thread,or placed every where at the place where one job file 
+	if (newJobStatus == jobsta_e::STATUS_RUNNING)
+	{
+		// moved from pending job queue to running one.
+	}
+	else if (newJobStatus == jobsta_e::STATUS_CANCLE)
+	{
+		// to cancelled job queue,maybe from pending one ,or from running one.
+	}
+	else if (newJobStatus == jobsta_e::STATUS_FAILURE)
+	{
+		// from running job queue to failed one.
+	}
+	else if (newJobStatus == jobsta_e::STATUS_COMPLETE)
+	{
+		// from running job queue to completed one.
+	}
+	else
+	{
+		std::cout << "unexpected job status,check it please!" << std::endl;
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << " unexpected job status,check it please!";
+			LOGI(oss.str());
+		}
+	}
+}
+
+//QSettings *sets = nullptr;
+int GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers)
+{
+	// 定义函数指针
+	typedef BOOL(WINAPI* MiniDumpWriteDumpT)(
+		HANDLE,
+		DWORD,
+		HANDLE,
+		MINIDUMP_TYPE,
+		PMINIDUMP_EXCEPTION_INFORMATION,
+		PMINIDUMP_USER_STREAM_INFORMATION,
+		PMINIDUMP_CALLBACK_INFORMATION
+		);
+	// 从 "DbgHelp.dll" 库中获取 "MiniDumpWriteDump" 函数
+	MiniDumpWriteDumpT pfnMiniDumpWriteDump = NULL;
+	HMODULE hDbgHelp = LoadLibraryA("DbgHelp.dll");
+	if (NULL == hDbgHelp)
+	{
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	pfnMiniDumpWriteDump = (MiniDumpWriteDumpT)GetProcAddress(hDbgHelp, "MiniDumpWriteDump");
+
+	if (NULL == pfnMiniDumpWriteDump)
+	{
+		FreeLibrary(hDbgHelp);
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	// 创建 dmp 文件件
+	char szFileName[MAX_PATH] = { 0 };
+	char* szVersion = "Dump2Engine";
+	SYSTEMTIME stLocalTime;
+	GetLocalTime(&stLocalTime);
+	sprintf(szFileName, "%s-%04d%02d%02d-%02d%02d%02d.dmp",
+		szVersion, stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay,
+		stLocalTime.wHour, stLocalTime.wMinute, stLocalTime.wSecond);
+	HANDLE hDumpFile = CreateFileA(szFileName, GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+	if (INVALID_HANDLE_VALUE == hDumpFile)
+	{
+		FreeLibrary(hDbgHelp);
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	// 写入 dmp 文件
+	MINIDUMP_EXCEPTION_INFORMATION expParam;
+	expParam.ThreadId = GetCurrentThreadId();
+	expParam.ExceptionPointers = pExceptionPointers;
+	expParam.ClientPointers = FALSE;
+	pfnMiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
+		hDumpFile, MiniDumpWithDataSegs, (pExceptionPointers ? &expParam : NULL), NULL, NULL);
+	// 释放文件
+	CloseHandle(hDumpFile);
+	FreeLibrary(hDbgHelp);
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+LONG WINAPI ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo)
+{
+	// 这里做一些异常的过滤或提示
+	std::cout << "has come to ExceptionFilter" << std::endl;
+	LOGI("has come to ExceptionFilter");
+
+	///std::this_thread::sleep_for(std::chrono::milliseconds(30000));
+
+	bQuitingApplication = true;
+
+	///std::cout << "has come to ExceptionFilter2" << std::endl;
+	///LOGI("has come to ExceptionFilter2");
+
+	///std::this_thread::sleep_for(std::chrono::milliseconds(20000));
+
+	///std::cout << "has come to ExceptionFilter3" << std::endl;
+	///LOGI("has come to ExceptionFilter3");
+
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << "ExceptionFilter";
+		LOGI(oss.str());
+	}
+
+	if (IsDebuggerPresent())
+	{
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	return GenerateMiniDump(lpExceptionInfo);
+}
+
+void PrintTimeSum();
+void PrintTimeSum(std::string nowstep)
+{
+	std::ostringstream oss;
+	oss.clear();
+	oss << nowstep<< "task count " << maptaskfunction.size() << " ";
+	for (const auto& iter : maptaskfunction)
+	{
+		oss << iter.first << " " << (iter.second) << " ";
+	}
+	
+	LOGI(oss.str());
+}
+
+void SigInt_Handler(int nSignal)
+{
+	qDebug() << "catch int signal:" << QString::number(nSignal);
+	std::cout << "catch int signal:" << std::to_string(nSignal) << std::endl;
+	LOGI("catch int signal:" + std::to_string(nSignal));
+
+	PostQuitProcess();
+	//exit(0);
+}
+
+void SigBreak_Handler(int nSignal)
+{
+	std::cout << "catch break/term/abort signal1:" << std::to_string(nSignal) << std::endl;
+	qDebug() << "catch break/term/abort signal:" << QString::number(nSignal);
+	LOGI("catch break signal:" + std::to_string(nSignal));
+
+	PostQuitProcess();
+	//exit(0);
+}
+
+//1121改需测试
+//输出time文件，param[1] in:job信息，param[2] in:job类型
+void ExportTimeSum(JobFullInfo_s jobinfo, int type=0/*AT*/);
+//job是不在每个task中记录cancel或failure状态的
+void ExportTimeSum(JobFullInfo_s jobinfo,int type)
+{
+	if (jobinfo.tg.tasksmap.empty())
+		return;
+	if (jobinfo.tg.tasksmap.count(0) &&jobinfo.tg.tasksmap.at(0).Type == 4)
+	{
+		return;
+	}
+	/*if (type == 0)*/
+	{
+		ATTimeSummary_s attimesum;
+		attimesum.runinfo = jobinfo.tg.runinfo;
+		for (auto iter : jobinfo.tg.tasksmap)
+		{
+			if (iter.second.Type == ATLASTTASKTYPE || iter.second.Type == ATCOMPLETETYPE)
+				continue;
+			attimesum.tasksmap[iter.first].Id = iter.second.Id;
+			attimesum.tasksmap[iter.first].StartTime = iter.second.runinfo.StartTime;
+			attimesum.tasksmap[iter.first].EndTime = iter.second.runinfo.EndTime;
+
+			attimesum.tasksmap[iter.first].Status = iter.second.Status;
+			
+			if (maptaskfunction.count(iter.first))
+			{
+				attimesum.tasksmap[iter.first].FunctionName = maptaskfunction.at(iter.first);
+			}
+			attimesum.tasksmap[iter.first].Type = iter.second.Type;
+		}
+
+		///std::string path = AI3D::CORE::File::GetParentDir(jobinfo.tg.job.ProjectPath) + "/"+ jobinfo.tg.job.ItemPath;
+
+		std::string path = AI3D::CORE::File::GetParentDir(jobinfo.tg.job.ProjectPath2) + "/" + jobinfo.tg.job.ItemPath2;
+
+		 path = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(path)));
+		 path = MAKE_TIMESUM_FILE(path, jobinfo.JobName);
+		attimesum.save(path);
+	}
+}
+
+bool killTaskProcess()
+{
+	DWORD processId = 0;
+	if (catchProcess.IsProgramRunning("MoldAITask.exe",processId))
+	{
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << "to kill task.exe(" << processId << ").";
+			LOGI(oss.str());
+		
+		}
+
+		// add log to monitor taskkill command.
+		QProcess process;
+		process.start("cmd", QStringList() << "/c" << "taskkill /f /t /im MoldAITask.exe");
+		//chy@zhangyunfeng 逻辑含义，等待起来，等待结束
+		process.waitForStarted();
+		process.waitForFinished();
+		
+		return true;
+	}
+	else
+	{
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << " task.exe is not running ";
+			LOGI(oss.str());
+		}
+
+		return false;
+	}
+}
+//与task无关，1121修改待测试
+//chy 查找除task_def_0.json之外的任务文件，后续改的时候注意此处
+void getTaskList(const std::string& rootPath, std::vector<std::string>& filenames)
+{
+	namespace fs = boost::filesystem;
+
+	try
+	{
+		fs::path fullpath(rootPath);
+		if (!fs::exists(fullpath))
+		{
+			return;
+		}
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		LOGI(oss.str());
+		return;
+	}
+	catch (std::exception& ex)
+	{
+		std::ostringstream oss;
+		oss << "exception:" << ex.what();
+		LOGI(oss.str());
+		return;
+	}
+
+	std::vector<std::string> tmp_filenames;
+	
+	tmp_filenames = AI3D::CORE::File::GetFileList(rootPath, JSONFILE_POSTFIX);
+	//干两件事一是去除taskdef0,二是按序号排序，从某种意义上讲其实也可以按名字排序，暂时按序号吧
+	std::string find_str = TASK_DEF_ZERO_FILE/*"task_def_0.json"*/;
+	tmp_filenames.erase(remove_if(tmp_filenames.begin(), tmp_filenames.end(),
+		[find_str](std::string n) { return n == find_str; }),
+		tmp_filenames.end());
+
+	/*fs::directory_iterator end_iter;
+	for (fs::directory_iterator iter(fullpath); iter != end_iter; iter++)
+	{
+		if (fs::is_regular_file(iter->status())) 
+		{
+			std::string pathName = iter->path().string();
+			std::string insertFileName = iter->path().string();
+			std::replace(insertFileName.begin(), insertFileName.end(), '\\', '/');
+			std::replace(pathName.begin(), pathName.end(), '\\', '/');
+			pathName = pathName.substr(pathName.rfind("/") + 1, pathName.length());
+			std::string lastFileName = pathName.substr(pathName.rfind(".") + 1, pathName.length());;
+			
+			if (pathName != "task_def_0.json" && lastFileName == "json" && pathName.find("task_def_") >= 0)
+			{
+				tmp_filenames.push_back(insertFileName);
+			}
+
+		}
+	}*/
+	//chy 为啥还要再判断一次：按序号排序
+	int task_count = tmp_filenames.size();
+	for (int i = 1; i <= task_count; i++) {
+		std::stringstream ss;
+		
+		ss << "task_def_" << i << ".json";
+
+		for (auto iter2 : tmp_filenames)
+		{
+			if (iter2.find(ss.str()) != std::string::npos)
+			{
+				filenames.push_back(iter2);
+				break;
+			}
+		}
+	}
+}
+
+
+//扩展时需要测试一下getlastrunning任务的返回是否正确1121
+
+//主要处理以下情形：
+//cancel：cancel由界面方主动发出，发出后立刻界面对相应的feedback文件加锁；
+// 加锁后杀死运算程序，将job文件移到cancel；则本机的engine重新抢任务，而对于其他正在跑该job的机器则
+// 因job文件不存在而触发判断来做相应处理以保证所有与该Job相关的节点停止对该任务的运算
+//failure:一般由算法端主动发出，发出后算法端立刻对相应的feedback文件和job文件加锁；加锁后杀死运算程序，job文件到failure，
+//其他正在处理该job的机器因找不到job文件而触发失败处理，此处与cc不同，cc是所有子任务都会运算一遍.
+
+void SimpleWriteLog(std::string str)
+{
+	std::ostringstream oss;
+	oss.clear();
+	oss << str;
+	LOGI(oss.str());
+}
+
+void SimpleWriteLog(QString str)
+{
+	std::ostringstream oss;
+	oss.clear();
+	oss << qstr2str(str);
+	LOGI(oss.str());
+}
+
+bool LoadFeedbackFile(std::string& feedback_file, JobFeedBack_s& job_feedback, bool retry_more_times)
+{
+	int retryTimes = 0;
+	bool bSuccessful = false;
+
+	//qDebug() << "retry:" << retryTimes << QDateTime::currentDateTime().toString();
+Retry_It:
+
+	do
+	{
+		retryTimes++;
+
+		QString feedbackFilename = QString::fromStdString(feedback_file);
+		if (feedbackFilename.isEmpty())
+		{
+			//	qDebug() << "step 10";
+			break;
+		}
+		QFile fileFeedback(feedbackFilename);
+		if (!fileFeedback.open(QIODevice::ReadOnly))
+		{
+			fileFeedback.close();
+			//qDebug() << "step 11";
+			break;
+		}
+
+		QByteArray ba = fileFeedback.readAll();
+		QJsonParseError err;
+		QJsonDocument jsonDoc = QJsonDocument::fromJson(ba, &err);
+
+		if (jsonDoc.isNull() || err.error != QJsonParseError::NoError)
+		{
+			fileFeedback.close();
+			//qDebug() << "step 12";
+			break;
+		}
+
+		fileFeedback.close();
+		QJsonObject jsonObj = jsonDoc.object();
+		if (!jsonObj.contains("Status") || !jsonObj.contains("Percent") || !jsonObj.contains("Msg"))
+		{
+			fileFeedback.close();
+			//qDebug() << "step 13";;
+			break;
+		}
+
+		int  status = jsonObj.value("Status").toInt();
+		double percent = jsonObj.value("Percent").toDouble();
+		QString msg = jsonObj.value("Msg").toString();
+
+		//qDebug() << "step 14";
+		job_feedback.Status = (jobsta_e)status;
+		job_feedback.Percent = (float)percent;
+		job_feedback.Msg = qstr2str(msg);
+
+		bSuccessful = true;
+	} while (false);
+
+	if (!bSuccessful && retry_more_times && retryTimes < 3)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+		//		qDebug() << "retry:" << retryTimes << QDateTime::currentDateTime().toString();
+
+		goto Retry_It;
+	}
+
+	if (bSuccessful)
+	{
+		//	qDebug() << "status/sucess:" << job_feedback.Status << job_feedback.Percent << QString::fromStdString(job_feedback.Msg);
+		SimpleWriteLog("parse feedback file successfully by qjson:" + feedback_file + " retry:" + std::to_string(retryTimes));
+	}
+	else
+	{
+		//	qDebug() << "failed to parse feedback file." << retryTimes;
+		SimpleWriteLog("failed to parse feedback file by qjson:" + feedback_file + " retry:" + std::to_string(retryTimes));
+	}
+
+	return bSuccessful;
+}
+
+void ProcessUnnormaldRunningJobV2()
+{
+///	Sleep(500);
+	ATTaskInfo attask;
+	try
+	{
+		///if (!attask.load(NewFileForRun.toStdString()))
+		if (!attask.load(qstr2str(NewFileForRun)))
+			return;
+		if (attask.job_ == "")
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		return;
+	}
+
+
+	///std::string job_file = Settings::getEngineJobQueue().toStdString() + "/Running/" + attask.job_ + ".json";
+
+	std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + ".json";
+
+	/*
+	std::string feedbakpath = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+	std::string current_feedback_file = MAKE_FEEDBAK_FILE(feedbakpath, attask.job_);// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+
+	QString jobFileName = QString::fromStdString(job_file);
+	QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+	QString lsPendingJobFile = pendingJobPath + pathSeperator + lsRunningJobFileName;
+	QString lsRunningJobFile = runningJobPath + pathSeperator + lsRunningJobFileName;
+
+	QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+	QString cancelledJobFile = cancelledJobPath + pathSeperator + lsRunningJobFileName;
+	QString failedJobFile = failedJobPath + pathSeperator + lsRunningJobFileName;
+
+	QString jobFilePathLock = QString::fromStdString(job_file) + ".lock";
+	QString taskLock = NewFileForRun + ".lock";
+	std::string feedLock = current_feedback_file + ".lock";
+	QFile lockFilejob(jobFilePathLock);
+	QFile lockFilefeed(QString::fromStdString(feedLock));
+	QFile lockFiletask(taskLock);
+	*/
+
+	if (!gotNewPendingJobFile /*&& NewFileForRun.isEmpty()*/)//没有正在跑的任务，不需要处理
+	{
+///		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		return;
+	}
+
+	///JobFeedBack_s feadback;
+	///bool bLoadFeedbackFileError = false;
+
+	///if(!feadback.load_with_retry(current_feedback_file))
+	///{
+	///	bLoadFeedbackFileError = true;
+	///	return;
+	///}
+
+	///if (!QFileInfo(QString::fromStdString(job_file)).exists())
+	if (!QFileInfo(str2qstr(job_file)).exists())
+	{
+		// notes:
+		/// do it while the relevant job has been cancelled or failed.
+		// 1)sleep for a while,and check NewFileForRun and gotNewPendingJobFile again,if both are empty and false,return.
+		// 2)reduce the sleep time when the execTaskFile comes to end statuses such as failed,cancelled and completion.
+		if (bSpecialLog)
+		{
+			std::cout << "jobfile:" << job_file << " doesn't exist,but the engine is not in initial state." << " " << qstr2str(NewFileForRun) << " " << gotNewPendingJobFile << std::endl;
+			LOGI("jobfile:" + job_file + " doesn't exist,but the engine is not in initial state." + qstr2str(NewFileForRun) + " " + std::to_string(gotNewPendingJobFile));
+		}
+
+		// Generally,cancell signal can only be emitted by user interaction.
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+		if (!gotNewPendingJobFile || NewFileForRun.isEmpty())
+		{
+			if (bSpecialLog)
+			{
+				std::cout << "jobfile:" << job_file << " doesn't exist,now the engine is reset to initial state." << std::endl;
+				LOGI("jobfile:" + job_file + " doesn't exist,now the engine is reset to initial state.");
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			return;
+		}
+
+		if (bSpecialLog)
+		{
+			std::cout << "jobfile2:" << job_file << " doesn't exist." << " " << qstr2str(NewFileForRun) << " " << gotNewPendingJobFile << std::endl;
+			LOGI("jobfile2:" + job_file + " doesn't exist." + qstr2str(NewFileForRun) + " " + std::to_string(gotNewPendingJobFile));
+		}
+
+		if (killTaskProcess())
+		{
+			if (bSpecialLog)
+			{
+				std::cout << "killed job task:" << job_file << " successfully." << std::endl;
+				LOGI("killed job task:" + job_file + " successfully.");
+			}
+		}
+		else
+		{
+			if (bSpecialLog)
+			{
+				///std::cout << "job task has already disappeared:" << job_file << "!" << std::endl;
+				LOGI("job task has already disappeared:" + job_file);
+			}
+		}
+
+///		init();
+//		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+		return;
+	}
+	else
+	{
+		// do nothing here.
+		return;
+	}
+}
+
+void ProcessUnnormaldRunningJob()
+{
+	return;
+	Sleep(500);
+
+	ATTaskInfo attask;
+	if (!attask.load(NewFileForRun.toStdString()))
+		return ;
+	if (attask.job_ == "")
+		return;
+	std::string job_file = Settings::getEngineJobQueue().toStdString() + "/Running/" + attask.job_ + ".json";
+	std::string feedbakpath = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+	std::string current_feedback_file = MAKE_FEEDBAK_FILE(feedbakpath,attask.job_);// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+	
+	QString jobFileName = QString::fromStdString(job_file);
+	QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+	QString lsPendingJobFile = pendingJobPath + pathSeperator + lsRunningJobFileName;
+	QString lsRunningJobFile = runningJobPath + pathSeperator + lsRunningJobFileName;
+
+	QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+	QString cancelledJobFile = cancelledJobPath + pathSeperator + lsRunningJobFileName;
+	QString failedJobFile = failedJobPath + pathSeperator + lsRunningJobFileName;
+
+	QString jobFilePathLock = QString::fromStdString(job_file) + ".lock";
+	QString taskLock = NewFileForRun + ".lock";
+	std::string feedLock = current_feedback_file + ".lock";
+	QFile lockFilejob(jobFilePathLock);
+	QFile lockFilefeed(QString::fromStdString(feedLock));
+	QFile lockFiletask(taskLock);
+
+	if (!gotNewPendingJobFile /*&& NewFileForRun.isEmpty()*/)//说明有正在跑的任务，没有就不需要处理
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+		return;
+	}
+
+	//if (!lsRunningJobFileName.isEmpty())
+	{
+		if (!bfs::exists(job_file))
+		{
+			if (QFileInfo::exists(QString::fromStdString(job_file)))
+			{
+				SimpleWriteLog(job_file + " (job_file) exists.");
+			}
+			else
+			{
+				SimpleWriteLog(job_file + " (job_file) doesn't exists.");
+			}
+
+			if (QFileInfo::exists(lsPendingJobFile))
+				SimpleWriteLog(lsPendingJobFile + " (lsPendingJobFile) exists.");
+			else
+				SimpleWriteLog(lsPendingJobFile + " (lsPendingJobFile) doesn't exists.");
+
+			if (QFileInfo::exists(lsRunningJobFile))
+				SimpleWriteLog(lsRunningJobFile + " (lsRunningJobFile) exists.");
+			else
+				SimpleWriteLog(lsRunningJobFile + " (lsRunningJobFile) doesn't exists.");
+
+			if (QFileInfo::exists(lsCompletedJobFile))
+				SimpleWriteLog(lsCompletedJobFile + " (lsCompletedJobFile) exists.");
+			else
+				SimpleWriteLog(lsCompletedJobFile + " (lsCompletedJobFile) doesn't exists.");
+
+			if (QFileInfo::exists(cancelledJobFile))
+				SimpleWriteLog(cancelledJobFile + " (cancelledJobFile) exists.");
+			else
+				SimpleWriteLog(cancelledJobFile + " (cancelledJobFile) doesn't exists.");
+
+			if (QFileInfo::exists(failedJobFile))
+				SimpleWriteLog(failedJobFile + " (failedJobFile) exists.");
+			else
+				SimpleWriteLog(failedJobFile + " (failedJobFile) doesn't exists.");
+
+			if (!gotNewPendingJobFile /*&& NewFileForRun.isEmpty()*/)//说明有正在跑的任务，没有就不需要处理
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+				return;
+			}
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " to kill 1";
+				LOGI(oss.str());
+			}
+
+			killTaskProcess();
+
+			//此时读feedback如果feedback为cancle,如过不为则更新
+			JobFeedBack_s feadback;
+
+			bool bLoadFeedbackFileError = false;
+			if (!feadback.load(current_feedback_file))
+			{
+				bLoadFeedbackFileError = true;
+			}
+			else
+			{
+			}
+
+			///bool LoadFeedbackFile(std::string & feedback_file, JobFeedBack_s & job_feedback, bool retry_more_times)
+
+			if (bLoadFeedbackFileError)
+			{
+				bLoadFeedbackFileError = LoadFeedbackFile(current_feedback_file, feadback, true);
+				if (bLoadFeedbackFileError)
+				{
+					SimpleWriteLog(QString("loading feedback still failed by gjson after killing 1."));
+				}
+				else
+				{
+					SimpleWriteLog(QString("loading feedback still succeeded by gjson after killing 1."));
+				}
+
+			}
+
+			if (!bLoadFeedbackFileError && feadback.Status == jobsta_e::STATUS_CANCLE)
+			{
+				//看一下cancle目录下有没有，如果没有则输出job到cancle目录下如果有则不做任何处理
+				if (QFile::exists(cancelledJobFile) || QFileInfo(cancelledJobFile).exists())
+				{
+					//表示是其他节点处理好了的；
+					SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+				}
+				else
+				{
+					std::cout << "cannot find " << qstr2str(lsRunningJobFileName) << std::endl;					
+					feadback.Status = jobsta_e::STATUS_UNKNOWN;
+					feadback.Percent = 0;
+					feadback.save_with_retry(current_feedback_file);
+					std::cout << " unknown status." << std::endl;
+
+					SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+				}
+			}
+			else if (bLoadFeedbackFileError || feadback.Status == jobsta_e::STATUS_RUNNING)//如果不是cancle是running则说明没有处理则赋值为cancle
+			{
+				feadback.Status = jobsta_e::STATUS_CANCLE;
+				feadback.save_with_retry(current_feedback_file);
+				SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+			}
+			else if (feadback.Status == jobsta_e::STATUS_FAILURE)//如果是失败了，但是job文件又没有说明应该是别的task已经处理完失败的情形了此处只需停止就行
+			{
+				//看一下failed目录下有没有，如果没有则输出job到cancle目录下如果有则不做任何处理
+				if (QFile::exists(failedJobFile) || QFileInfo(failedJobFile).exists())
+				{
+					//表示是其他节点处理好了的；
+					SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+				}
+				else//如果falied目录没有则输出
+				{
+					feadback.Status = jobsta_e::STATUS_FAILURE;
+					feadback.Percent = 0;
+					feadback.save_with_retry(current_feedback_file);
+					std::cout << " unknown status." << std::endl;
+					std::cout << "cannot find " << qstr2str(lsRunningJobFileName) << std::endl;
+					SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+				}
+			}
+
+			SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+			init();
+			Sleep(100);
+
+
+		}
+		else //存在则为正常处理
+		{
+			JobFeedBack_s feadback;
+			bool bLoadFeedbackFileError = false;
+
+			if (!feadback.load(current_feedback_file))
+			{
+				bLoadFeedbackFileError = true;
+			}		
+
+			if (bLoadFeedbackFileError)
+			{
+				bLoadFeedbackFileError = LoadFeedbackFile(current_feedback_file, feadback, true);
+				if (bLoadFeedbackFileError)
+				{
+					SimpleWriteLog(QString("loading feedback still failed by gjson before killing 2."));
+				}
+				else
+				{
+					SimpleWriteLog(QString("loading feedback still succeeded by gjson before killing 2."));
+				}
+
+			}
+
+			jobsta_e status = feadback.Status;
+			if (bLoadFeedbackFileError || feadback.Status == jobsta_e::STATUS_CANCLE || feadback.Status == jobsta_e::STATUS_FAILURE)//此时一般为界面过来的
+			{
+				
+				if (!gotNewPendingJobFile /*&& NewFileForRun.isEmpty()*/)//说明有正在跑的任务，没有就不需要处理
+				{
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+					return;
+				}
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					std::string msg = "";
+
+					if(bLoadFeedbackFileError)
+						msg = current_feedback_file + " corrupted.";
+					else if (feadback.Status == jobsta_e::STATUS_CANCLE)
+						msg = current_feedback_file + " cancle.";
+					if (feadback.Status == jobsta_e::STATUS_FAILURE)
+						msg = current_feedback_file + " failure.";
+					oss << __FUNCTION__ << " LINE " << __LINE__ << " to kill 2 because status " << msg;
+					LOGI(oss.str());
+
+				}
+
+				killTaskProcess();
+				Sleep(100);
+
+				//如果遇上了则所有都强制加锁，
+				JobFullInfo_s jobinfo(job_file);
+
+				{
+					//并写job以及移动jobfile
+
+
+					//需要测试一下除AT之外的建模任务
+					int taskid = jobinfo.tg.GetLastRunningTaskId();
+					if (taskid == -1)
+					{
+						taskid = jobinfo.tg.GetFirstPendingTaskId();
+
+					}
+
+					if (taskid == -1)
+					{
+						SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+						std::cout << "error------ " << std::endl;
+						return;
+					}
+					std::string joboutputfile = cancelledJobFile.toStdString();
+					//cancel需要告知是在哪个步骤终止了，失败则是由算法告知所以不用写
+					if (bLoadFeedbackFileError || feadback.Status == jobsta_e::STATUS_CANCLE)
+					{
+						feadback.Msg = jobinfo.tg.tasksmap.at(taskid).Msg + " ";
+						feadback.Msg += blk_status_str.at(status);
+						feadback.save_with_retry(current_feedback_file);
+						std::cout << feadback.Msg << std::endl;
+						SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+					}
+					else if (feadback.Status == jobsta_e::STATUS_FAILURE)
+					{
+						std::cout << feadback.Msg << std::endl;
+						joboutputfile = failedJobFile.toStdString();
+						SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__));
+					}
+					jobinfo.tg.feedback = feadback;
+					QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");			
+					jobinfo.tg.tasksmap.at(taskid).Status = int(status);					
+					jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+					
+					SimpleWriteLog("saving job file:" + joboutputfile + " after killing 2.");
+					bool bsave = jobinfo.save(joboutputfile);
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+					std::ostringstream strLine;
+					strLine.clear();
+					strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+					
+					PrintTimeSum(strLine.str());
+					ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+					if (boost::filesystem::exists(jobFileName.toStdString()))
+					{
+						SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3 %4").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__).arg(jobFileName));
+
+						QFileInfo finfo(str2qstr(joboutputfile));
+						if (finfo.exists())
+						{
+							SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3 %4 exists,remove %5").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__)
+								.arg(str2qstr(joboutputfile)).arg(jobFileName));
+							QFile(jobFileName).remove();
+						}
+						else
+						{
+							SimpleWriteLog(QString("inside ProcessUnnormalRunningJob %1 %2 %3 %4 doesn't exists,cannot remove %5").arg(__FILE__).arg(__FUNCTION__).arg(__LINE__)
+								.arg(str2qstr(joboutputfile)).arg(jobFileName));
+
+							//QFile(jobFileName).remove();
+						}
+					}
+
+					//加类型判断是AT还是TIle，应该不需要加类型判断可以测试一下
+
+					if (boost::filesystem::exists(qstr2str(jobFilePathLock)))
+						lockFilejob.remove();
+					if (boost::filesystem::exists(feedLock))
+						lockFilefeed.remove();
+					if (boost::filesystem::exists(qstr2str(taskLock)))
+						lockFiletask.remove();
+
+				}
+				init();
+				
+				Sleep(100);
+
+			}
+
+			
+
+		}
+	}
+}
+
+/*
+more detail hints on deleting lockfile for a specified raw file referenced to as 'rawfile' later:
+1)in fact,needn't delete lock file.whenever visiting the lock file,the related process can do furthur works only after successfully locking the specified lockfile.
+2)it is not accurate to make sure whether the lockfile is held by some process,just only based on whether the same lockfile exists.
+3)if we want to delete a lock file,maybe it is impossible to delete the lockfile at the time when it is locked.It is also,however,not safe to remove it when
+  the corresponding file is out of lock state.
+4)The following points may be the ideal way to remove the lock file safely without encountering any collisions:
+  (1)define a filename variable in the form of 'file-locked-remove' via combining the rawfile's filename with lock and remove flags.
+  (2)While doing _fsopen with a DENYWR attribute which limit other process to acess the corresponding filename with write mode except current one for the lockfile
+	 successfully,it means lock the lockfile well.Then,we can _fsopen the file-locked-remove filename with the same attribute above,
+	 if it also succeeds,we can go on the subsequent logic to remove the lockfile later.if failed to _fsopen the file-locked-remove filename,just abandon it now.
+  (3)fclose the lockfile to free the relevant lock for a specific file.
+  (3)during the lock state for file-locked-remove filename,it is safe to remove the corresponding lockfile now.
+  (4)fclose file-locked-remove filename after removing the lockfile successfully.
+
+5)feedback load/save:
+   (1)load consistency:field check or field value range check without locking.
+   (2)save before locking.
+
+*/
+
+/*
+  check the consistency of feedback file while loading:
+  (1)load the content of feedback file into memory.
+  (2)parse the content of the feedback file,and check whether it has all the necessary key fields.
+  (3)check whether all the values of related key fields are normal value or within suitable range. 
+  (4)if failed,sleep and load it in about 3 seconds later. try 3 times at most.and try to minimize the time as possible as we can when saving the feedback file.
+  (5)make some necessary modify on feedback class to satisfy new api requirements.
+  (6)using some retry mechanism instead of rewriting thread,the later one is a bit complex to implement.
+  (7)use  QJsonDocument class to check the consistency of the feedback file.
+*/
+
+// instead using a retry mechanism
+void doFeedbackRewriteThread()
+{
+	while (true)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	}
+}
+
+bool bHasNewerVersion = false;
+extern bool CheckOTADownloadedPackageInsideIntranet(int& newVer, QString& newVerName, int& oldVer, QString& oldVerName);
+
+void doIntranetVersionCheckThread()
+{
+	while (true)
+	{
+		bool state;		
+		int oldVer, newVer;
+		QString oldVerName, newVerName;
+
+		if (bQuitingApplication)
+			break;
+
+		state = CheckOTADownloadedPackageInsideIntranet(newVer, newVerName, oldVer, oldVerName);
+		if (state)
+		{
+///			std::cout << "ota package has new version,please quit current application and update it.(from " << std::to_string(oldVer) << "(" + oldVerName.toStdString()
+///				<< ")" << std::to_string(newVer) << "(" << newVerName.toStdString() << ")." << std::endl;
+/// 
+			std::cout << "======= NEW OTA PACKAGE HAS BEEN COMING FROM " << std::to_string(oldVer) << "(" + qstr2str(oldVerName)
+			<< ") TO " << std::to_string(newVer) << "(" << qstr2str(newVerName) << ") ======" << std::endl;
+
+			break;
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+	}
+}
+
+/*
+  constructing a badly damaged feedback file( such as added with more large brackets at the end of the file),
+  to reproduce the crash issue inside  execution flow.
+  it would be better to simulate the corrupted feedback file during random write process while running inside MokEngine.
+*/
+
+void searchUnnormaldRunningJobThread()
+{
+	while(true)
+	{
+		if (bQuitingApplication)
+			break;
+
+		if (!gotNewPendingJobFile /*&& NewFileForRun.isEmpty()*/)//说明有正在跑的任务，没有就不需要处理
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			continue;
+		}
+
+		if (NewFileForRun.isEmpty())//说明有正在跑的任务，没有就不需要处理
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			continue;
+		}
+
+		if (bQuitingApplication)
+			break;
+
+		if (bNetworkPathAlreadyInvalid)
+			break;
+
+		ProcessUnnormaldRunningJobV2();
+		///ProcessUnnormaldRunningJob();
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	}
+}
+
+void GetPendingJob()
+{
+	QStringList jobNameList;
+	QStringList jobFullPathList;
+
+	std::vector<std::string> jobliststring = JobMonitor::SortPendingJobFile(qstr2str(pendingJobPath));
+	for (auto iter : jobliststring)
+	{
+		jobFullPathList.append(str2qstr(iter));
+	}
+		
+	for (int i = 0; i < jobFullPathList.size(); i++)
+	{
+		QFileInfo finfo(jobFullPathList.at(i));
+		jobNameList.append(finfo.fileName());
+	}
+
+	for (int i = 0; i < jobNameList.size(); i++)
+	{
+		int jobPos = i;
+
+		QString jobFilePath = jobFullPathList.at(jobPos);
+		QString jobFileName = jobNameList.at(jobPos);
+
+		if (bQuitingApplication)
+			break;
+
+		if (!QFile(jobFilePath).exists())
+			continue;
+
+		std::string jobFileNameString = qstr2str(jobFileName);
+		std::string jobBaseNameString = qstr2str(QFileInfo(jobFilePath).baseName());
+		std::string jobFilePathString = qstr2str(jobFilePath);
+
+		QString jobFilePathLock = jobFilePath + LOCKFILE_POSTFIX;
+
+		JobFullInfo_s jobpending(jobFilePathString);
+
+		std::string blockpath = jobpending.tg.job.ProjectPath2;
+		std::string block = jobpending.tg.job.ItemPath2;
+
+		if (jobpending.JobName != jobBaseNameString)
+		{
+			continue;
+		}
+		// 加锁指定job文件.(Pending job)
+		FILE* fp = _fsopen(jobFilePathLock.toLocal8Bit().data(), "wt", _SH_DENYWR);
+		if (fp != NULL)
+		{
+			// 加锁成功,表明已经抢到对应的Pending job.当前Engine可以对应Pending Job进行GenTasks处理.
+	///		gotNewPendingJobFile = true;//chy add.
+
+			projectfilefullpath = jobpending.tg.job.ProjectPath2;//chy add.
+
+			JobFeedBack_s feadback;
+			std::string feedname = FEEDBACK_PREFIX + jobFileNameString;
+			std::string feedback_file = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + feedname;
+			std::string feedback_filelock = feedback_file + LOCKFILE_POSTFIX;
+
+			// find out the real working state about feedback file based on detail execution behaviour,maybe it is not accurate and not complete just to 
+			// check feedback lock file's existence.
+			// what is the real relation between feedback file and job file while running?
+					
+			///if (bfs::exists(feedback_file) && (boost::filesystem::exists(feedback_filelock)))
+			///{
+			///	QFile(jobFilePathLock).remove();
+			///	projectfilefullpath = "";
+			///	gotNewPendingJobFile = false;//chy add.
+
+				// release PendingJob lock.
+			///	fclose(fp);
+			///	continue;
+			///}
+
+			// add feedback lock later.switch to next job file while failing to lock feedback file
+					
+			///if (!bfs::exists(feedback_file))
+			{
+				// even the feedback file does not exist at the time when detecting its existence a little time ago,
+				// it still,however, occasionly happens that other engine node may get and hold the feedback file lock after last detection until the execution of the 
+				// following code.
+///						feadback.save_with_retry(feedback_file);
+			}
+
+			/*feadback.load(feedback_file);*/					
+					
+
+			std::string jobdir = qstr2str(ENGINEJOBPATH);
+
+			std::string job_file = jobdir + PATH_SEPARATOR_STR + blk_status_str.at(job_status_e::STATUS_RUNNING) + PATH_SEPARATOR_STR + jobBaseNameString + JSONFILE_POSTFIX;
+			QString cancelledJobFile = cancelledJobPath + PATH_SEPARATOR_STR + jobFileName;
+			/*feadback = */
+			/*feadback.Status = jobsta_e::STATUS_RUNNING;*/
+
+			{
+
+				//正常操作,读取内容并增加running信息
+
+				//避免因通过拷贝文件的方式过来的所以就重新赋值
+				JobFullInfo_s jobpending_new;
+				//LOGI("aaaa");
+				if(jobpending.tg.tasksmap.size() > 0)
+				{
+					
+					jobpending_new.SetPendingInfo(jobpending.tg.tasksmap.at(0).Type,jobBaseNameString, blockpath, block,
+						RunInfo_s(jobpending.tg.runinfo.SubmitHostName, jobpending.tg.runinfo.SubmitUser, jobpending.tg.runinfo.SubmitTime));
+				}
+				else
+				{
+					
+					jobpending_new.SetPendingInfo(1/*jobpending.tg.tasksmap.at(0).Type*/, jobBaseNameString, blockpath, block,
+						RunInfo_s(jobpending.tg.runinfo.SubmitHostName, jobpending.tg.runinfo.SubmitUser, jobpending.tg.runinfo.SubmitTime));
+
+				}
+				//LOGI("aaaa");
+				Run_s runinfo;
+				runinfo.RunHostName = getenv("USERNAME");
+				runinfo.RunUserName = QHostInfo::localHostName().toStdString();
+				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+				runinfo.StartTime = datatime.toStdString();
+				jobpending_new.tg.runinfo.runninginfo = runinfo;
+				jobpending_new.tg.feedback.Status = jobsta_e::STATUS_RUNNING;
+				/*jobpending_new.tg.feedback = feadback;*/
+				feadback = jobpending_new.tg.feedback;
+				//LOGI("aaaa");
+				if (jobpending.tg.tasksmap.size() > 0)
+				{
+					jobpending_new.tg.tasksmap.at(0).SetRunningInfo(runinfo);
+				}
+				//LOGI("aaaa");
+				QString toRunningJobFile = runningJobPath + PATH_SEPARATOR_STR + jobFileName;
+				std::string basepathstr = AICORE::File::GetParentDir(blockpath);
+				basepathstr = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(basepathstr)));
+				std::string taskpath = AI3D::CORE::File::JoinPaths(basepathstr, block, jobBaseNameString);
+				taskpath = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(taskpath)));
+				std::string taskfile = taskpath + TASK_DEF_ZERO_FILE;//需测试 1121 AICORE::File::GetParentDir(blockpath) + "/" +
+					//block + "/" + jobBaseNameString + "/" + TASK_DEF_ZERO_FILE;
+
+				//如果遇到了加锁则放弃该job
+				// check it later: it may be not reliable just according to the existence of feedback_filelock.
+				//LOGI("aaaa");
+				///if (!bfs::exists(taskfile) || bfs::exists(feedback_filelock))
+				if (!QFileInfo::exists(str2qstr(taskfile)))
+				{
+					// In theory,it is impossilbe to reach here.
+							
+					// The following may be unsafe,whether being placing before freeing related lock or after that.
+					// we had better remove all the obsolete job lock in a seperate clean-up  thread.
+					///QFile(jobFilePathLock).remove();
+					projectfilefullpath = "";
+					///gotNewPendingJobFile = false;//chy add.
+
+					fclose(fp);
+
+					Sleep(100);
+					continue;
+				}
+				if (jobpending_new.save(qstr2str(toRunningJobFile)))
+				{
+					std::ostringstream strLine;
+					strLine.clear();
+					strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+					PrintTimeSum(strLine.str());
+					ExportTimeSum(jobpending_new/*, jobpending.tg.tasksmap.at(0).Type==4?1:0*/);
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+					QFileInfo finfo(toRunningJobFile);
+					if (finfo.exists())
+					{
+						LOGI(qstr2str(QString("save " + jobFilePath + " to " + toRunningJobFile + " ok(remove jobfile.).")));
+						QFile(jobFilePath).remove();
+					}
+					else
+					{
+						LOGI(qstr2str(QString("save " + jobFilePath + " to " + toRunningJobFile + "ok,but the latter doesn't exist even after waiting for 1 second,try to find out the the cause with great care though deleting the pending job file temporarily(remove jobfile)!!!")));
+						QFile(jobFilePath).remove();
+					}
+
+					if (!feadback.save_with_retry(feedback_file))
+					{
+						LOGI("failed to save feedback file inside GetPendingJob!!!");
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						// Though it is impossible,but keeping it for more safety.
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+
+					///  lock this following task file in advance,keep it locked during the entire life  cycle to process it later until finished this task.
+
+					QString taskFilePathLock = str2qstr(taskfile) + ".lock";
+
+					std::string taskfile_lock = taskfile + ".lock";
+					fpTaskLock = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+
+					if (fpTaskLock == NULL)
+					{
+						projectfilefullpath = "";
+						fclose(fp);
+						break;
+					}
+
+					//删除pending下的然后
+
+					projectfilefullpath = jobpending_new.tg.job.ProjectPath2;
+
+					// where is the best opportunity to lock this task file?how about its life cycle?
+					gotNewPendingJobFile = true; 		
+
+					NewFileForRun = str2qstr(taskfile);
+
+					std::cout << "got pending task:" << taskfile << std::endl;
+
+					fclose(fp);
+
+					///QFile(jobFilePathLock).remove();
+							
+					break;
+				}
+				else
+				{
+					LOGI("failed to move pending job file into running job queue,check it to find out what had happened.");
+							
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+
+					///QFile(jobFilePathLock).remove();
+					projectfilefullpath = "";
+
+					///gotNewPendingJobFile = false;//chy add.
+
+					fclose(fp);
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					continue;
+				}
+
+			}
+
+		}
+	}
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));			
+}
+
+int GetRunningTaskInRunningJob()
+{
+	QStringList jobNameList;
+	QStringList jobFullPathList;
+
+	std::vector<std::string> jobliststring = JobMonitor::SortJobFile(qstr2str(runningJobPath));
+	for (auto iter : jobliststring)
+	{
+		jobFullPathList.append(str2qstr(iter));
+	}
+
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << " running jobs lists " << jobliststring.size();
+///		std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+		///LOGI(oss.str());
+	}
+
+	for (int i = 0; i < jobFullPathList.size(); i++)
+	{
+		QFileInfo finfo(jobFullPathList.at(i));
+		jobNameList.append(finfo.fileName());
+	}
+
+	for (int i = 0; i < jobNameList.size(); i++)
+	{
+		int jobPos = i;
+
+		if (bQuitingApplication)
+			break;
+
+		QString jobFilePath = jobFullPathList.at(jobPos);
+		QString jobFileName = jobNameList.at(jobPos);
+
+		if (jobFilePath.endsWith(".lock"))
+			continue;
+
+		if (!QFile(jobFilePath).exists())
+		{
+			std::cout << __FUNCTION__ << " LINE " << __LINE__ << qstr2str(jobFilePath) << std::endl;
+			continue;
+		}
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath);
+			///LOGI(oss.str());
+		}
+
+
+		std::string jobFileNameString = qstr2str(jobFileName);
+		std::string jobBaseNameString = qstr2str(QFileInfo(jobFilePath).baseName());
+		std::string jobFilePathString = qstr2str(jobFilePath);
+
+		QString jobFilePathLock = jobFilePath + LOCKFILE_POSTFIX;
+		JobFullInfo_s jobinfo(jobFilePathString);
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " taskmaps size " << (std::to_string(jobinfo.tg.tasksmap.size()));
+//			std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+			///LOGI(oss.str());
+		}
+
+		if (jobinfo.tg.tasksmap.empty())
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " taskmaps size empty ";
+///				LOGI(oss.str());
+
+			}
+
+			std::cout << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " taskmaps size empty " << std::endl;
+			continue;
+		}
+
+		if (jobinfo.JobName != jobBaseNameString)
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " jobinfo.JobName is not equal jobBaseNameString";
+				LOGI(oss.str());
+
+			}
+
+			///std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+			continue;
+		}
+
+		std::string blockpath = jobinfo.tg.job.ProjectPath2;
+		std::string block = jobinfo.tg.job.ItemPath2;
+
+		/*if (GetJobType(jobinfo.JobName) == JOB_AT)*/
+		if (jobinfo.tg.HasTaskDef0())//其实就是AT类型,1121此处应该不分AT类型否
+			{
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " has taskdef0 ";
+					//std::cout << oss.str() << std::endl;
+					LOGI(oss.str());
+
+				}
+
+				//todo什么时候假的锁，有必要加锁吗，job文件project没有了			
+
+				FILE* fpjob = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+				if (fpjob == NULL)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << " file " << qstr2str(jobFilePathLock) << " locked failed,continue ";
+						LOGI(oss.str());
+					}
+
+					///std::cout << __FUNCTION__ << " LINE " << __LINE__ << "lock failed." << std::endl;
+					continue;
+				}
+
+				int id = -1;
+	//			std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+// check:if running,but the engine quit...
+				if (jobinfo.tg.tasksmap.at(0).Status != jobsta_e::STATUS_COMPLETE)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << " exists " << qstr2str(jobFilePath) << " taskdef0 is not complete.";
+						LOGI(oss.str());
+					}
+
+
+					/// continue;
+					id = 0;
+
+					std::string taskfile = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + jobBaseNameString + "/" +
+						TASK_DEF_PREFIX + std::to_string(id) + JSONFILE_POSTFIX;
+
+///					QString taskFilePathLock = QString::fromStdString(taskfile) + ".lock";
+
+					std::string taskfile_lock = taskfile + ".lock";
+					FILE* fptask = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+					if (fptask == NULL)
+					{
+						fclose(fpjob);
+						continue;
+					}
+					else
+					{
+						fpTaskLock = fptask;
+						LOGI("locked succ for : " + taskfile);
+					}
+				}
+
+				if (id == -1)
+				{
+					id = jobinfo.tg.GetFirstPendingTaskId();
+					if (id >= 0)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << " exists " << qstr2str(jobFilePath) << " first pending task id " << std::to_string(id);
+							LOGI(oss.str());
+						}
+
+						//jobinfo.tg.tasksmap.at(0).
+						//此处是为了空三优化的步骤现在不用
+				
+				
+					}
+
+					//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " exists " << jobFilePath.toStdString() << " first pending task id " << (std::to_string(id)) << std::endl;
+				}
+
+				int id2 = -1;
+
+				if (id == -1)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " exists " << qstr2str(jobFilePath) << " first pending task id is not good and continue ";
+///						LOGI(oss.str());
+					}
+
+					//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " exists " << jobFilePath.toStdString() 
+					//	<< " first pending task id is not good continue " << std::endl;
+
+					///  checking running id,but lock has been freed.
+				///	continue;
+				
+					for (auto& iter : jobinfo.tg.tasksmap)
+					{
+						id2 = iter.first;
+						if (iter.second.Status != int(jobsta_e::STATUS_RUNNING))
+						{
+							id2 = -1;
+							continue;
+						}
+
+						if (!jobinfo.tg.IsTaskComplete(id2))
+						{
+							//return id;
+							id2 = -1;
+							break;
+						}
+
+						std::string taskfile = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + jobBaseNameString + "/" +
+							TASK_DEF_PREFIX + std::to_string(id2) + JSONFILE_POSTFIX;
+
+///						QString taskFilePathLock = QString::fromStdString(taskfile) + ".lock";
+
+						std::string taskfile_lock = taskfile + ".lock";
+						FILE* fptask = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+						if (fptask == NULL)
+						{
+							id2 = -1;
+							continue;
+						}
+						else
+						{
+							fpTaskLock = fptask;
+							LOGI("lock task file:" + taskfile);
+							break;
+						}
+					}
+
+					if (id2 == -1)
+					{
+						fclose(fpjob);
+						continue;
+					}
+
+					id = id2;
+
+				
+				}
+
+				std::string feedname = FEEDBACK_PREFIX + jobBaseNameString + JSONFILE_POSTFIX;
+				std::string feedback_file = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + feedname;
+				std::string feedback_filelock = feedback_file + LOCKFILE_POSTFIX;
+
+				std::string taskfile = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + jobBaseNameString + "/" +
+					TASK_DEF_PREFIX + std::to_string(id) + JSONFILE_POSTFIX;
+
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << " jobfile " << qstr2str(jobFilePath) << " taskfile " << taskfile << " id:" << std::to_string(id) << " id2:" << std::to_string(id2);
+					LOGI(oss.str());
+				}
+
+//				std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " taskfile " << (taskfile)
+//					<< std::endl;
+
+				///if (bfs::exists(feedback_file) && (boost::filesystem::exists(feedback_filelock)))
+				///{
+				///	if (bSpecialLog)
+				///	{
+				///		std::ostringstream oss;
+				///		oss.clear();
+				///		oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " feedback_file and feedback_filelock " << (taskfile);
+				///		LOGI(oss.str());
+
+				///	}
+				///	fclose(fpjob);
+				///	QFile(jobFilePathLock).remove();
+				///	Sleep(50);
+				///	continue;
+				///}
+
+				///if (!bfs::exists(taskfile))
+				if (!QFileInfo(str2qstr(taskfile)).exists())
+				{
+					// Normally,it doesn't come here.If occuring occasionally,try to find out what had happened.
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " jobfile " << qstr2str(jobFilePath) << " taskfile is not exist ";
+						LOGI(oss.str());
+					}
+
+//					std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() 
+//						<< " taskfile is not exist " << std::endl;
+
+					fclose(fpjob);
+					///QFile(jobFilePathLock).remove();
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+						LOGI("unlocked lock for task file:" + taskfile);
+					}
+
+					Sleep(50);
+					continue;
+				}
+
+	///			QString taskFilePathLock = QString::fromStdString(taskfile) + ".lock";
+				std::string taskfile_lock = taskfile + ".lock";
+				///FILE* fptask = NULL;
+
+				if (fpTaskLock == NULL)
+				{
+					///fptask = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+					LOGI("preparing to lock taskfile:" + taskfile);
+					fpTaskLock = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+				}
+
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << qstr2str(jobFilePath) << " taskfile_lock " << (taskfile_lock);
+///					LOGI(oss.str());
+				}
+
+				if (fpTaskLock == NULL)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " jobfile " << qstr2str(jobFilePath) << " taskfile lock failed " << taskfile;
+						LOGI(oss.str());
+
+					}
+
+					///std::cout << __FUNCTION__ << " LINE " << __LINE__ << " lock task failed." << std::endl;
+					fclose(fpjob);
+					
+					///QFile(jobFilePathLock).remove();
+
+					//projectfilefullpath = "";
+					//gotNewPendingJobFile = false;//chy add.
+
+					Sleep(50);
+					continue;
+				}
+
+				LOGI("locked taskfile succ:" + taskfile);
+
+				JobFeedBack_s feadback;
+
+				bool bLoadFeedbackFileError = false;
+				if (!feadback.load_with_retry(feedback_file))
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " jobfile " << qstr2str(jobFilePath) << " load feedback_file failed,feedback status " << feadback.Status;
+						LOGI(oss.str());
+					}
+
+					bLoadFeedbackFileError = true;
+
+//					std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " load feedback_file failed,feedback status " 
+//						<< feadback.Status << std::endl;
+
+					fclose(fpjob);
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+
+					Sleep(50);
+					continue;
+				}
+
+				if(feadback.Status != jobsta_e::STATUS_RUNNING)
+				{
+					// cancelled,failed,completed,and etc.
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " jobfile " << qstr2str(jobFilePath) << " feedback status is not running " << feadback.Status;
+						LOGI(oss.str());
+
+					}
+
+					//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " feedback status is not running " 
+					//	<< feadback.Status << std::endl;
+
+					///fclose(fptask);
+
+					// It is safe to do cleaning up for all the task file locks in seperate thread.
+					// Generally,the following logic is not safe
+///					QFile(taskFilePathLock).remove();
+
+///					QFile(jobFilePathLock).remove();
+					projectfilefullpath = "";
+					// can omit the following line in fact.
+					gotNewPendingJobFile = false;//chy add.
+					NewFileForRun = "";
+
+					fclose(fpjob);
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+
+					LOGI("unlocked job:" + qstr2str(jobFilePath) + " with taskfile:" +taskfile);
+
+					Sleep(50);
+					continue;
+				}
+
+///				gotNewPendingJobFile = true;//chy add.
+
+				projectfilefullpath = jobinfo.tg.job.ProjectPath2;//chy add.
+
+				///if (!bfs::exists(feedback_file))
+				///{
+				///	if (bSpecialLog)
+				///	{
+				///		std::ostringstream oss;
+				///		oss.clear();
+				///		oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " feedback_file is not exist  " << (feedback_file);
+				///		LOGI(oss.str());
+
+				///	}
+
+				///	feadback.Status = jobsta_e::STATUS_RUNNING;
+				///	feadback.save(feedback_file);
+				///}
+
+				//if (bfs::exists(feedback_file) && (boost::filesystem::exists(feedback_filelock)))
+				///{
+				///	if (bSpecialLog)
+				///	{
+				///		std::ostringstream oss;
+				///		oss.clear();
+				///		oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " feedback_file and feedback_filelock ";
+				///		LOGI(oss.str());
+
+				///	}
+				///	fclose(fptask);
+				///	QFile(taskFilePathLock).remove();
+				///	fclose(fpjob);
+				///	QFile(jobFilePathLock).remove();
+				///	projectfilefullpath = "";
+				///	gotNewPendingJobFile = false;//chy add.
+				///	Sleep(50);
+				///	continue;
+				///}
+
+				//写信息
+				Run_s runinfo;
+				runinfo.RunHostName = getenv("USERNAME");
+				runinfo.RunUserName = QHostInfo::localHostName().toStdString();
+				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+				runinfo.StartTime = datatime.toStdString();
+
+				jobinfo.tg.tasksmap.at(id).runinfo = runinfo;
+				jobinfo.tg.tasksmap.at(id).Status = (int)jobsta_e::STATUS_RUNNING;
+				// in fact,the following line is not needed,for the feedback status had been already assigned 'STATUS_RUNNING' inside GetPendingJob at the first early stage.
+				feadback.Status = jobsta_e::STATUS_RUNNING;
+				jobinfo.tg.feedback = feadback;
+
+				///jobinfo.tg.tasksmap.at(id).
+
+				///if (bfs::exists(feedback_file) && (boost::filesystem::exists(feedback_filelock)))
+				///{
+				///	if (bSpecialLog)
+				///	{
+				///		std::ostringstream oss;
+				///		oss.clear();
+				///		oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " feedback_file and feedback_filelock ";
+				///		LOGI(oss.str());
+				///	}
+				///	fclose(fptask);
+				///	QFile(taskFilePathLock).remove();
+				///	fclose(fpjob);
+				///	QFile(jobFilePathLock).remove();
+				///	projectfilefullpath = "";
+				///	gotNewPendingJobFile = false;//chy add.
+				///	Sleep(50);
+				///	continue;
+				///}
+
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << "save jobfile: " << qstr2str(jobFilePath);
+					LOGI(oss.str());
+				}
+
+				// write lock needed.
+				if (jobinfo.save(jobFilePathString))
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " jobfile " << qstr2str(jobFilePath) << " to save jobfile success ,export timesum " << (jobFilePathString);
+						LOGI(oss.str());
+
+					}
+					std::ostringstream strLine;
+					strLine.clear();
+					strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+					PrintTimeSum(strLine.str());
+					ExportTimeSum(jobinfo/*,jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+						
+					///bool savestatus = feadback.save_with_retry(feedback_file);
+					///if (bSpecialLog)
+					///{
+					///	std::ostringstream oss;
+					///	oss.clear();
+					///	oss << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " to save feedback  " << (feedback_file) << " save status " << savestatus;
+					///	LOGI(oss.str());
+					///}
+					projectfilefullpath = jobinfo.tg.job.ProjectPath2;
+
+					QString  sTmpNewFileForRun = str2qstr(taskfile);
+
+					if (!continueCurrentTask(sTmpNewFileForRun))
+					{
+						//std::cout << "never to continue with the task, and unlock it:" << sTmpNewFileForRun.toStdString() << std::endl;
+						LOGI("never to continue with the task, and unlock it:" + qstr2str(sTmpNewFileForRun));
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+
+						projectfilefullpath = "";
+						gotNewPendingJobFile = false;
+						NewFileForRun = "";
+
+						fclose(fpjob);
+						std::this_thread::sleep_for(std::chrono::milliseconds(500));
+						continue;
+					}
+					else
+					{
+						//std::cout << "to continue with task:" << sTmpNewFileForRun.toStdString() << std::endl;
+						LOGI("to continue with task:" + qstr2str(sTmpNewFileForRun));
+					}
+
+
+					gotNewPendingJobFile = true;
+					NewFileForRun = str2qstr(taskfile);
+
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << "getrunningtaskinrunningjob succ:jobfile " << qstr2str(jobFilePath) << " gotNewPendingJobFile " << gotNewPendingJobFile << " NewFileForRun " << qstr2str(NewFileForRun);
+						LOGI(oss.str());
+					}
+
+					//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() <<
+					//	" gotNewPendingJobFile " << gotNewPendingJobFile << " NewFileForRun " << NewFileForRun.toStdString() << std::endl;
+
+
+					///std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+				///	fclose(fptask);
+
+///					QFile(taskFilePathLock).remove();
+					fclose(fpjob);
+///					QFile(jobFilePathLock).remove();
+					Sleep(50);
+					return AI3D_SUCCESS;
+				}
+				else
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << " to save jobfile failed with unlocking related lock:" << qstr2str(jobFilePath) << " " << taskfile;
+						LOGI(oss.str());
+
+					}
+
+					//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " jobfile " << jobFilePath.toStdString() << " to save jobfile failed  " << (jobFilePathString) << std::endl;
+
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+					///fclose(fptask);
+///					QFile(taskFilePathLock).remove();
+					
+///					QFile(jobFilePathLock).remove();
+					projectfilefullpath = "";
+					gotNewPendingJobFile = false;//chy add.
+					NewFileForRun = "";
+
+					fclose(fpjob);
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					continue;
+				}
+			}
+		else /*if (GetJobType(jobinfo.JobName) == JOB_BATCH)*/
+		{
+			if (jobinfo.tg.tasksmap.at(0).Status != jobsta_e::STATUS_COMPLETE)//其余类型只有一个task所以不做处理
+			{
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << __FUNCTION__ << " LINE " << __LINE__ << " exists/prod " << qstr2str(jobFilePath) << " taskdef0 is not complete.status"
+						<< jobinfo.tg.tasksmap.at(0).Status;
+					LOGI(oss.str());
+					std::cout << oss.str() << std::endl;
+				}
+
+				std::string feedname = FEEDBACK_PREFIX + jobBaseNameString + JSONFILE_POSTFIX;
+				std::string feedback_file = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + feedname;
+
+				if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_CANCLE
+					|| jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_FAILURE)
+				{
+					if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_CANCLE)
+					{
+						LOGI("task running/prod cancelled for : " + jobFilePath.toStdString());
+						std::cout << ("task running/prod called for : " + jobFilePath.toStdString()) << std::endl;
+					}
+					else if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_FAILURE)
+					{
+						LOGI("task running/prod failed for : " + jobFilePath.toStdString());
+						std::cout << ("task running/prod failed for : " + jobFilePath.toStdString()) << std::endl;
+					}
+					 
+					continue;
+				}
+
+				if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_PENDDING)
+				{
+					LOGI("task running/prod pending for : " + jobFilePath.toStdString());
+					std::cout << ("task running/prod pending for : " + jobFilePath.toStdString()) << std::endl;
+
+				}
+				else if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_RUNNING)
+				{
+					LOGI("task running/prod running for : " + jobFilePath.toStdString());
+					std::cout << ("task running/prod running for : " + jobFilePath.toStdString()) << std::endl;
+				}
+				else
+				{
+					LOGI("task running/prod unknown for : " + jobFilePath.toStdString());
+					std::cout << ("task running/prod unknown for : " + jobFilePath.toStdString()) << std::endl;
+				}
+
+
+				{
+					FILE* fpjob = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+					if (fpjob == NULL)
+					{
+						LOGI("locked failed/prod for : " + jobFilePath.toStdString());
+						std::cout << ("locked failed/prod for : " + jobFilePath.toStdString()) << std::endl;
+
+						continue;
+					}
+
+					int id = 0;
+
+					std::string taskfile = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + jobBaseNameString + "/" +
+						TASK_DEF_PREFIX + std::to_string(id) + JSONFILE_POSTFIX;
+
+					std::string taskfile_lock = taskfile + ".lock";
+					FILE* fptask = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+					if (fptask == NULL)
+					{
+						fclose(fpjob);
+						continue;
+					}
+
+					fpTaskLock = fptask;
+					LOGI("locked succ/prod for : " + taskfile);
+					std::cout << ("locked succ/prod for : " + taskfile) << std::endl;
+
+					QString NewFileForRunTemp = str2qstr(taskfile);
+					// check pid related.
+					fclose(fpjob);
+
+					if (!checkTaskInstanceStatus(NewFileForRunTemp))
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = nullptr;
+
+						LOGI("task is unavailable/prod : " + NewFileForRunTemp.toStdString());
+						std::cout << ("task is unavailable/prod : " + NewFileForRunTemp.toStdString()) << std::endl;
+
+						std::this_thread::sleep_for(std::chrono::milliseconds(150));
+						continue;
+					}
+
+					gotNewPendingJobFile = true;
+					///NewFileForRun = str2qstr(jobFilePath.toStdString());
+					NewFileForRun = str2qstr(taskfile);
+					projectfilefullpath = jobinfo.tg.job.ProjectPath2;
+
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << "get succ:jobfile/prod " << taskfile << " gotNewPendingJobFile " << gotNewPendingJobFile << " NewFileForRun " << qstr2str(NewFileForRun);
+						LOGI(oss.str());
+						std::cout << oss.str() << std::endl;
+					}
+
+					fclose(fpTaskLock);
+					fpTaskLock = nullptr;
+					std::this_thread::sleep_for(std::chrono::milliseconds(150));
+					return AI3D_SUCCESS;
+				}
+
+				LOGI("task completed/prod for : " + jobFilePath.toStdString());
+				std::cout << ("task completed/prod for : " + jobFilePath.toStdString()) << std::endl;
+
+				int id = -1;
+				if (jobinfo.tg.tasksmap.at(0).Status == jobsta_e::STATUS_RUNNING)
+				{
+					std::cout << "continue"<<__FUNCTION__ << " LINE " << __LINE__  << std::endl;
+					continue;
+					if (1)
+					{
+						FILE* fpjob = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+						if (fpjob == NULL)
+						{
+							if (bSpecialLog)
+							{
+								std::ostringstream oss;
+								oss.clear();
+								oss << __FUNCTION__ << " LINE " << __LINE__ << " file " << qstr2str(jobFilePathLock) << " locked failed,continue ";
+								LOGI(oss.str());
+								std::cout << oss.str() << std::endl;
+							}
+							continue;
+						}
+
+						id = 0;
+						std::string taskfile = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + jobBaseNameString + "/" +
+							TASK_DEF_PREFIX + std::to_string(id) + JSONFILE_POSTFIX;
+
+						std::string taskfile_lock = taskfile + ".lock";
+						FILE* fptask = _fsopen(taskfile_lock.c_str(), "wt", _SH_DENYWR);
+						if (fptask == NULL)
+						{
+							fclose(fpjob);
+							continue;
+						}
+						else
+						{
+							fpTaskLock = fptask;
+							LOGI("locked succ for : " + taskfile);
+							std::cout << ("locked succ for : " + taskfile) << std::endl;
+						}
+
+						projectfilefullpath = jobinfo.tg.job.ProjectPath2;
+						QString  sTmpNewFileForRun = str2qstr(taskfile);
+
+						if (!continueCurrentTask(sTmpNewFileForRun))
+						{
+							LOGI("never to continue with the task, and unlock it:" + qstr2str(sTmpNewFileForRun));
+							std::cout << ("never to continue with the task, and unlock it:" + qstr2str(sTmpNewFileForRun)) << std::endl;;
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+							projectfilefullpath = "";
+							gotNewPendingJobFile = false;
+							NewFileForRun = "";
+							fclose(fpjob);
+							std::this_thread::sleep_for(std::chrono::milliseconds(500));
+							continue;
+						}
+						else
+						{
+							LOGI("to continue with task:" + qstr2str(sTmpNewFileForRun));
+							std::cout << ("to continue with task:" + qstr2str(sTmpNewFileForRun)) << std::endl;
+						}
+
+						gotNewPendingJobFile = true;
+						NewFileForRun = str2qstr(taskfile);
+
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << "getrunningtaskinrunningjob succ:jobfile " << qstr2str(jobFilePath) << " gotNewPendingJobFile " << gotNewPendingJobFile << " NewFileForRun " << qstr2str(NewFileForRun);
+							LOGI(oss.str());
+							std::cout << oss.str() << std::endl;
+						}
+
+						fclose(fpjob);
+						Sleep(50);
+						return AI3D_SUCCESS;
+					}
+				}
+
+				std::cout << "not runing" << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+				continue;
+			}
+
+			///std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+		}
+	}
+
+	///std::cout << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+	return AI3D_FAILURE;
+}
+
+//搜索和执行放在一个线程里
+void searchPendingJobThread2()
+{
+	while (true)
+	{
+		if (bQuitingApplication)
+			break;
+
+		if (bNetworkPathAlreadyInvalid)
+			break;
+
+		QStringList checkPathList;
+		QStringList errPathList;
+
+		//checkPathList.append(ENGINEJOBPATH + "abcd4");
+		checkPathList.append(ENGINEJOBPATH);
+
+		/// call the following function to check whether the network paths above is available now.
+		/// check the availability of both the job queue directory and project path,
+		/// and give up subsequent behaviours and return immediately if at least one of them is not available now.
+		if (!CheckNetworkState(checkPathList, errPathList))
+		{
+			// popup msgbox,print information to stdout,and return immediately.
+///			std::cout << "the following network paths is not available3:" << errPathList.join(" ").toStdString() << std::endl;
+			bNetworkPathAlreadyInvalid = true;
+
+	//		QString errStr = "network paths is not available4:" + errPathList.join(" ");
+			QString errStr = errPathList.join("\n");
+			LOGI(qstr2str(errStr));
+	
+			msgBoxThread->showInformation(errStr);
+
+//			std::cout << "the following network paths is not available5:" << errPathList.join(" ").toStdString() << std::endl;
+
+///			return -1;
+			break;
+		}
+
+		if (gotNewPendingJobFile || !NewFileForRun.isEmpty())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			/*if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " gotjob " << gotNewPendingJobFile;
+				LOGI(oss.str());
+				
+			}*/
+		
+			continue;
+		}
+
+		if(taskrunning)
+		{
+			/*if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " taskrunning " << taskrunning;
+				LOGI(oss.str());				
+			}*/
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			continue;
+		}
+
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+		//先找running的
+	/*	std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << "ready to get job";
+		LOGI(oss.str());*/
+		
+		if (fpTaskLock != NULL)
+		{
+			fclose(fpTaskLock);
+			fpTaskLock = NULL;
+			
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << " no taskfile should have been locking here,why?" << qstr2str(NewFileForRun);
+				LOGI(oss.str());
+			}
+		}
+
+		//LOGI("bbb");
+		if (GetRunningTaskInRunningJob() != AI3D_SUCCESS)
+		{
+	//		std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << "no running job ,to get pending job";
+				///std::cout << oss.str() << std::endl;
+				//LOGI(oss.str());				
+			}
+	//		std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+	//		LOGI("before GetPendingJob.");
+			//LOGI("bbb");
+			GetPendingJob();
+			//LOGI("bbb");
+	//		std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+	//		LOGI("after GetPendingJob.");
+		}
+#if 1
+		//说明找到了
+		//LOGI("bbb");
+		if (bSpecialLog)
+		{
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+			//std::ostringstream oss;
+			//oss.clear();
+			//oss << " job got " << gotNewPendingJobFile << " " << NewFileForRun.toStdString();
+			//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " job got " << gotNewPendingJobFile << " " << NewFileForRun.toStdString();
+			//LOGI(oss.str());
+			
+		}
+
+		if (gotNewPendingJobFile && !NewFileForRun.isEmpty())
+		{		
+//			std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << "gotNewPendingJobFile:" << gotNewPendingJobFile << " NewFileForRun:"
+			//	<< NewFileForRun.toStdString() << std::endl;
+
+			if (fpTaskLock != NULL)
+			{
+				LOGI("before execing task file:" + qstr2str(NewFileForRun));
+				std::cout << ("before execing task file:" + qstr2str(NewFileForRun)) << std::endl;
+			}
+			else
+			{
+				LOGI("before execing task file2:" + qstr2str(NewFileForRun));
+				std::cout << ("before execing task file2:" + qstr2str(NewFileForRun)) << std::endl;
+			}
+
+			taskPid = qApp->applicationPid();
+			taskPidFile = NewFileForRun + ".pid";
+
+
+			///if (ExecTaskFile() == -1)
+			if(ExecTaskFileV2() == -1)
+			{
+			//	std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+				LOGI("execing task file failed:" + qstr2str(NewFileForRun));
+				std::cout << ("execing task file failed:" + qstr2str(NewFileForRun)) << std::endl;
+				init();
+			}
+
+			if(fpTaskLock != NULL)
+				LOGI("after execing task file:gotNewPendingJobFile:" + qstr2str(NewFileForRun));
+			else
+				LOGI("after execing task file:gotNewPendingJobFile2:" + qstr2str(NewFileForRun));
+
+			taskPid = -1;
+			NewFileForRun = "";
+//			std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << "gotNewPendingJobFile:" << gotNewPendingJobFile << " NewFileForRun:"
+			//	<< NewFileForRun.toStdString() << std::endl;
+		}
+#endif
+		if(!bNetworkPathAlreadyInvalid)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+	}
+
+}
+
+
+int RunAlgorithmCommonDummy2(const std::string function_name, const std::string& task_json_file, int taskIndex)
+{
+	QString path = QCoreApplication::applicationDirPath();
+	QString workingDirectory = path;
+
+	if (boost::filesystem::exists(task_json_file + ".lock"))
+	{
+		return -1;
+	}
+
+	if (!gotNewPendingJobFile && NewFileForRun.isEmpty())//
+	{
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+		init();
+		return -1;
+	}
+	if (function_name=="")
+	{
+		return -1;
+	}
+	if(taskrunning)
+	{
+		return -1;
+	}
+	// 如果Motask.exe运行中,先关闭运行中的Motask.exe.
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << " to kill 3 ";
+		LOGI(oss.str());
+		
+	}
+	killTaskProcess();
+	QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+	std::cout << "[" << timenow.toStdString() << "] Engine: Run Task " << std::endl;
+	// 启动Motask.exe进程,执行传入的task json任务.
+	path.append("/MoldAITask.exe");
+
+	QStringList argumentList;
+	argumentList << str2qstr(const_cast<std::string &>(task_json_file));
+
+	qint64 pid = -1;
+
+	QProcess process;
+	//chy 为啥是startdetached,不是start,非阻塞，后续可以边执行边更新日志
+	//motask写log，engine同步读
+	process.startDetached(path, argumentList, workingDirectory, &pid);
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__;
+		LOGI(oss.str());
+		
+	}
+	int state = 0;
+	// 等待Motasak.exe进程启动成功
+	process.waitForStarted();
+	taskrunning = true;
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__;
+		LOGI(oss.str());
+		
+	}
+	//if (function_name == StepAT_function.at(GenTasks))
+	//{
+	//	std::cout << "1" << std::endl;
+	//	taskrunning = true;
+	//	process.waitForFinished();
+	//	Sleep(100);
+	//}
+	//else
+	{
+		while (catchProcess.IsProgramRunning("MoldAITask.exe"))
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__;
+				LOGI(oss.str());
+				
+			}
+			state++;
+			Sleep(100);
+		}
+	}
+	
+
+	return state;
+}
+
+int ExecTaskFileV2()
+{
+	QString path = APPPATH;
+	QString workingDirectory = path;
+
+	std::string fileName = qstr2str(NewFileForRun);
+
+	ATTaskInfo atparam;;
+	///std::cout << "load task file:" << fileName;
+	std::string msg = "load task file:" + fileName;
+	std::cout << msg << std::endl;
+	LOGI(msg);
+	atparam.load(fileName);
+	std::string function = atparam.task_.fun_name_;
+
+	QString exceptionMsg;
+
+	std::string blockpath1 = atparam.projectFile_;
+	std::string blockpath = atparam.projectFile2_;
+
+	QString qsBlockPath1 = str2qstr(blockpath1);
+	QString qsBlockPath = str2qstr(blockpath);
+
+	
+
+	std::string block = atparam.blockItem2_;
+	std::string jobname = atparam.job2_;
+
+
+	JobFeedBack_s feadback;
+	std::string feedname = FEEDBACK_PREFIX + jobname + JSONFILE_POSTFIX;
+	std::string  feedback_file = AICORE::File::GetParentDir(blockpath) + "/" + block + "/" + feedname;
+	std::string feedback_filelock = feedback_file + LOCKFILE_POSTFIX;
+	bool bLoadFeedbackFileError = false;
+
+	std::string projectPath = AICORE::File::GetParentDir(blockpath);
+
+	
+
+	if (bNetworkPathAlreadyInvalid)
+	{
+		std::string msg = "bNetworkPathAlreadyInvalid:" + fileName;
+		std::cout << msg << std::endl;
+		LOGI(msg);
+		return -1;
+	}
+
+	
+
+	QStringList checkPathList;
+	QStringList errPathList;
+
+	
+	checkPathList.append(str2qstr(projectPath));
+
+	checkPathList.append(ENGINEJOBPATH);
+
+	// getATBlockJobPath 
+
+	//std::cout << projectPath << " ---- " << qstr2str(ENGINEJOBPATH) << std::endl;
+
+/// call the following function to check whether the network paths above is available now.
+/// check the availability of both the job queue directory and project path,
+/// and give up subsequent behaviours and return immediately if some of them are not available now.
+
+	if (!CheckNetworkState(checkPathList, errPathList))
+	{
+///		QString errStr = "network paths is not available:" + errPathList.join(" ");
+		QString errStr = errPathList.join("\n");
+		// popup msgbox,print information to stdout,and return immediately.
+///		std::cout << "the following network paths is not available:" << errPathList.join(" ").toStdString() << std::endl;
+		bNetworkPathAlreadyInvalid = true;
+
+		LOGI(qstr2str(errStr));
+		std::cout << "netstat:" << qstr2str(errStr) << std::endl;
+		msgBoxThread->showInformation(errStr);
+
+///		std::cout << "the following network paths is not available2:" << errPathList.join(" ").toStdString() << std::endl;
+		std::string msg = "CheckNetworkState:" + fileName;
+		std::cout << msg << std::endl;
+		LOGI(msg);
+		return -1;
+	}
+
+
+	int type = atparam.task_.type_;
+	int taskid = atparam.task_.id_;
+	if(type!=4)
+	{
+			std::vector<std::string> taskList;
+			std::string dirPath = qstr2str(getATBlockJobPath(str2qstr(fileName)));
+
+			std::string dirnew = getATBlockJobPath(fileName);
+			getTaskList(dirPath, taskList);
+
+			toBeCleanedJobMap.insert(str2qstr(jobname), str2qstr(dirnew));
+			hasFinishedJobMap.insert(str2qstr(jobname), 0); // pending
+
+			int task_count = taskList.size();
+
+			maptaskfunction[0] = StepAT_function.at(GenTasks);
+
+			for (auto taskfile : taskList)
+			{
+				ATTaskInfo task;
+				task.load(taskfile);
+
+				//Task_s newtask;
+				//newtask.Id = task.task_.id_;
+				maptaskfunction[task.task_.id_] = task.task_.fun_name_;
+			}
+	}
+
+	//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+	///if (!boost::filesystem::exists(feedback_file))
+	if (!feadback.load_with_retry(feedback_file))
+	{
+		bLoadFeedbackFileError = true;
+		LOGI("loading feedback file failed:" + feedback_file);
+		return -1;
+	}
+
+	if (feadback.Status == jobsta_e::STATUS_PENDDING)
+	{
+		// Theoretically,it cannot be in pending status,for having already been changed into running status at the time while getting the pending job successfully 
+		// before coming here.
+		feadback.Percent = 0.0;
+		feadback.Status = jobsta_e::STATUS_RUNNING;
+		feadback.save_with_retry(feedback_file);
+
+		//hasFinishedJobMap.insert(str2qstr(jobname),1);
+	}
+
+	///feadback.load(feedback_file);
+
+	if (feadback.Status != jobsta_e::STATUS_RUNNING)
+	{
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+		// it isn't necessary to go on with current task,for the job have already come to one of the end statuses such as completed,cancelled,failed and etc.
+		LOGI("current job file is not running now:" + qstr2str(NewFileForRun));
+		if (fpTaskLock != NULL)
+		{
+			fclose(fpTaskLock);
+			fpTaskLock = NULL;
+			LOGI("current job file is not running now:" + qstr2str(NewFileForRun) + " ,unlock taskfile lock.");
+		}
+
+		std::string msg = fileName + "is not running."  ;
+		std::cout << msg << std::endl;
+		LOGI(msg);
+		return -1;
+	}
+
+	
+
+	if (!gotNewPendingJobFile && NewFileForRun.isEmpty())
+	{
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << NewFileForRun.toStdString() << std::endl;
+		if (fpTaskLock != NULL)
+		{
+			fclose(fpTaskLock);
+			fpTaskLock = NULL;
+		}
+
+		LOGI("current job file is not in normal state:" + qstr2str(NewFileForRun));
+		return -1;
+	}
+	//代表空三状态
+	if (type == ATLASTTASKTYPE)
+	{
+					
+				
+					
+					int resultCode = AI3D_SUCCESS;
+					//如果为0类型 就看其子和父任务是否有完成如果完成了则写job  和feedback，没有完成则返回
+
+
+					std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + ".json";
+
+
+					JobFullInfo_s jobinfo(jobdirstr);
+					if (jobinfo.tg.IsTaskComplete(taskid))
+					{
+
+						QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+						std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + ".json";
+						JobFullInfo_s jobinfo(jobdirstr);
+						jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+						// 加锁指定job文件.(Pending job)
+
+						// todo:need to consider the complete status for the last task?
+						FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+						if (fp != NULL)
+						{
+
+
+							//别的则需要加
+							feadback.Status = job_status_e::STATUS_COMPLETE;
+							feadback.Percent = COMPLETE_PROGRESS;
+							QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+							jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+							jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+							jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+							feadback.Msg = GetTaskEndingString(jobinfo.JobName);
+
+							hasFinishedJobMap.insert(str2qstr(jobinfo.JobName), 2);
+
+							jobinfo.tg.feedback = feadback;
+
+							jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+							QString jobFileName = str2qstr(jobdirstr);
+							QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+							QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+							bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
+
+							if (!bsave)
+							{
+								if (bSpecialLog)
+								{
+									std::ostringstream oss;
+									oss.clear();
+									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
+									LOGI(oss.str());
+								}
+							}
+							std::ostringstream strLine;
+							strLine.clear();
+							strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+							PrintTimeSum(strLine.str());
+							ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+
+							std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+							if (bSpecialLog)
+							{
+								LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+							}
+
+							// may check the existence of the completed job file before removing current running job file.
+							QFile(jobFileName).remove();
+
+							///	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+							if (!feadback.save_with_retry(feedback_file))
+							{
+								if (bSpecialLog)
+								{
+									std::ostringstream oss;
+									oss.clear();
+									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
+									LOGI(oss.str());
+								}
+							}
+
+							LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
+
+							init();
+							fclose(fp);
+							///						QFile(jobFilePathLock).remove();
+
+
+							return resultCode;
+						}
+						else
+						{
+							// what to do if lock failed?
+							// retry or process in other thread?
+						}
+					}
+					else
+					{
+						std::cout << "---===--" << std::endl;
+						LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
+						init();
+						Sleep(30);
+						return -1;
+					}
+	}
+	else if (type == ATCOMPLETETYPE)
+	{
+		{
+			int resultCode = AI3D_SUCCESS;
+			//如果为0类型 就看其子和父任务是否有完成如果完成了则写job  和feedback，没有完成则返回
+
+
+			std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + ".json";
+
+
+			JobFullInfo_s jobinfo(jobdirstr);
+			if (jobinfo.tg.IsTaskComplete(taskid))
+			{
+
+				QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+				std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + ".json";
+				JobFullInfo_s jobinfo(jobdirstr);
+				jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+				// 加锁指定job文件.(Pending job)
+
+				// todo:need to consider the complete status for the last task?
+				FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+				if (fp != NULL)
+				{
+					//陈海燕 20240826 add
+					//if (fabs(feadback.Percent - float(COMPLETE_PROGRESS)) < 0.0001) //说明空三完了 
+					//{
+
+					//	{
+					//		//别的则需要加
+					//		feadback.Status = job_status_e::STATUS_COMPLETE;
+					//		feadback.Percent = float(COMPLETE_PROGRESS);
+					//		QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+					//		jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+					//		jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+					//		jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+					//		feadback.Msg = GetTaskEndingString(jobinfo.JobName);
+
+					//		hasFinishedJobMap.insert(str2qstr(jobinfo.JobName), 2);
+
+					//		jobinfo.tg.feedback = feadback;
+
+					//		jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+					//		QString jobFileName = str2qstr(jobdirstr);
+					//		QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+					//		QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+					//		bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
+
+					//		if (!bsave)
+					//		{
+					//			if (bSpecialLog)
+					//			{
+					//				std::ostringstream oss;
+					//				oss.clear();
+					//				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
+					//				LOGI(oss.str());
+					//			}
+					//		}
+
+					//		ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+
+					//		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+					//		if (bSpecialLog)
+					//		{
+					//			LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+					//		}
+
+					//		// may check the existence of the completed job file before removing current running job file.
+					//		QFile(jobFileName).remove();
+
+					//		///	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+					//		if (!feadback.save_with_retry(feedback_file))
+					//		{
+					//			if (bSpecialLog)
+					//			{
+					//				std::ostringstream oss;
+					//				oss.clear();
+					//				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
+					//				LOGI(oss.str());
+					//			}
+					//		}
+
+					//		LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
+
+					//		init();
+					//		fclose(fp);
+					//		///						QFile(jobFilePathLock).remove();
+
+
+
+					//	}
+					//}
+					//else
+					{
+						feadback.Msg = atparam.task_.msg_;
+						feadback.save_with_retry(feedback_file);
+
+						// check it later:how about the job completion of the entire job?
+						jobinfo.tg.tasksmap.at(taskid).Status = jobsta_e::STATUS_COMPLETE;
+						jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+						bool bsave = jobinfo.save(jobdirstr);
+						std::ostringstream strLine;
+						strLine.clear();
+						strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+						PrintTimeSum(strLine.str());
+						ExportTimeSum(jobinfo);
+						init();
+
+						LOGI("save jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun) + " resultCode:" + std::to_string(resultCode));
+
+						fclose(fp);
+
+					}
+
+					return resultCode;
+				}
+
+			}
+			else
+			{
+				std::cout << "---===--" << std::endl;
+				LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
+				init();
+				Sleep(30);
+				return -1;
+			}
+		}
+	}
+	else //(type != ATCOMPLETETYPE)
+	{
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << " " << qstr2str(NewFileForRun) << " type " << type;;
+			LOGI(oss.str());
+
+		}
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+		/*killTaskProcess();*/
+		QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << " " << "[" << timenow.toStdString() << "] Engine: Run Task ";
+			LOGI(oss.str());
+		}
+
+		std::cout << "[" << timenow.toStdString() << "] Engine: Run Task " << std::endl;
+		// 启动Motask.exe进程,执行传入的task json任务.
+		path.append("/MoldAITask.exe");
+
+		QStringList argumentList;
+
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+		argumentList << NewFileForRun;
+
+		qint64 pid = -1;
+
+		QProcess process;
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << "start " << qstr2str(NewFileForRun);
+			LOGI(oss.str());
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		}
+
+		QObject::connect(&process, &QProcess::readyRead, [&] {
+			while (process.canReadLine())
+			{
+				QString strTaskOutput = process.readLine();
+				std::cout << "[MoTask]" << qstr2str(strTaskOutput);// << std::endl;
+
+				if (strTaskOutput.contains("Exception:", Qt::CaseSensitive))
+				{
+					exceptionMsg = strTaskOutput;
+				}
+			}
+			});
+
+		hasFinishedJobMap.insert(str2qstr(jobname), 1);
+
+		//chy 为啥是startdetached,不是start,非阻塞，后续可以边执行边更新日志
+		//motask写log，eingine同步读
+
+		///process.startDetached(path, argumentList, workingDirectory, &pid);
+
+		///std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " before task start" << std::endl;
+		///process.setWorkingDirectory(workingDirectory);
+		
+		std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		process.start(path, argumentList);
+
+		int state = 0;
+		// 等待Motasak.exe进程启动成功
+		bool suce = process.waitForStarted(-1);
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << " " << qstr2str(NewFileForRun) << " succ " << suce;
+			LOGI(oss.str());
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			///std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " after task start:" << path.toStdString() << std::endl;
+		}
+
+		if (!suce)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << " " << qstr2str(NewFileForRun) << " start failed." << suce;
+			LOGI(oss.str());
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+
+			///std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task start failed." << std::endl;
+
+			if (fpTaskLock != NULL)
+			{
+				fclose(fpTaskLock);
+				fpTaskLock = NULL;
+				LOGI(qstr2str(NewFileForRun) + "start failed,release task file lock.");
+			}
+
+			return -1;
+		}
+
+		///process.close();
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			///	oss << __FUNCTION__ << " LINE " << __LINE__ << " " << NewFileForRun.toStdString() << " close " << suce;
+			oss << qstr2str(NewFileForRun) << " started successfully." << suce;
+
+
+			LOGI(oss.str());
+
+			///std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task started successfully." << std::endl;
+		}
+
+		///if (bTestTaskKill4RunningTooLong);
+		///dtTestTaskKillStart = QDateTime::currentDateTime();
+
+		///taskPid = process.processId();
+		///taskPidFile = NewFileForRun + ".pid";
+
+		taskrunning = true;
+
+		std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		process.waitForFinished(-1);
+		int iTaskRetVal = -1;
+
+		//std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " wait for finished:" << std::endl;
+
+		if (process.exitStatus() == QProcess::NormalExit)
+		{
+			// normally exited.
+		//	std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task exited normally:" << process.exitCode() << std::endl;
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			iTaskRetVal = process.exitCode();
+			if (iTaskRetVal < 1000)
+			{
+				// Though the process exit normally,That iTaskRetVal is less than 1000 means not returning from algorithm function,but because of other state,
+				process.close();
+
+				// load,if pid loaded from taskPidFile equals taskPid,remove it.
+
+								///taskPid = -1;
+				std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+				if (bSpecialLog)
+				{
+
+					std::ostringstream oss;
+					oss.clear();
+					//					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
+								//		std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task exit with code(less than 1000):" << process.exitCode() << std::endl;
+					oss << " task exit with code(less than 1000):" << process.exitCode();
+					LOGI(oss.str());
+				}
+
+				ATTaskInfo attask;
+				attask.load(qstr2str(NewFileForRun));
+				std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + ".json";
+
+				JobFullInfo_s jobinfo(job_file);
+				QString jobFilePathLock = str2qstr(job_file) + ".lock";
+				FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+				if (fp != NULL)
+				{
+					std::ostringstream strLine;
+					strLine.clear();
+					strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+					PrintTimeSum(strLine.str());
+					///					bool bsave = jobinfo.save(job_file);
+					ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+					fclose(fp);
+
+					//std::cout << __FILE__ << __LINE__ << "save job's time sum info:" << job_file << "!" << std::endl;
+					LOGI("save job's time sum info::" + job_file);
+				}
+
+
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+					LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
+				}
+				std::string msg = fileName + " task value is less than 1000.";
+				std::cout << msg << std::endl;
+				LOGI(msg);
+				return -1;
+			}
+
+
+			if (iTaskRetVal == 1099)
+			{
+				if (exceptionMsg.isEmpty())
+				{
+					exceptionMsg = "MoldAITask Crashed.";
+				}
+			}
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				//					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
+							//		std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task exit with code(less than 1000):" << process.exitCode() << std::endl;
+				oss << " task exit with code:" << process.exitCode();
+				LOGI(oss.str());
+			}
+		}
+		else
+		{
+			// while reaching here,it should have crashed.
+			// just give it up for a moment.
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				//					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
+				//std::cout << __FILE__ << __FUNCTION__ << " " << __LINE__ << " task crashed:" << std::endl;
+				oss << qstr2str(NewFileForRun) << " task crashed:" << process.exitCode();
+				LOGI(oss.str());
+			}
+
+			process.close();
+
+			if (fpTaskLock != NULL)
+			{
+				fclose(fpTaskLock);
+				fpTaskLock = NULL;
+				LOGI("relase taskfile lock:" + qstr2str(NewFileForRun));
+			}
+
+			exceptionMsg = "MoldAITask Crashed.";
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			/// return -1;
+			iTaskRetVal = 1099;
+		}
+
+		process.close();
+
+		bLoadFeedbackFileError = false;
+
+		bool readrtn = feadback.load_with_retry(feedback_file);
+		if (!readrtn)
+		{
+			bLoadFeedbackFileError = true;
+		}
+
+		if (iTaskRetVal == 1000 && type == ATSTARTTYPE && fabs(feadback.Percent - 1.0) <= 0.0001)//空三的
+		{
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				//oss.clear();
+				//oss << NewFileForRun.toStdString() << " gentask feadback.Percent " << feadback.Percent;
+				//LOGI(oss.str());
+
+				oss.clear();
+				oss << qstr2str(NewFileForRun) << " gentask finish: " << feadback.Percent;
+				LOGI(oss.str());
+			}
+
+			//std::cout << " gentask finish." << std::endl;
+		}
+
+		std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "[" << timenow.toStdString() << "] Engine: End Task " << state;
+			LOGI(oss.str());
+		}
+
+		//std::cout << "[" << timenow.toStdString() << "] Engine: End Task " << state << std::endl;
+		Sleep(1000);
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << "to process complete " << gotNewPendingJobFile << " " << qstr2str(NewFileForRun);
+			LOGI(oss.str());
+		}
+
+		if (!gotNewPendingJobFile && NewFileForRun.isEmpty())
+		{
+			if (fpTaskLock != NULL)
+			{
+				fclose(fpTaskLock);
+				fpTaskLock = NULL;
+				LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
+			}
+			std::string msg = std::to_string(gotNewPendingJobFile) + " " + NewFileForRun.QString::toStdString() + " !gotNewPendingJobFile and NewFileForRun.isEmpty()";
+			std::cout << msg << std::endl;
+			LOGI(msg);
+			return -1;
+		}
+
+		std::string jobdirstr = qstr2str(ENGINEJOBPATH) + "/Running/" + atparam.job_ + JSONFILE_POSTFIX;
+		std::string jobdirstr_cancelled = qstr2str(ENGINEJOBPATH) + "/Cancelled/" + atparam.job_ + JSONFILE_POSTFIX;
+		std::string jobdirstr_failed = qstr2str(ENGINEJOBPATH) + "/Failed/" + atparam.job_ + JSONFILE_POSTFIX;
+
+		JobFullInfo_s jobinfo(jobdirstr);
+		QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+
+		bLoadFeedbackFileError = false;
+
+		readrtn = feadback.load_with_retry(feedback_file);
+		if (!readrtn)
+		{
+			bLoadFeedbackFileError = true;
+		}
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete .read feadback " << (feedback_file) << " " << readrtn
+				<< " " << feadback.Status << " " << feadback.TaskRetVal << " " << feadback.Percent;
+			//LOGI(oss.str());
+		}
+
+		// todo:compare with 1000/1002/other value which being greater than 1000?
+		// todo:check other feedback status,such as cancelled and failed?
+		if (bLoadFeedbackFileError)
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << "load feedback failed." << (feedback_file) << " " << readrtn
+					<< " " << feadback.Status << " " << iTaskRetVal << " " << feadback.Percent;
+				LOGI(oss.str());
+			}
+		}
+		///else
+
+		// otherwise:
+		// 1)if error,iTaskRetVal == 1000;
+		// 2)if not error,running status or 1000.
+		// 3)status_completed
+
+		if (/*bLoadFeedbackFileError && (iTaskRetVal > 1000)*/iTaskRetVal > 1000 ||
+			!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE || feadback.Status == jobsta_e::STATUS_FAILURE))
+		{
+			std::cout << " ==== " << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with cancelled status failed." << std::endl;;
+			std::ostringstream oss;
+			oss.clear();
+			oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " save feedback with cancelled status failed." << " bLoadFeedbackFileError  " << bLoadFeedbackFileError <<
+				" feadback status " << feadback.Status << " task value " << iTaskRetVal;
+			LOGI(oss.str());
+			if ((iTaskRetVal == 1002) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
+			{
+				// cancelled
+				// save job file into cancelled dir
+				// At first,check existence of the job file in Running Directory of the job queue.
+				hasFinishedJobMap.insert(str2qstr(jobname), 3);
+
+				if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
+				{
+				}
+				else
+				{
+					feadback.Status = jobsta_e::STATUS_CANCLE;
+					if (!feadback.save_with_retry(feedback_file))
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with cancelled status failed.";
+							LOGI(oss.str());
+						}
+					}
+				}
+
+				// save running job file into cancelled dir.
+				QFileInfo finfoRunning(str2qstr(jobdirstr));
+				QFileInfo finfoCancelled(str2qstr(jobdirstr_cancelled));
+
+				bool bCancelledExist = finfoCancelled.exists();
+				bool bRunningExist = finfoRunning.exists();
+
+				if (bCancelledExist)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " bCancelledExist";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				if (!bRunningExist)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " !bRunningExist";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				// saved running job file into failed dir.
+				// Firstly,check whether running job file exists,whether jobfile exists in failed directory?
+				// Wait for a break to let it flush after saving running job file into new directory.
+				jobinfo.tg.feedback = feadback;
+				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+				jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
+				jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+				//	SimpleWriteLog("saving job file:" + joboutputfile + " after killing 2.");
+				bool bsave = jobinfo.save(jobdirstr_cancelled);
+				if (!bsave)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
+						LOGI(oss.str());
+					}
+				}
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+				if (bSpecialLog)
+				{
+					LOGI("remove jobfile:" + jobdirstr);
+				}
+
+				QFile(str2qstr(jobdirstr)).remove();
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+				QFileInfo finfoRunning2(str2qstr(jobdirstr));
+				QFileInfo finfoCancelled2(str2qstr(jobdirstr_cancelled));
+
+				/// check the existence of the failed job file,also of the running job file.
+				bCancelledExist = finfoCancelled2.exists();
+				bRunningExist = finfoRunning2.exists();
+
+				if (!bCancelledExist || bRunningExist)
+				{
+					if (bSpecialLog)
+					{
+						std::cout << __FUNCTION__ << "===== LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << std::endl;
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bCancelledExist << bRunningExist;
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " !bCancelledExist || bRunningExist";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+				}
+				std::string msg = __LINE__ + " more than 1000.";
+				std::cout << msg << std::endl;
+				LOGI(msg);
+				return -1;
+			}
+			else if ((iTaskRetVal > 1000) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
+			{
+				// failed.
+			// save job file into failed dir.
+			// At first,check the existence of the job file in Running dir.
+			// Secondly,lock the relevant file which is constructed by running job file.
+			// if lock succeeded,move the running job file into failed directory.
+			// In the end,update the feedback file with STATUS_FAILED.
+			// return -1 which shows switching to another task for some running job's task file or another pending job.
+
+				hasFinishedJobMap.insert(str2qstr(jobname), 4);
+				std::cout << " ====== " << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+				std::ostringstream oss;
+				oss.clear();
+				oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
+				LOGI(oss.str());
+				// (~ > 1000) and (~ not 1002).
+				if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " !bLoadFeedbackFileError failure  ";
+					LOGI(oss.str());
+				}
+				else
+				{
+					if (!exceptionMsg.isEmpty())
+					{
+						feadback.Msg = qstr2str(exceptionMsg);
+						std::ostringstream oss;
+						oss.clear();
+						oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  "<< feadback.Msg;
+						LOGI(oss.str());
+					}
+
+					feadback.Status = jobsta_e::STATUS_FAILURE;
+					std::cout << " ====+++== " << __FUNCTION__ << " LINE " << __LINE__ << std::endl;
+					std::ostringstream oss;
+					oss.clear();
+					oss << "====+++==" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
+					LOGI(oss.str());
+					if (!feadback.save_with_retry(feedback_file))
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with failed status failed.";
+							LOGI(oss.str());
+						}
+					}
+				}
+
+				QFileInfo finfoRunning(str2qstr(jobdirstr));
+				QFileInfo finfoFailed(str2qstr(jobdirstr_failed));
+
+				bool bFailedExist = finfoFailed.exists();
+				bool bRunningExist = finfoRunning.exists();
+
+				if (bFailedExist)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in failed dir.";
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " bFailedExist.";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				if (!bRunningExist)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " !bRunningExist.";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				// saved running job file into failed dir.
+				// Firstly,check whether running job file exists,whether jobfile exists in failed directory?
+				// Wait for a break to let it flush after saving running job file into new directory.
+				jobinfo.tg.feedback = feadback;
+				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+				jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
+				jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+				//				SimpleWriteLog("saving job file:" + joboutputfile + " after killing 2.");
+				bool bsave = jobinfo.save(jobdirstr_failed);
+				if (!bsave)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
+						LOGI(oss.str());
+					}
+				}
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+				if (bSpecialLog)
+				{
+					LOGI("remove jobfile:" + jobdirstr);
+				}
+
+				QFile(str2qstr(jobdirstr)).remove();
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+				/// check the existence of the failed job file,also of the running job file.
+				QFileInfo finfoRunning2(str2qstr(jobdirstr));
+				QFileInfo finfoFailed2(str2qstr(jobdirstr_failed));
+
+				bFailedExist = finfoFailed2.exists();
+				bRunningExist = finfoRunning2.exists();
+
+				//bool bFailedExist2 = finfoFailed.exists();
+				//bool bRunningExist2 = finfoRunning.exists();
+
+				if (!bFailedExist || bRunningExist)
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bFailedExist << bRunningExist;
+						//<< bFailedExist2 << bRunningExist2;
+						LOGI(oss.str());
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " !bFailedExist || bRunningExist.";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+					return -1;
+				}
+
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+				}
+				std::string msg = __LINE__ + " to check.";
+				std::cout << msg << std::endl;
+				LOGI(msg);
+				return -1;
+			}
+		}
+
+		// iTaskRetVal == 1000 and other statuses except Failed and Cancelled.
+		// iTaskRetVal == 1000 and bLoadFeedbackFile is true.
+		// need consider STATUS_COMPLETE?
+		if (bLoadFeedbackFileError)
+		{
+			bLoadFeedbackFileError = false;
+			/// is it possible to come here along with Complete status???
+			feadback.Status = jobsta_e::STATUS_RUNNING;
+		}
+
+		if (!bLoadFeedbackFileError && feadback.Status == jobsta_e::STATUS_RUNNING /* || true */)
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 1";
+				LOGI(oss.str());
+			}
+
+			// normal exit
+			///if (iTaskRetVal >= 1000) //其实就是算法端有正常的返回值
+			{
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 2";
+					//LOGI(oss.str());
+				}
+
+				//说明还没计算完
+				//if (fabs(feadback.Percent - COMPLETE_PROGRESS) >= 0.0001)
+				{
+					if (type == ATLASTTASKTYPE)//在不用这个类型之后，此处改为 =
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete error";
+							LOGI(oss.str());
+						}
+
+						///return -999;
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+							LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
+						}
+						std::string msg = __LINE__ + " complete progress.";
+						std::cout << msg << std::endl;
+						LOGI(msg);
+						return -1;
+					}
+
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 3";
+						LOGI(oss.str());
+					}
+
+					// 加锁指定job文件.(Pending job)
+					FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+					if (fp != NULL)
+					{
+						//jobinfo.tg.feedback = feadback;
+
+						if (type == ATSTARTTYPE) //需要拆分任务
+						{
+							std::vector<std::string> taskList;
+							std::string dirPath = qstr2str(getATBlockJobPath(str2qstr(fileName)));
+
+							std::string dirnew = getATBlockJobPath(fileName);//1121chy 测试
+							getTaskList(dirPath, taskList);
+
+							int task_count = taskList.size();
+
+
+							QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+							jobinfo.tg.tasksmap.at(0).runinfo.EndTime = datatime.toStdString();
+							jobinfo.tg.tasksmap.at(0).Status = int(job_status_e::STATUS_COMPLETE);
+							jobinfo.tg.tasksmap.at(0).Percent = 100.0;
+
+							maptaskfunction[0] = StepAT_function.at(GenTasks);
+							/*tg.tasksmap[0] = (jobinfo.tg.tasksmap.at(0));*/
+							for (auto taskfile : taskList)
+							{
+
+								ATTaskInfo task;
+								task.load(taskfile);
+
+								Task_s newtask;
+								if (task.task_.depends_.size() > 0)
+									newtask.Depends.insert(task.task_.depends_.begin(), task.task_.depends_.end());
+								newtask.FatherId = task.task_.fatherId_;
+								newtask.Percent = 0;
+								newtask.Status = int(job_status_e::STATUS_PENDDING);
+								// todo2:
+								newtask.Msg = task.task_.msg_;
+								newtask.Type = task.task_.type_;
+								newtask.Id = task.task_.id_;
+								if (bSpecialLog)
+								{
+									std::ostringstream oss;
+									oss.clear();
+									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << task.task_.id_ << " " << "to process complete 24";
+									LOGI(oss.str());
+								}
+								newtask.ItemPath = jobinfo.tg.tasksmap.at(0).ItemPath;
+								newtask.ProjectPath = jobinfo.tg.tasksmap.at(0).ProjectPath;
+
+								newtask.ItemPath2 = jobinfo.tg.tasksmap.at(0).ItemPath2;
+								newtask.ProjectPath2 = jobinfo.tg.tasksmap.at(0).ProjectPath2;
+
+								LOGI("before add task:" + jobinfo.tg.tasksmap.size());
+								jobinfo.tg.tasksmap[newtask.Id] = newtask;
+								LOGI("after add task:" + jobinfo.tg.tasksmap.size());
+								maptaskfunction[newtask.Id] = task.task_.fun_name_;
+							}
+							if (bSpecialLog)
+							{
+								std::ostringstream oss;
+								oss.clear();
+								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << (jobdirstr) << " " << jobinfo.tg.tasksmap.at(taskid).Status << " "
+									<< jobinfo.tg.tasksmap.at(taskid).Percent << " " << datatime.toStdString() << " " << "to process complete 4";
+								LOGI(oss.str());
+							}
+							// just update jobfile,doesn't move its location in job queue.
+							jobinfo.save(jobdirstr);
+
+							LOGI("save jobfile:" + jobdirstr);
+
+
+
+							std::ostringstream strLine;
+							strLine.clear();
+							strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+							PrintTimeSum(strLine.str());
+						//	ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+							init();
+							//删除pending下的然后
+							fclose(fp);
+						}
+						else
+						{
+							if (type == RECONSTRUCTIONSTARTTYPE) //说明建模跑完了
+							{
+
+
+								/*QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+								std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + ".json";
+								JobFullInfo_s jobinfo(jobdirstr);
+								jobFilePathLock = str2qstr(jobdirstr) + ".lock";*/
+
+
+
+
+
+								//别的则需要加
+								feadback.Status = job_status_e::STATUS_COMPLETE;
+								feadback.Percent = COMPLETE_PROGRESS;
+								QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+								jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+								jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+								jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+								feadback.Msg = GetTaskEndingString(jobinfo.JobName);
+
+								hasFinishedJobMap.insert(str2qstr(jobinfo.JobName), 2);
+
+								jobinfo.tg.feedback = feadback;
+
+								jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+								QString jobFileName = str2qstr(jobdirstr);
+								QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+								QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+								bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
+
+								if (!bsave)
+								{
+									if (bSpecialLog)
+									{
+										std::ostringstream oss;
+										oss.clear();
+										oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
+										LOGI(oss.str());
+									}
+								}
+								std::ostringstream strLine;
+								strLine.clear();
+								strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+								PrintTimeSum(strLine.str());
+								ExportTimeSum(jobinfo);
+
+								std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+								if (bSpecialLog)
+								{
+									LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+								}
+
+								// may check the existence of the completed job file before removing current running job file.
+								QFile(jobFileName).remove();
+
+								///	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+								if (!feadback.save_with_retry(feedback_file))
+								{
+									if (bSpecialLog)
+									{
+										std::ostringstream oss;
+										oss.clear();
+										oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
+										LOGI(oss.str());
+									}
+								}
+
+								LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
+
+								init();
+								fclose(fp);
+
+
+								//if( fabs(feadback.Percent - COMPLETE_PROGRESS) <= 0.0001)
+							}
+							else
+							{
+								jobinfo.tg.feedback = feadback;
+								Run_s runinfo;
+
+								QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+								jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+								jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+								jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+
+								if (bSpecialLog)
+								{
+									std::ostringstream oss;
+									oss.clear();
+									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << (jobdirstr) << " " << jobinfo.tg.tasksmap.at(taskid).Status << " "
+										<< jobinfo.tg.tasksmap.at(taskid).Percent << " " << datatime.toStdString() << " " << "to process complete 4";
+									LOGI(oss.str());
+								}
+								// just update jobfile,doesn't move its location in job queue.
+								jobinfo.save(jobdirstr);
+
+								LOGI("save jobfile:" + jobdirstr);
+
+
+
+								std::ostringstream strLine;
+								strLine.clear();
+								strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+								PrintTimeSum(strLine.str());
+								ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+								init();
+								//删除pending下的然后
+								fclose(fp);
+							}
+
+
+
+							
+						}
+						return AI3D_SUCCESS;
+					}
+					else
+					{
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+							LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
+						}
+						std::string msg = __LINE__ + " fopen.";
+						std::cout << msg << std::endl;
+						LOGI(msg);
+						return -1;
+					}
+					/// QFile(jobFilePathLock).remove();
+					//return AI3D_SUCCESS;
+
+				}
+				//20240826
+//				else //说明空三完了 
+//					/*if (feadback.Percent != 100)*/
+//				//else if (feadback.Status == jobsta_e::STATUS_COMPLETE)
+//				{
+//					int resultCode = AI3D_SUCCESS;
+//					FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+//					if (fp != NULL)
+//					{
+//						//别的则需要加
+//						feadback.Status = job_status_e::STATUS_COMPLETE;
+//						feadback.Percent = COMPLETE_PROGRESS;
+//						QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+//
+//						jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+//						jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+//						jobinfo.tg.tasksmap.at(taskid).Percent = COMPLETE_PROGRESS;
+//						feadback.Msg = GetTaskEndingString(jobinfo.JobName);
+//
+//						hasFinishedJobMap.insert(str2qstr(jobinfo.JobName),2);
+//
+//						jobinfo.tg.feedback = feadback;
+//						/*std::cout << "progress " << feadback.Percent << std::endl;*/
+//						jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+//
+//						QString jobFileName = str2qstr(jobdirstr);
+//						QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+//						QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+//						bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
+//
+//						if (!bsave)
+//						{
+//							if (bSpecialLog)
+//							{
+//								std::ostringstream oss;
+//								oss.clear();
+//								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
+//								LOGI(oss.str());
+//							}
+//						}
+//
+//						ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+//
+//						std::this_thread::sleep_for(std::chrono::milliseconds(500));
+//
+//						if (bSpecialLog)
+//						{
+//							LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+//						}
+//
+//						// may check the existence of the completed job file before removing current running job file.
+//						QFile(jobFileName).remove();
+//
+//					///	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+//
+//						if (!feadback.save_with_retry(feedback_file))
+//						{
+//							if (bSpecialLog)
+//							{
+//								std::ostringstream oss;
+//								oss.clear();
+//								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
+//								LOGI(oss.str());
+//							}
+//						}
+//
+//						LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
+//
+//						init();
+//						fclose(fp);
+/////						QFile(jobFilePathLock).remove();
+//
+//
+//						return resultCode;
+//					}
+//					else
+//					{
+//						// what to do if lock failed?
+//						// retry or process in other thread?
+//					}
+			}
+		}
+
+
+		Sleep(100);
+	}
+	
+	//else
+	
+
+	LOGI("jobfile taskfile:" + qstr2str(NewFileForRun));
+
+	return -1;
+}
+
+std::string getATBlockJobPath(std::string& jobFilename)
+{
+	ATTaskInfo task;
+	if (!task.load(jobFilename))
+		return "";
+
+	std::string projectPath = AI3D::CORE::File::GetParentDir(task.projectFile2_);
+	std::string blockItem = task.blockItem2_;
+	std::string jobName = task.job2_;
+
+	return AI3D::CORE::File::JoinPaths(projectPath+ "/"+ blockItem, jobName);
+			
+}
+
+
+QString getATBlockJobPath(QString& jobFilename)
+{
+	QFile file(jobFilename);
+
+	if (file.open(QIODevice::ReadOnly))
+	{
+		QByteArray ba = file.readAll();
+		QJsonParseError e;
+		QJsonDocument jsonDoc = QJsonDocument::fromJson(ba, &e);
+
+		if (e.error == QJsonParseError::NoError && !jsonDoc.isNull())
+		{
+		
+
+			QJsonObject jsonObj = jsonDoc.object();
+
+			QString atJson = jsonObj.value("ATJson").toString();
+			QString projectFile = jsonObj.value("projectPath").toString();
+			/*QString gdal = jsonObj.value("gdal_folder").toString();*/
+			QString blockPath;
+			QString projectPath;
+			QString blockItem = jsonObj.value("blockItem").toString();
+			QString jobName = jsonObj.value("job").toString();
+
+			int blockPos = atJson.lastIndexOf("/");
+			if (blockPos < 0)
+			{
+				blockPos = atJson.lastIndexOf("\\");
+			}
+
+			if (blockPos > 0) {
+				blockPath = atJson.left(blockPos);
+			}
+
+			int projectPos = projectFile.lastIndexOf("/");
+			if (projectPos < 0)
+			{
+				projectPos = projectFile.lastIndexOf("\\");
+			}
+
+			if (projectPos > 0) {
+				projectPath = projectFile.left(projectPos);
+			}
+
+			return projectPath + /*QDir::separator()*/ "/" + blockItem + "/" + jobName;
+		}
+
+	}
+
+	return "";
+}
+
+QString get_local_ip()
+{
+	QHostInfo info = QHostInfo::fromName(QHostInfo::localHostName());
+	foreach(QHostAddress address, info.addresses())
+	{
+		if (address.protocol() == QAbstractSocket::IPv4Protocol)
+		{
+			return address.toString();
+		}
+	}
+	return "0.0.0.0";
+}
+
+bool bDistEngine = false;
+QString progBaseName;
+
+void PostQuitProcess()
+{
+	if (bQuitingApplication)
+		return;
+
+	bQuitingApplication = true;
+	int iTryTimes = 0;
+	bool bNeed2WaitAgain = false;
+
+	while (bWorkingOnEngineFile)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		iTryTimes++;
+		if (iTryTimes > 10)
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << "PostQuitProcess/WaitTooLong.";
+				LOGI(oss.str());
+			}
+
+			bNeed2WaitAgain = true;
+			break;
+		}
+	}
+
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << "PostQuitProcess";
+		LOGI(oss.str());
+	}
+
+	EngineInfo::Getinstance().GetAPPUseInfosMutual().rbegin()->QuitTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+	EngineInfo::Getinstance().ExportEngineInfoJson();
+
+	// todo:closing the following is just for testing temporarily,remember to reopen it later after having completed some test behaviours.
+
+	engineinfofile = qstr2str(ENGINEJOBPATH) + "/Engines/" + qstr2str(QHostInfo::localHostName()) + ".json";
+
+	std::cout << engineinfofile << std::endl;
+	// todo:check it later whether the nearest following still runs normally when in some specific situations.
+	try
+	{
+		if (bfs::exists(engineinfofile))
+		{
+			std::string file = engineinfofile;
+			//此句的目的是为了因为其他线程还在运行，有可能执行删除操作后又继续生成了engine信息文件，
+			//将engineinfofile设置为空后就不会输出了；
+			engineinfofile = "";
+			if (bWorkingOnEngineFile || bNeed2WaitAgain)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			}
+
+			boost::filesystem::remove(file);
+		}
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		LOGI(oss.str());
+	}
+	catch (std::exception& ex)
+	{
+		std::ostringstream oss;
+		oss << "exception:" << ex.what();
+		LOGI(oss.str());
+	}
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+	if (gotNewPendingJobFile || !NewFileForRun.isEmpty())
+	{
+		ATTaskInfo attask;
+
+		attask.load(qstr2str(NewFileForRun));
+		std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + ".json";
+
+		if (killTaskProcess())
+		{
+			if (bSpecialLog)
+			{
+				std::cout << "killed job task:" << job_file << " successfully." << std::endl;
+				LOGI("killed job task:" + job_file + " successfully.");
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+		else
+		{
+			if (bSpecialLog)
+			{
+				std::cout << __FILE__ << __LINE__ << "job task has already disappeared:" << job_file << "!" << std::endl;
+				LOGI("job task has already disappeared:" + job_file);
+			}
+		}
+
+		JobFullInfo_s jobinfo(job_file);
+
+
+
+		std::string jobFilePathLock = job_file + ".lock";
+		FILE* fp = _fsopen(jobFilePathLock.c_str(), "wt", _SH_DENYWR);
+
+		if (fp != NULL)
+		{
+			LOGI("HandlerRoutine4");
+			if (jobinfo.tg.tasksmap.count(0))
+			{
+				jobinfo.tg.tasksmap.at(0).Status = int(jobsta_e::STATUS_PENDDING);
+			}
+			jobinfo.tg.feedback.Msg = GetTaskStartingString(jobinfo.JobName2);
+			jobinfo.tg.feedback.Status = jobsta_e::STATUS_PENDDING;
+			jobinfo.tg.feedback.Percent = 0.;
+			///	bool bsave = jobinfo.save(job_file);
+			std::ostringstream strLine;
+			strLine.clear();
+			strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+			PrintTimeSum(strLine.str());
+			ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+			fclose(fp);
+
+			std::cout << __FILE__ << __LINE__ << "save job's time sum info:" << job_file << "!" << std::endl;
+			LOGI("save job's time sum info::" + job_file);
+			std::string jobnew_file = qstr2str(Settings::getEngineJobQueue()) + "/Pending/Normal/" + attask.job_ + ".json";
+			
+			bool bsave = jobinfo.save(jobnew_file);
+			if (boost::filesystem::exists(job_file))
+			{
+				AI3D::CORE::File::RemoveFile(job_file);
+			}
+			JobFeedBack_s feadback;
+			std::string feedname = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+			std::string feedbackfile = MAKE_FEEDBAK_FILE(feedname, attask.job_);;// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+			//就是执行一遍cancle
+			if (bfs::exists(feedbackfile))
+			{
+				feadback.load(feedbackfile);
+				feadback = jobinfo.tg.feedback;
+				FILE* fp = _fsopen((feedbackfile + ".lock").c_str(), "wt", _SH_DENYWR);
+				if (fp != NULL)
+				{
+					feadback.save(feedbackfile);
+					fclose(fp);
+				}
+			}
+		}
+	}
+}
+
+#ifdef WIN32
+
+/*用于监听控制台退出事件,在退出程序前输出记录数据到文件*/
+BOOL WINAPI HandlerRoutine(DWORD dwCtrlType)
+{
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << "HandlerRoute" << dwCtrlType;
+		LOGI(oss.str());
+	}
+
+	if (CTRL_CLOSE_EVENT == dwCtrlType || CTRL_C_EVENT == dwCtrlType || CTRL_BREAK_EVENT == dwCtrlType \
+		|| CTRL_LOGOFF_EVENT == dwCtrlType || CTRL_SHUTDOWN_EVENT == dwCtrlType)
+	{
+		///std::cout << "has come to handler routine now2(engine):dwCtrlType" << dwCtrlType << std::endl;
+		bQuitingApplication = true;
+
+		if (bSpecialLog)
+		{
+			std::ostringstream oss;
+			oss.clear();
+			oss << __FUNCTION__ << " LINE " << __LINE__ << "HandlerRoute2" << dwCtrlType;
+			LOGI(oss.str());
+		}
+
+		EngineInfo::Getinstance().GetAPPUseInfosMutual().rbegin()->QuitTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+		EngineInfo::Getinstance().ExportEngineInfoJson();
+		
+		// todo:closing the following is just for testing temporarily,remember to reopen it later after having completed some test behaviours.
+
+		engineinfofile = qstr2str(ENGINEJOBPATH) + "/Engines/" + qstr2str(QHostInfo::localHostName()) + ".json";
+
+		std::cout << engineinfofile << std::endl;
+		// todo:check it later whether the nearest following still runs normally when in some specific situations.
+
+		try
+		{
+			if (bfs::exists(engineinfofile))
+			{
+				std::string file = engineinfofile;
+				//此句的目的是为了因为其他线程还在运行，有可能执行删除操作后又继续生成了engine信息文件，
+				//将engineinfofile设置为空后就不会输出了；
+				engineinfofile = "";
+				boost::filesystem::remove(file);
+			}
+		}
+		catch (boost::filesystem::filesystem_error& fse)
+		{
+			std::ostringstream oss;
+			oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+			LOGI(oss.str());
+		}
+		catch (std::exception& ex)
+		{
+			std::ostringstream oss;
+			oss << "exception:" << ex.what();
+			LOGI(oss.str());
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+		if (gotNewPendingJobFile || !NewFileForRun.isEmpty())
+		{
+			ATTaskInfo attask;
+
+			attask.load(qstr2str(NewFileForRun));
+			std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + ".json";
+
+			///LOGI("HandlerRoutine3");
+
+			if (killTaskProcess())
+			{
+				if (bSpecialLog)
+				{
+					std::cout << "killed job task:" << job_file << " successfully." << std::endl;
+					LOGI("killed job task:" + job_file + " successfully.");
+				}
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			else
+			{
+				if (bSpecialLog)
+				{
+					std::cout << __FILE__ << __LINE__ << "job task has already disappeared:" << job_file << "!" << std::endl;
+					LOGI("job task has already disappeared:" + job_file);
+				}
+			}
+
+			JobFullInfo_s jobinfo(job_file);
+
+
+			QString jobFilePathLock = str2qstr(job_file) + ".lock";
+			FILE* fp = _fsopen(qstr2str(jobFilePathLock).c_str(), "wt", _SH_DENYWR);
+
+			if (fp != NULL)
+			{
+				///LOGI("HandlerRoutine4");
+
+///				bool bsave = jobinfo.save(job_file);
+				std::ostringstream strLine;
+				strLine.clear();
+				strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+				PrintTimeSum(strLine.str());
+				ExportTimeSum(jobinfo/*, jobinfo.tg.tasksmap.at(0).Type == 4 ? 1 : 0*/);
+				fclose(fp);
+
+				std::cout << __FILE__ << __LINE__ << "save job's time sum info:" << job_file << "!" << std::endl;
+				LOGI("save job's time sum info::" + job_file);
+				
+				std::string jobnew_file = qstr2str(Settings::getEngineJobQueue()) + "/Pending/" + attask.job_ + ".json";
+				bool bsave = jobinfo.save(jobnew_file);
+				if (boost::filesystem::exists(job_file))
+				{
+					AI3D::CORE::File::RemoveFile(job_file);
+				}
+				JobFeedBack_s feadback;
+				std::string feedname = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+				std::string feedbackfile = MAKE_FEEDBAK_FILE(feedname, attask.job_);;// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+				//就是执行一遍cancle
+				if (bfs::exists(feedbackfile))
+				{
+					feadback.load(feedbackfile);
+					feadback.Status = jobsta_e::STATUS_PENDDING;
+					FILE* fp = _fsopen((feedbackfile + ".lock").c_str(), "wt", _SH_DENYWR);
+					if (fp != NULL)
+					{
+						feadback.save(feedbackfile);
+						fclose(fp);
+					}
+				}
+
+			}
+		}
+		else
+		{
+			LOGI("HandlerRoutine5");
+		}
+
+#if 0
+		if (!NewFileForRun.isEmpty())
+		{
+			JobFeedBack_s feadback;
+			ATTaskInfo attask;
+			attask.load(NewFileForRun.toStdString());
+			std::string job_file = Settings::getEngineJobQueue().toStdString() + "/Running/" + attask.job_ + ".json";
+
+			std::string feedname = AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/";// "feedback_" + attask.job_ + ".json";
+			std::string feedbackfile = MAKE_FEEDBAK_FILE(feedname, attask.job_);;// AI3D::CORE::File::GetParentDir(attask.projectFile_) + "/" + attask.blockItem_ + "/" + feedname;
+			//就是执行一遍cancle
+			if (bfs::exists(feedbackfile))
+			{
+				feadback.load(feedbackfile);
+				feadback.Status = jobsta_e::STATUS_CANCLE;
+				FILE* fp = _fsopen((feedbackfile + ".lock").c_str(), "wt", _SH_DENYWR);
+				if (fp != NULL)
+				{
+					feadback.save(feedbackfile);
+					fclose(fp);
+				}
+				
+				ProcessUnnormaldRunningJob();
+			}
+		}
+#endif
+	}
+	return true;
+}
+#endif // _WIN32
+
+void customized_exit()
+{
+	printf("exit main to execute\n");
+	LOGI("exit main to execute");
+
+	PostQuitProcess();
+
+}
+
+int minSfmMemory = -1; // unit:GB
+
+std::map<std::string, int> jobSfmMemoryMap;
+
+// 获取本机物理内存(单位:GB)
+int TestSfmMemory(std::string taskJsonFile)
+{
+	int MB = 1024 * 1024;
+	int GB = 1024 * 1024 * 1024;
+	int HalfGB = 512 * 1024 * 1024;
+
+	MEMORYSTATUSEX memoryStatusEx;
+	memoryStatusEx.dwLength = sizeof(memoryStatusEx);
+
+	GlobalMemoryStatusEx(&memoryStatusEx);
+
+	int allMemoryMB = memoryStatusEx.ullTotalPhys / MB;
+	int freeMemoryMB = memoryStatusEx.ullAvailPhys / MB;
+
+	int allMemory = (memoryStatusEx.ullTotalPhys  + HalfGB) / GB;
+	int freeMemory = (memoryStatusEx.ullAvailPhys + HalfGB) / GB;
+
+	// 获取并设置当前主机物理内存(GB).
+	enginePhysicalMemory = allMemory;
+
+
+
+
+	return 0;
+}
+//engine启动时创建文件夹
+void MakePath();
+void MakePath()
+{
+	if (!JobMonitor::CreateJobQueueDir(ENGINEJOBPATH))
+	{
+		// try the local job directory within current applicaton's working directory.
+		JobMonitor::CreateLocalJobQueueDir();
+		JobMonitor::CreateJobQueueDir(ENGINEJOBPATH);
+	}
+
+	pathSeperator = "/";
+	pendingJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBPENDINGSTR + pathSeperator ;
+	runningJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBRUNNINGSTR + pathSeperator;
+	completedJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBCOMPLETEDSTR + pathSeperator;
+	failedJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBFAILEDSTR + pathSeperator;
+	cancelledJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBCANCELLEDSTR + pathSeperator;
+}
+
+//定时输出engine信息，以广播engine的状态
+
+// may change the tasktimefile to enginetime later in order to simplify dectecting and calculating the freshest taskfile status,
+// especially for one taskfile may be captured by more than one engine at the same time occasionally.
+
+
+void execEngineTimeThread()
+{
+	while (true)
+	{
+		if (engineinfofile.empty())
+			break;
+
+		if (bQuitingApplication)
+			break;
+
+		bWorkingOnEngineFile = true;
+
+		EngineInfo_s runinfo;
+		runinfo.HostName = QHostInfo::localHostName().toStdString();
+		runinfo.UserName = getenv("USERNAME");
+		runinfo.StartTime = enginestarttime.toStdString();
+		runinfo.Status = 0;
+		runinfo.Version = versionName;
+		runinfo.IPAddr = get_local_ip().toStdString();
+		runinfo.EndTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+		runinfo.ProcessId = qApp->applicationPid();
+
+
+		runinfo.TaskFile2 = qstr2str(NewFileForRun);
+		runinfo.TaskFile = GBK2UTF8(runinfo.TaskFile2);
+
+
+		// what about taskfile status?
+
+		//if (gotNewPendingJobFile && !NewFileForRun.isEmpty() && projectfilefullpath != "")
+
+//		if (bQuitingApplication)
+//			break;
+
+//		if (engineinfofile.empty())
+//			break;
+		
+		if ((gotNewPendingJobFile /*|| !NewFileForRun.isEmpty()*/) && projectfilefullpath != "")
+		{
+			runinfo.Status = 1;
+
+			runinfo.ProjectName2 = projectfilefullpath;
+			runinfo.ProjectName = GBK2UTF8(runinfo.ProjectName2);
+
+		}
+
+///		std::string enginelockfile = engineinfofile + LOCKFILE_POSTFIX;
+///		if (enginelockfile=="")
+///		{
+///			break;
+///		}
+ 
+		if (!engineinfofile.empty() && !bQuitingApplication)
+		{
+			runinfo.save(engineinfofile);
+		}
+
+		bWorkingOnEngineFile = false;
+		// reduce sleeping time from 2s to 1s for capturing a quicker status. 
+		Sleep(1000);
+	}
+}
+
+struct TaskTimeInfo
+{
+	QString sLastActiveTime;
+	qint64 iTaskPid;
+	QString sTaskFile;
+};
+
+bool checkTaskInstanceStatus(QString& sTmpNewFileForRun)
+{
+	qint64 iTaskPid = qApp->applicationPid();
+
+	if (bQuitingApplication)
+		return false;
+
+	if (sTmpNewFileForRun.isEmpty())
+		return false;
+
+	if (!QFileInfo::exists(sTmpNewFileForRun))
+		return false;
+
+	QString sTaskPidFile = sTmpNewFileForRun + ".pid";
+
+	if (!QFileInfo::exists(sTaskPidFile))
+		return true;
+
+	// Reaching here means it has ever run by some engine before.
+
+	bool bSuccessfullyLoadedFromTaskTimeFile = false;
+
+	TaskTimeInfo _taskTimeInfo;
+
+	// qjson gbk? utf8?
+	QFile fileTaskTimeInfo(sTaskPidFile);
+	if (fileTaskTimeInfo.open(QIODevice::ReadOnly))
+	{
+		QByteArray baTaskTimeInfo = fileTaskTimeInfo.readAll();
+		QJsonParseError errorTaskTimeInfo;
+
+		QJsonDocument jsonDoc = QJsonDocument::fromJson(baTaskTimeInfo, &errorTaskTimeInfo);
+		if (errorTaskTimeInfo.error == QJsonParseError::NoError && !jsonDoc.isNull())
+		{
+			//_taskTimeInfo = jsonDoc.
+			QJsonObject jsonObj = jsonDoc.object();
+			if (jsonObj.contains("taskPid") && jsonObj.contains("taskFile") && jsonObj.contains("lastActiveTime"))
+			{
+				_taskTimeInfo.iTaskPid = jsonObj.value("taskPid").toInt();
+				_taskTimeInfo.sTaskFile = jsonObj.value("taskFile").toString();
+				_taskTimeInfo.sLastActiveTime = jsonObj.value("lastActiveTime").toString();
+
+				bSuccessfullyLoadedFromTaskTimeFile = true;
+			}
+		}
+
+		fileTaskTimeInfo.close();
+
+		if (bSuccessfullyLoadedFromTaskTimeFile)
+		{
+			// calculate the time difference which is from the last active time to now?
+			QDateTime dtLastActiveTime = QDateTime::fromString(_taskTimeInfo.sLastActiveTime, "yyyyMMddhhmmss");
+			QDateTime dtNow = QDateTime::currentDateTime();
+			int diffSecs = dtLastActiveTime.secsTo(dtNow);
+
+			if (iTaskPid == _taskTimeInfo.iTaskPid)
+			{
+				// same instance running on same host machine compared with previous one.
+				if (diffSecs > 3)
+					return true;
+				else
+					return false;
+			}
+			else
+			{
+				// different running instance on same host machine or across different host machine compared with previous one.
+				if (diffSecs > 10) 
+					return true;
+				else
+					return false;
+			}
+		}
+		else
+		{
+			return true;
+		}
+	}
+	else
+		return true;
+}
+
+// using engineinfofile instead of tasktimefile.
+bool continueCurrentTaskByEngineInfo(QString& sTmpNewFileForRun)
+{
+	return false;
+}
+
+bool continueCurrentTask(QString &sTmpNewFileForRun)
+{
+	if (bQuitingApplication)
+		return false;
+
+	if (sTmpNewFileForRun.isEmpty() /* || !gotNewPendingJobFile*/)
+		return false;
+
+	if (!QFileInfo::exists(sTmpNewFileForRun))
+		return false;
+
+	QString sTaskPidFile = sTmpNewFileForRun + ".pid";
+	if (!QFileInfo::exists(sTaskPidFile))
+		return true;
+
+	bool bSuccessfullyLoadedFromTaskTimeFile = false;
+
+	TaskTimeInfo _taskTimeInfo;
+
+	// qjson gbk? utf8?
+	QFile fileTaskTimeInfo(sTaskPidFile);
+	if (fileTaskTimeInfo.open(QIODevice::ReadOnly))
+	{
+		QByteArray baTaskTimeInfo = fileTaskTimeInfo.readAll();
+		QJsonParseError errorTaskTimeInfo;
+
+		QJsonDocument jsonDoc = QJsonDocument::fromJson(baTaskTimeInfo, &errorTaskTimeInfo);
+		if (errorTaskTimeInfo.error == QJsonParseError::NoError && !jsonDoc.isNull())
+		{
+			//_taskTimeInfo = jsonDoc.
+			QJsonObject jsonObj = jsonDoc.object();
+			if (jsonObj.contains("taskPid") && jsonObj.contains("taskFile") && jsonObj.contains("lastActiveTime"))
+			{
+				_taskTimeInfo.iTaskPid = jsonObj.value("taskPid").toInt();
+				_taskTimeInfo.sTaskFile = jsonObj.value("taskFile").toString();
+
+				_taskTimeInfo.sLastActiveTime = jsonObj.value("lastActiveTime").toString();
+
+				bSuccessfullyLoadedFromTaskTimeFile = true;
+			}
+		}
+
+		fileTaskTimeInfo.close();
+
+		if (bSuccessfullyLoadedFromTaskTimeFile)
+		{
+			// calculate the time difference which is from the last active time to now?
+			QDateTime dtLastActiveTime = QDateTime::fromString(_taskTimeInfo.sLastActiveTime, "yyyyMMddhhmmss");
+			QDateTime dtNow = QDateTime::currentDateTime();
+
+			int diffSecs = dtLastActiveTime.secsTo(dtNow);
+			if (diffSecs > 5) // over 5 secs.
+				return true;
+			else
+				return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+	else
+		return true;
+}
+
+void execTaskTimeThread()
+{
+	while (true)
+	{
+		bool bSuccessfullyLoadedFromTaskTimeFile = false;
+		TaskTimeInfo taskTimeInfo;
+
+		if (bQuitingApplication)
+			break;
+
+		if (taskPid == -1 || taskPidFile.isEmpty() || NewFileForRun.isEmpty() || !gotNewPendingJobFile)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			continue;
+		}
+
+		if (!QFileInfo::exists(NewFileForRun))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			continue;
+		}
+
+		if (QFileInfo::exists(taskPidFile))
+		{
+			TaskTimeInfo _taskTimeInfo;
+
+			QFile fileTaskTimeInfo(taskPidFile);
+			if (fileTaskTimeInfo.open(QIODevice::ReadOnly))
+			{
+				QByteArray baTaskTimeInfo = fileTaskTimeInfo.readAll();
+				QJsonParseError errorTaskTimeInfo;
+
+				QJsonDocument jsonDoc = QJsonDocument::fromJson(baTaskTimeInfo,&errorTaskTimeInfo);
+				if (errorTaskTimeInfo.error == QJsonParseError::NoError && !jsonDoc.isNull())
+				{
+					//_taskTimeInfo = jsonDoc.
+					QJsonObject jsonObj = jsonDoc.object();
+					if (jsonObj.contains("taskPid") && jsonObj.contains("taskFile") && jsonObj.contains("lastActiveTime"))
+					{
+						_taskTimeInfo.iTaskPid = jsonObj.value("taskPid").toInt();
+						_taskTimeInfo.sTaskFile = jsonObj.value("taskFile").toString();						
+
+						_taskTimeInfo.sLastActiveTime = jsonObj.value("lastActiveTime").toString();
+
+						//std::cout << "loaded task time file succ." << std::endl;
+						bSuccessfullyLoadedFromTaskTimeFile = true;
+					}
+				}
+
+				fileTaskTimeInfo.close();
+
+				if (bSuccessfullyLoadedFromTaskTimeFile)
+				{
+					if (_taskTimeInfo.iTaskPid == taskPid)
+					{
+						// refresh time.
+						taskTimeInfo.iTaskPid = taskPid;
+						taskTimeInfo.sLastActiveTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+						taskTimeInfo.sTaskFile = NewFileForRun;
+
+						
+					}
+					else
+					{
+						// calculate the time difference which is from the last active time to now?
+						QDateTime dtLastActiveTime = QDateTime::fromString(_taskTimeInfo.sLastActiveTime, "yyyyMMddhhmmss");
+						QDateTime dtNow = QDateTime::currentDateTime();
+
+						int diffSecs = dtLastActiveTime.secsTo(dtNow);
+						if (diffSecs > 5) // over 5 secs.
+						{
+							// other engine which is working on current task,may have already disappeared.
+							taskTimeInfo.iTaskPid = taskPid;
+							taskTimeInfo.sTaskFile = NewFileForRun;
+							
+							taskTimeInfo.sLastActiveTime = dtNow.toString("yyyyMMddhhmmss");
+							// may have already gone.
+						}
+						else
+						{
+							// another engine is still working on current current task,don't bother it.
+							std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+							continue;
+						}
+					}
+				}
+			}
+		}
+		
+		if (!bSuccessfullyLoadedFromTaskTimeFile)
+		{
+			///std::cout << "failed to loaded task time file." << std::endl;
+			taskTimeInfo.iTaskPid = taskPid;
+			taskTimeInfo.sTaskFile = NewFileForRun;
+			
+			taskTimeInfo.sLastActiveTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+		}
+		else
+		{
+			///std::cout << "loaded task time file succ2." << std::endl;
+		}
+
+		//std::cout << "after loading task time file:" << taskTimeInfo.iTaskPid << " " << taskTimeInfo.sTaskFile.toStdString() << std::endl;
+		//LOGI("saveing task time file:" + std::to_string(taskTimeInfo.iTaskPid) + " " + taskTimeInfo.sTaskFile.toStdString());
+
+		QJsonObject jsonObject;
+		jsonObject.insert("taskPid",taskTimeInfo.iTaskPid);
+		
+		jsonObject.insert("taskFile",taskTimeInfo.sTaskFile);
+		jsonObject.insert("lastActiveTime",taskTimeInfo.sLastActiveTime);
+
+		QJsonDocument jsonDoc;
+		jsonDoc.setObject(jsonObject);
+
+		QByteArray baTaskTimeInfo = jsonDoc.toJson();
+
+		QFile fileTaskTimeInfo(taskPidFile);
+		fileTaskTimeInfo.open(QIODevice::WriteOnly);
+		fileTaskTimeInfo.write(baTaskTimeInfo);
+		fileTaskTimeInfo.flush();
+		fileTaskTimeInfo.close();
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+	}
+}
+
+qint64 nTest1Num = 0;
+qint64 nTest2Num = 0;
+
+void execTestThread()
+{
+	while (true)
+	{
+		if (bQuitingApplication)
+		{
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << " quiting... " << nTest1Num << std::endl;
+			LOGI("nTest1Num:" + std::to_string(nTest1Num) + " quiting... ");
+			break;
+		}
+
+		std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << " " << nTest1Num << std::endl;
+		LOGI("nTest1Num:" + std::to_string(nTest1Num));
+
+		nTest1Num++;
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	}
+}
+
+void execTest2Thread()
+{
+	while (true)
+	{
+		if (bQuitingApplication)
+		{
+			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << " quiting=====... " << nTest2Num << std::endl;
+			LOGI("nTest2Num:" + std::to_string(nTest2Num) + " quiting... ");
+			break;
+		}
+
+		std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << " ====== " << nTest2Num << std::endl;
+		LOGI("nTest2Num:" + std::to_string(nTest2Num));
+
+		nTest2Num++;
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+		if (nTest2Num == 5)
+		{
+			int a = 30;
+			int b = 0;
+	//		int c = a / b;
+//			exit(0);
+		}
+	}
+}
+
+//QString testTaskJsonLog = "Z:/mohackerjob/job128/Logs";
+//QString testTaskJsonFile = "Z:/Data/reconstruct_data/project/mok/guangzhou/guangzhou/Block_7/job_20230322115153_AT/task_def_230.json";
+
+QString testTaskJsonLog = "D:/worksp/jobs/Logs";
+QString testTaskJsonFile = "D:/worksp/projs/NewProject11221/Block_2/job_20230316095227_AT/task_def_10.json";
+
+void writeCurrentLockInfo(bool bLock)
+{
+	qint64 qid = QApplication::applicationPid();
+	QString qname = QApplication::applicationName();
+	QString nowTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss.zzz");
+	QString hostName = QHostInfo::localHostName();
+
+	std::ostringstream oss;
+	oss << "host:" << hostName.toStdString() << " qname:" << qname.toStdString() << " qid:" << qid << " now:" << nowTime.toStdString() << (bLock ? " lock." : " unlock.");
+	std::cout << oss.str() << std::endl;
+	LOGI(oss.str());
+}
+
+void execTest6Thread()
+{
+	while (true)
+	{
+	//	if (bQuitingApplication)
+	//	{
+//			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << " quiting... " << nTest1Num << std::endl;
+//			LOGI("nTest1Num:" + std::to_string(nTest1Num) + " quiting... ");
+	//		break;
+	//	}
+
+		FILE* fpLock = NULL;
+
+		fpLock = _fsopen(qstr2str(QString(testTaskJsonFile + ".lock")).c_str(), "wt", _SH_DENYWR);
+
+		if (fpLock == NULL)
+		{
+		//	std::cout << "++++lock failed++++++++++++" << std::endl;
+			//std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			continue;
+		}
+
+		writeCurrentLockInfo(true);
+
+		std::cout << "====== lock succ ==================" << std::endl;
+		std::this_thread::sleep_for(std::chrono::milliseconds(6000));
+		std::cout << "====== lock succ2 ==================" << std::endl;
+
+		fclose(fpLock);
+
+		writeCurrentLockInfo(false);
+
+		std::cout << "====== lock close ==================" << std::endl;
+	}
+}
+
+bool checkProcessRunning(const QString& processName, QList<quint64>& listProcessId)
+{
+#ifdef Q_OS_WIN
+	bool res = false;
+	HANDLE    hToolHelp32Snapshot;
+	hToolHelp32Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	PROCESSENTRY32    pe = { sizeof(PROCESSENTRY32) };
+	BOOL  isSuccess = Process32First(hToolHelp32Snapshot, &pe);
+	while (isSuccess)
+	{
+		size_t len = WideCharToMultiByte(CP_ACP, 0, pe.szExeFile, wcslen(pe.szExeFile), NULL, 0, NULL, NULL);
+		char* des = (char*)malloc(sizeof(char) * (len + 1));
+		WideCharToMultiByte(CP_ACP, 0, pe.szExeFile, wcslen(pe.szExeFile), des, len, NULL, NULL);
+		des[len] = '\0';
+
+		if (!strcmp(des, qstr2str(const_cast<QString &>(processName)).c_str()))
+		{
+			listProcessId.append(pe.th32ProcessID);
+			res = true;
+			break;
+		}
+		free(des);
+		isSuccess = Process32Next(hToolHelp32Snapshot, &pe);
+	}
+	CloseHandle(hToolHelp32Snapshot);
+	return res;
+#elif defined Q_OS_MAC
+	bool res(false);
+	QString strCommand = "ps -ef|grep " + processName + " |grep -v grep |awk '{print $2}'";
+
+	const char* strFind_ComName = convertQString2char(strCommand);
+	FILE* pPipe = popen(strFind_ComName, "r");
+	if (pPipe)
+	{
+		std::string com;
+		char name[512] = { 0 };
+		while (fgets(name, sizeof(name), pPipe) != NULL)
+		{
+			int nLen = strlen(name);
+			if (nLen > 0
+				&& name[nLen - 1] == '\n')
+				//&& name[0] == '/')
+			{
+				name[nLen - 1] = '\0';
+				listProcessId.append(atoi(name));
+				res = true;
+				break;
+			}
+		}
+		pclose(pPipe);
+	}
+	return res;
+#endif
+}
+
+//?chy是不是不再在running搜索了
+int main(int argc, char** argv)
+{
+	/*JobMonitor::CreateJobQueueDir("D:/MyLearning/CHY/TEST/Jobs/");
+	JobMonitor::SortPendingJobFile("D:/MyLearning/CHY/TEST/Jobs/Pending/");*/
+
+	//SetConsoleOutputCP(CP_UTF8);
+	///SetConsoleOutputCP(65001);
+	SetConsoleOutputCP(936);
+
+#ifdef WIN32
+	SetUnhandledExceptionFilter(ExceptionFilter);
+	SetConsoleCtrlHandler(HandlerRoutine, TRUE);//注册监听程序退出事件
+#endif // WIN32
+	//InitializeLog(argv,false);
+
+	QApplication app(argc, argv);
+
+	///UsingNoChinesePathVersion();
+
+	enginestarttime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+	QFileInfo finfoProgFile(argv[0]);
+
+	std::string apppath = qstr2str(finfoProgFile.absolutePath());
+
+	std::string machinecode = EngineInfo::Getinstance().GetMachineCode();
+	std::string enginejsonpath = apppath + "/" + machinecode + "Engine.json";
+	EngineInfo::Getinstance().GetEngineJsonPathMutual() = enginejsonpath;
+
+	try
+	{
+		if (boost::filesystem::is_regular_file(enginejsonpath))
+		{
+			EngineInfo::Getinstance().LoadEngineInfoJson();
+		}
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		LOGI(oss.str());
+	}
+	catch (std::exception& ex)
+	{
+		std::ostringstream oss;
+		oss << "exception:" << ex.what();
+		LOGI(oss.str());
+	}
+
+
+	APPUseInfo appuseinfo;
+	appuseinfo.StartTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+
+	std::string versionCode;
+	std::string configpath = apppath + "/" + "JsonConfig.ini";
+	std::string language;
+	EngineInfo::Getinstance().ParseConfig(configpath, versionName, versionCode, language);
+	appuseinfo.VersionCode = versionCode;
+	appuseinfo.VersionName = versionName;
+	appuseinfo.language = language;
+	EngineInfo::Getinstance().GetAPPUseInfosMutual().push_back(appuseinfo);
+
+
+	if (argc > 1)
+	{
+		bSpecialLog = argv[1];
+	}
+	
+	// 获取当前程序的文件名(不带扩展名)
+	progBaseName = finfoProgFile.baseName();
+
+
+	std::cout << qstr2str(progBaseName) << " compiled at " << __DATE__ << " " << __TIME__ << std::endl;
+	
+	// 获取当前Engine所在主机的物理内存.
+	TestSfmMemory("");
+	
+	{
+//		int a = 0;
+//		int b = 30 / a;
+
+	}
+
+	if (!progBaseName.compare("MoldAINode", Qt::CaseInsensitive))
+	{
+		int exenum = catchProcess.NumProgramRunning("MoldAINode.exe");
+		if (bSpecialLog)
+		{
+			std::cout << __FUNCTION__ << " LINE " << __LINE__<< " exenum " << exenum << std::endl;
+		}
+
+		QList<quint64> listProcessId;
+		
+		
+		/*if (checkProcessRunning("MokEngine.exe", listProcessId))
+		{
+			std::cout << "1-" << listProcessId.size() << std::endl;
+		}*/
+		
+		if (exenum>1)
+		{
+			std::cout << " Fatal error: Another Engine instance is running" << std::endl;
+			std::cout << "Press enter to continue > ";
+			char ch[128];
+			/*std::cin >> ch;*/
+			/*std::cout << ch << std::endl;*/
+			char c = std::cin.get();
+			/*std::cout << c << std::endl;
+			char c2 = std::cin.get();
+			std::cout << c2 << std::endl;*/
+			if ( c== '\n')
+			{
+				return -1;
+			}
+			/*if (c2 == '\n')
+			{
+				return -1;
+			}*/
+			return -1;
+		}
+		/*killTaskProcess();*/
+
+	}
+
+	
+	///QApplication app(argc, argv);
+
+	app.setQuitOnLastWindowClosed(false);
+
+	InitializeLogEngine(argv);
+
+	::atexit(customized_exit);
+	signal(SIGINT, SigInt_Handler);
+	signal(SIGBREAK, SigBreak_Handler);
+	signal(SIGTERM, SigBreak_Handler);
+	signal(SIGABRT, SigBreak_Handler);
+
+	CollectStatistics();
+
+	/*
+	{
+		JobFeedBack_s feadback;
+		std::string current_feedback_file = "D:\\030201\\3\\Block_3\\feedback_job_20230302153844_AT.json";
+		bool bLoadFeedbackFileError = false;
+
+		if (!feadback.load(current_feedback_file))
+		{
+			std::cout << "load feedback test file error!" << std::endl;
+			bLoadFeedbackFileError = true;
+		}
+		else
+		{
+			std::cout << "load feedback test file succ!" << std::endl;
+		}
+	}*/
+
+	//qInstallMessageHandler(customMessageHandler);
+	QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+	std::cout << "[" << timenow.toStdString() << "] Starting Engine on job queue " << qstr2str(Settings::getEngineJobQueue()) << std::endl;
+	if (bSpecialLog)
+	{
+		std::ostringstream oss;
+		oss.clear();
+		oss << __FUNCTION__ << " LINE " << __LINE__ << "[" << timenow.toStdString() << "] Starting Engine on job queue " << qstr2str(Settings::getEngineJobQueue());
+		LOGI(oss.str());	
+	}
+	
+	MakePath();
+
+	DoCleanupJobLockOnceWhileEngineStart();
+
+	msgBoxThread = new MsgBoxThread(nullptr);
+
+	engineinfofile = qstr2str(ENGINEJOBPATH) + "/Engines/" + qstr2str(QHostInfo::localHostName()) + ".json";
+
+	try
+	{
+		if (bfs::exists(engineinfofile))
+		{
+			//LOGI("remove engine file " + engineinfofile);
+
+			QFile(str2qstr(engineinfofile)).remove();
+
+		}
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		LOGI(oss.str());
+	}
+	catch (std::exception& ex)
+	{
+		std::ostringstream oss;
+		oss << "exception:" << ex.what();
+		LOGI(oss.str());
+	}
+
+	std::thread execEngineTimejob(execEngineTimeThread);
+	execEngineTimejob.detach();
+
+	// 搜索Pending JOB队列.
+	std::thread searchPendingJob1(searchPendingJobThread2);
+	searchPendingJob1.detach();
+
+	std::thread searchCancelledRunningJob(searchUnnormaldRunningJobThread);
+	searchCancelledRunningJob.detach();
+
+	///std::thread doFeedbackRewrite(doFeedbackRewriteThread);
+	///doFeedbackRewrite.detach();
+
+	std::thread doIntranetVersionCheck(doIntranetVersionCheckThread);
+	doIntranetVersionCheck.detach();
+
+	std::thread execTaskTime(execTaskTimeThread);
+	execTaskTime.detach();
+
+	std::thread execDoCleanup(DoCleanupLockFiles);
+	execDoCleanup.detach();
+
+	//std::thread execTest(execTestThread);
+	//execTest.detach();
+
+	//std::thread execTest2(execTest2Thread);
+	//execTest2.detach();
+
+//	std::thread execTest6(execTest6Thread);
+//	execTest6.detach();
+
+	return app.exec();
+}
+
+struct JobFileTimeInfo
+{
+	QString fullPathFile;  /// /xx/xx/job_xxxx_AT.json
+	QString jobFileName;  /// job_xxx_AT
+	int ymd;
+	int hms;
+};
+
+QMap<QString, JobFileTimeInfo> jobFileTimeInfoMap;
+QMap<QString, JobFileTimeInfo> jobFileTimeInfoRunningMap;
+
+// some in-depth thoughts which may be acted on feedback file:
+// check whether a feedback file is correct,or corrupted?
+// what happens while a feedback file is corrupted?The process crash or just ignore it silently?
+// compare the differences with different json libraries.
+// check the consistency of the feedback file,including  the existence of all the nessary fields and possible value range for each field.
+// It is a bit sophisticated using rewrite mechanism while failing to save feedback file ,instead we can retry more times while loading or saving feedback file.
+// especially,for the sake to reduce retry times or wait time,we should try to reduce the total time spent during saving feedback file.
+
+// check the existence of the necessary json fields of the specific feedback file. 
+// to make sure that the feedback file has exact numbers of the json fields.
+// to make sure the value for some key json fileds of the feedback file is within reasonable range.
+
+// another option is:firstly,check the correctness of the feedback file using QJsonDocument.
+// secondly,judge the return result from the previous call.
+// if it was sucessful,construct nlohmann json object using all the member variables of QJsonDocument object.
+// if failed,never to continue the loading action using nlohmann related function to process feedback file.
+
+// need to lock the feedback file while saving it,if locked failed,can retry more times.
+// only check the data consistency for loading the feedback file.if failed,do it more.
+

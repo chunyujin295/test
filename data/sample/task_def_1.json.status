@@ -1,0 +1,27 @@
+{
+    "EndDateTime": "20220810165131",
+    "ItemPath": "Block_2",
+    "Msg": "",
+    "NumRetry": 0,
+    "NumberOfTasks": -1,
+    "Percent": 100,
+    "ProjectPath": "D:/jiaojie/test/test/testengine",
+    "RetVal": 0,
+    "RunInfo": {
+        "EndTime": "16:51:31",
+        "HostName": "DESKTOP-GNLONRE",
+        "IPAddr": "10.10.82.16",
+        "ProcessID": 5384,
+        "StartTime": "16:51:28",
+        "TotalTime": "00:00:02",
+        "UserName": "86185"
+    },
+    "StartDateTime": "20220810165120",
+    "Status": 2,
+    "function": "FeatureDetection",
+    "id": 1,
+    "job": "job_20220810164952",
+    "msg": "extracting KeyPoint",
+    "name": "task_def_1",
+    "type": 2
+}

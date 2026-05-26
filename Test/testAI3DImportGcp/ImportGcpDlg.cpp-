@@ -1,0 +1,347 @@
+#include "ImportGcpDlg.h"
+#include <QPushButton>
+#include <QDebug>
+#include<QFileDialog>
+#include<QTableWidgetItem>
+#include<QStandardItemModel>
+#include<QTableView>
+#include<QHeaderView>
+ImportGcpDlg::ImportGcpDlg(QDialog *parent)
+	: QDialog(parent)
+{
+	
+	ui.setupUi(this);
+	ui.tableView->horizontalHeader()->setHighlightSections(false);
+	m_RecordMap.clear();
+
+	ui.splitter->setStretchFactor(0, 1);
+	ui.splitter->setStretchFactor(1, 1);
+	ui.splitter->setStretchFactor(2, 1);
+	ui.splitter->setStretchFactor(3, 1);
+	ui.splitter->setVisible(true);
+	//this->setWindowTitle("SubmitAT");
+	//this->setWindowFlags(Qt::Dialog);
+	vlist.clear();
+	this->setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+	connect(ui.btn_tool_filechoose,&QPushButton::clicked,this,&ImportGcpDlg::openFileDialog);
+	//connect(ui.Btn_OK, &QPushButton::clicked, this, &ImportGcp::sig_VecString);
+	connect(ui.Btn_Cancel, &QPushButton::clicked, this, &ImportGcpDlg::close);
+	connect(ui.Btn_OK, &QPushButton::clicked, this, &ImportGcpDlg::readFile);
+	connect(ui.comboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+		[=](int index) { coordinate = ui.comboBox->itemText(index);});
+
+	QStringList tempList;
+	tempList << "Default" << "    UTM1" << "    UTM2" << "    UTM3" << "    UTM4" << "    UTM5" << "Recent" << "   WGS84_1"<< "   WGS84_2"<<"   WGS84_3";
+	ui.comboBox->addItems(tempList);
+}
+
+ImportGcpDlg::~ImportGcpDlg()
+{
+
+}
+
+void ImportGcpDlg::openFileDialog()
+{
+
+	//打开选择文件对话框存在以下问题：在msvc2015 32bit编译，会出现错误
+	QString oldStr = QFileInfo(oldFileName).absolutePath();
+	QFileDialog fd(nullptr, tr("Open solution file"), oldStr, tr("pos file(*.txt)"));
+	fd.setAcceptMode(QFileDialog::AcceptOpen);
+	fd.setFileMode(QFileDialog::ExistingFile);
+	fd.setViewMode(QFileDialog::Detail);
+	
+	if (QDialog::Accepted != fd.exec()) {
+		return;
+	}
+
+	posFile_path = fd.selectedFiles().first();
+	ui.le_path->setText(posFile_path); 
+
+	showList(posFile_path);
+}
+
+void ImportGcpDlg::setOldFileName(QString strFile)
+{
+	oldFileName = strFile;
+}
+
+QString ImportGcpDlg::getFilePath()
+{
+	return posFile_path;
+}
+
+void ImportGcpDlg::showList(QString fileName)
+{
+
+
+    QFile file(fileName);
+    if (!file.open(QFile::ReadOnly | QFile::Text))
+         return;
+    
+    QTextStream fileStream(&file);
+    int numRow = 0;
+	QVector<QStringList> v_StringList;
+    while (!fileStream.atEnd())
+    {
+        numRow++;
+        QString str = fileStream.readLine();
+        str.replace(QRegExp("[\\s]+"), " ");
+        str.replace(QRegExp(","), " ");
+        str.replace(QRegExp(";"), " ");
+        QStringList list = str.split(QRegExp("\\s+"), QString::SkipEmptyParts);
+		if (list.size() <= 1)
+			continue;
+		v_StringList.push_back(list);
+    }
+    file.close();
+	if (!v_StringList.isEmpty()) {
+		int count = v_StringList.begin()->size();
+		//初始化标头
+		showTitle(count);
+	}
+	//comboxSelf = new QSensorIntDelegate;
+	if (!v_StringList.isEmpty())
+	{
+		QStringList strlist;
+		//comboxSelf = new QSensorIntDelegate;
+		strlist << "Name" << "Longtitude" << "Latitude" << "Height";
+		model = new QStandardItemModel(this);
+		model->setHorizontalHeaderLabels(strlist);
+		
+		QHeaderView* myHead = new QHeaderView(Qt::Horizontal);
+		//myHead->setItemDelegate(comboxSelf);
+		//myHead->setho
+		ui.tableView->setHorizontalHeader(myHead);
+		ui.tableView->horizontalHeader()->setVisible(false);
+		//ui.tableView->horizontalHeader()->setItemDelegate(comboxSelf);
+	
+		QItemSelectionModel* itemselection = new QItemSelectionModel(model);
+		ui.tableView->setSelectionModel(itemselection);
+		ui.tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+		//ui.tableView->setItemDelegateForRow(0, comboxSelf);
+		
+		//插入tablewidget中
+		int num = 0;
+		for (auto perRow: v_StringList) {
+			
+			if (!perRow.isEmpty()) {
+
+				QList<QStandardItem*> items;
+				items.clear();
+				for (int i = 0; i < v_StringList.first().size(); i++) {
+					
+					
+						//qDebug() << bolckName.split("|").at(i);
+						QStandardItem* item = new QStandardItem;
+						item->setText(perRow.at(i));
+						item->setTextAlignment(Qt::AlignCenter);
+						item->setEditable(false);
+						items.append(item);
+						//model->appendRow(item);
+					
+					
+				}
+				//model->appendRow(items);
+				model->insertRow(0, items);
+			}
+			else {
+				continue;
+			}
+			num++;
+		}
+		ui.tableView->verticalHeader()->hide();
+		
+		ui.tableView->setModel(model);
+		
+		
+		ui.lab_posNum->setText(QString::number(v_StringList.size()));
+
+
+	}
+
+
+
+}
+
+void ImportGcpDlg::showTitle(int num)
+{
+
+	QWidget* w = new QWidget;
+	while (ui.splitter->count() > 0)
+	{
+		w = ui.splitter->widget(0);
+		w->setParent(nullptr);   // 必须
+		w->deleteLater();
+	}
+
+
+	int count = ui.splitter->count();
+	QStringList normalList;
+	normalList <<"Role" << "Name"<< "Longitude"<<"Latitude" <<"Height" <<"Ignore";
+	
+	for (int i = 0; i < num;i++) {
+		//ui.splitter->
+		QComboBox* combox_New = new QComboBox;
+		combox_New->setStyleSheet("font: 14px 'Arial';");
+		combox_New->addItems(normalList);
+		ui.splitter->addWidget(combox_New);
+		p_List.push_back(combox_New);
+	}
+	for (int j = 0; j < ui.splitter->count();j++) {
+		ui.splitter->setStretchFactor(j,1);
+	}
+	//创建连接
+	for (auto perCombox:p_List) {
+		
+		connect(perCombox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ImportGcpDlg::recordIndex);
+	}
+}
+
+void ImportGcpDlg::recordIndex(int index)
+{
+	
+	QObject* obj = sender(); //返回发出信号的对象，用QObject类型接收
+	QComboBox* combox_tmp = qobject_cast<QComboBox*>(obj);
+	if (p_List.contains(combox_tmp)) {
+		//获取splitter的index及qcombox的index的string
+		for (int i = 0; i < ui.splitter->count();i++) {
+		
+			//获取index
+			if (combox_tmp = qobject_cast<QComboBox*>(ui.splitter->widget(i))) {
+				QString str = combox_tmp->currentText();
+				qDebug() << str;
+				m_RecordMap.insert(i, str);
+			}
+
+		}
+	}
+}
+
+void ImportGcpDlg::readFile()
+{
+#if 0 
+	this->accept();
+	return;
+#endif
+	QFile file(getFilePath());
+	if (!file.open(QFile::ReadOnly | QFile::Text))
+	{
+		//emit error(CBlockWgt::FILE_OPNE_FAIL);
+		return;
+	}
+	QTextStream fileStream(&file);
+	int numRow = 0;
+	QList<int> sortItem;
+	/*int nameIt = 0, longitudeIt = 0, latitudeIt = 0, heightIt = 0,*/
+	int headingIt = 0, pitchingIt = 0, rollingIt = 0;
+	for (auto it = m_RecordMap.begin(); it != m_RecordMap.end(); it++) {
+		if (it.value() == "Name") {
+			nameIt = it.key();
+			qDebug() << it.key();
+		}
+		else if (it.value() == "Longitude") {
+			longitudeIt = it.key();
+			qDebug() << it.key();
+		}
+		else if (it.value() == "Latitude")
+			latitudeIt = it.key();
+		else if (it.value() == "Height")
+			heightIt = it.key();
+		else if (it.value() == "Heading")
+			headingIt = it.key();
+		else if (it.value() == "Pitching")
+			pitchingIt = it.key();
+		else if (it.value() == "Rolling")
+			rollingIt = it.key();
+		else
+		{
+			continue;
+		}
+
+	}
+	sortItem << nameIt << longitudeIt << latitudeIt << heightIt << headingIt << pitchingIt << rollingIt;
+	while (!fileStream.atEnd())
+	{
+		numRow++;
+		QString str = fileStream.readLine();
+		str.replace(QRegExp("[\\s]+"), " ");
+		str.replace(QRegExp(","), " ");
+		str.replace(QRegExp(";"), " ");
+		QStringList list = str.split(QRegExp("\\s+"), QString::SkipEmptyParts);//默认name longitude latitude height heading pitching rolling
+
+
+
+	
+
+		
+			//	//    {
+			//	//     
+	
+		//if (!list.isEmpty())
+		//{
+		//	//if(numRow == 1)
+		//	//if(QString(list.front()).front().isLetter())
+		//	//{
+		//	//     continue;
+		//	//}
+		//	///*检测是否是8列*/
+		//	//if(list.size() !=8)
+		//	//{
+		//	//    emit error(CBlockWgt::FILE_COL_NOT_IS_EIGHT);
+		//	//    file.close();
+		//	//    pwgt->_list_lines.clear();
+		//	//    return;
+		//	//}
+		//	///*检测除了第一行是否有字母*/
+		//	//for(auto &item:list)
+		//	//{
+		//	//    if(item.indexOf(QRegExp("[A-Za-z]")) !=-1)
+		//	//    {
+		//	//       emit error(CBlockWgt::FILE_CONTAINS_LETTER);
+		//	//       file.close();
+		//	//       pwgt->_list_lines.clear();
+		//	//       return;
+		//	//    }
+		//	//}
+
+		//	  // alka 1.4.231
+		//	if (pwgt->_block_data->image_black_list.contains(list[0]))
+		//		continue;
+		//	// alke
+		//	pwgt->_list_lines.push_back(list);
+
+		//}
+	}
+	file.close();
+	for (int i = 0; i < model->rowCount(); i++) {
+		QStringList tempList;
+		for (int j = 0; j < model->columnCount(); j++) {
+			tempList << (model->item(i, sortItem.at(j))->text());
+		}
+		if (tempList[0].indexOf(QRegExp("[A-Za-z]")) == -1) {
+			//名字不存在,提示
+
+		}
+		vlist.push_back(tempList);
+	}
+	this->accept();
+
+}
+
+QString ImportGcpDlg::getSelectIndex()
+{
+	if (coordinate == "")
+		return	coordinate = ui.comboBox->itemText(0);
+	else
+		return coordinate;
+}
+
+void ImportGcpDlg::setIndexString(QStringList strList)
+{
+	ui.comboBox->clear();
+	ui.comboBox->addItems(strList);
+	
+}
+
+
+

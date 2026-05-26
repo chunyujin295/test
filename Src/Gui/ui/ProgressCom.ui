@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ProgressCom</class>
+ <widget class="QWidget" name="ProgressCom">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>114</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>0</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>400</width>
+    <height>114</height>
+   </size>
+  </property>
+  <property name="font">
+   <font>
+    <family>Arial bold</family>
+    <pointsize>-1</pointsize>
+    <weight>50</weight>
+    <italic>false</italic>
+    <bold>false</bold>
+   </font>
+  </property>
+  <property name="windowTitle">
+   <string>processCom</string>
+  </property>
+  <property name="layoutDirection">
+   <enum>Qt::LeftToRight</enum>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QWidget
+{
+	color: #FFFFFF;
+	font: 16px &quot;Arial&quot; &quot;bold&quot;;
+	background:  #252525;
+	box-shadow: 2px 2px 8px 4px;
+	border-radius: 4px;
+}
+</string>
+  </property>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>36</x>
+     <y>30</y>
+     <width>141</width>
+     <height>16</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial bold</family>
+     <pointsize>-1</pointsize>
+     <weight>50</weight>
+     <italic>false</italic>
+     <bold>false</bold>
+    </font>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font:14px;
+color: #FFFFFF;</string>
+   </property>
+   <property name="text">
+    <string>Adding 1500 photos</string>
+   </property>
+  </widget>
+  <widget class="QWidget" name="widget" native="true">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>54</y>
+     <width>348</width>
+     <height>38</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">#widget{
+
+	image: url(:/new/prefix1/skin/rectback1x.png);
+}
+#widget *{
+	image:url();
+}
+
+</string>
+   </property>
+   <widget class="QProgressBar" name="progressBar">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>14</y>
+      <width>280</width>
+      <height>10</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial bold</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true"> QProgressBar {
+      border: 0px solid grey;
+	  text-align: right;
+	  color:white;
+ 	  background-color: #222222;
+	  font: 14px &quot;Arial&quot; &quot;bold&quot;;
+	space:10;
+  }
+
+  QProgressBar::chunk {
+      background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #7541BD,stop:1 #217FC4);
+font: 14px &quot;Arial&quot;;
+box-shadow: 2px 2px 8px 4px;
+	border-radius: 4px;
+      
+  }</string>
+    </property>
+    <property name="value">
+     <number>24</number>
+    </property>
+    <property name="textVisible">
+     <bool>false</bool>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>294</x>
+      <y>10</y>
+      <width>42</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial Bold</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:16px &quot;Arial&quot; &quot;Bold&quot;;
+background:  #252525;
+color:#ffffff;</string>
+    </property>
+    <property name="text">
+     <string>100%</string>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <resources>
+  <include location="../MoldAI.qrc"/>
+ </resources>
+ <connections/>
+</ui>

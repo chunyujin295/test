@@ -1,0 +1,2047 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PosSigma</class>
+ <widget class="QWidget" name="PosSigma">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1060</width>
+    <height>641</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>0</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>1060</width>
+    <height>641</height>
+   </size>
+  </property>
+  <property name="font">
+   <font>
+    <family>Arial</family>
+    <pointsize>-1</pointsize>
+    <weight>50</weight>
+    <italic>false</italic>
+    <bold>false</bold>
+   </font>
+  </property>
+  <property name="windowTitle">
+   <string>PosSigma</string>
+  </property>
+  <property name="windowOpacity">
+   <double>1.000000000000000</double>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QWidget{
+color: #FFFFFF;
+font: 14px &quot;Arial&quot;;
+background: #303030;
+box-shadow: 2px 2px 8px 4px;
+border-radius: 4px;
+}
+
+</string>
+  </property>
+  <widget class="QWidget" name="widget" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>600</width>
+     <height>48</height>
+    </rect>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>600</width>
+     <height>48</height>
+    </size>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14px &quot;Arial&quot;;</string>
+   </property>
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>14</y>
+      <width>20</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">image: url(:/new/prefix1/skin/Title_AT.png);
+</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_2">
+    <property name="geometry">
+     <rect>
+      <x>48</x>
+      <y>17</y>
+      <width>70</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">border-left:0px;
+border-right:0px;
+border-top:0px;
+border-color: #C5C5C5;
+color:#FFFFFF;
+border-radius:0px;
+font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>Submit AT</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QWidget" name="widget_name" native="true">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>58</y>
+     <width>560</width>
+     <height>74</height>
+    </rect>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>560</width>
+     <height>74</height>
+    </size>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color:#3D3D3D</string>
+   </property>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>125</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>Output block name</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_4">
+    <property name="geometry">
+     <rect>
+      <x>228</x>
+      <y>35</y>
+      <width>38</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">color: #A5A5A5;
+font:14px;</string>
+    </property>
+    <property name="text">
+     <string>Name</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="TaskName">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>28</y>
+      <width>264</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QLineEdit{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+	font:14px
+}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="frame">
+     <bool>false</bool>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QWidget" name="widget_posmode" native="true">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>140</y>
+     <width>560</width>
+     <height>100</height>
+    </rect>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>560</width>
+     <height>100</height>
+    </size>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color:#3D3D3D;
+font: 12px &quot;Arial&quot;;</string>
+   </property>
+   <widget class="QLabel" name="lbl_posmode">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>113</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>Positioning mode</string>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_gcp">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>74</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>false</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_gps">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>50</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>false</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_pos">
+    <property name="geometry">
+     <rect>
+      <x>302</x>
+      <y>50</y>
+      <width>250</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>Use Photo Position metadata for adjustment</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_gcp">
+    <property name="geometry">
+     <rect>
+      <x>302</x>
+      <y>74</y>
+      <width>190</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>Use control points for adjustment</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_arbitrary">
+    <property name="geometry">
+     <rect>
+      <x>304</x>
+      <y>25</y>
+      <width>190</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>Arbitrary</string>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_arbitrary">
+    <property name="geometry">
+     <rect>
+      <x>275</x>
+      <y>25</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QWidget" name="widget_atsetting" native="true">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>250</y>
+     <width>560</width>
+     <height>221</height>
+    </rect>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>1000</width>
+     <height>251</height>
+    </size>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+     <pointsize>-1</pointsize>
+     <weight>50</weight>
+     <italic>false</italic>
+     <bold>false</bold>
+    </font>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color:#3D3D3D;
+font: 12px &quot;Arial&quot;;</string>
+   </property>
+   <widget class="QLabel" name="lbl_atsettings">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>75</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>AT Settings</string>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_highsigma">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>152</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>false</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_normalsigma">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>122</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>false</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_normal_sigma">
+    <property name="geometry">
+     <rect>
+      <x>302</x>
+      <y>122</y>
+      <width>233</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>2, 2, 5  (m)</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_highsigma">
+    <property name="geometry">
+     <rect>
+      <x>302</x>
+      <y>152</y>
+      <width>176</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>0.05,    0.05,    0.1   (m)</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_11">
+    <property name="geometry">
+     <rect>
+      <x>168</x>
+      <y>105</y>
+      <width>98</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">color: #A5A5A5;
+font:14px;</string>
+    </property>
+    <property name="text">
+     <string>POS accuracy</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_keydensity">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>152</x>
+      <y>41</y>
+      <width>114</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">color: #A5A5A5;
+font:14px;</string>
+    </property>
+    <property name="text">
+     <string>Keypoints desity</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="le_keydensity">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>34</y>
+      <width>264</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+font:14px;
+
+</string>
+    </property>
+    <item>
+     <property name="text">
+      <string>20000</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>15000</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>10000</string>
+     </property>
+    </item>
+   </widget>
+   <widget class="QRadioButton" name="radbtn_lowsigma">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>180</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
+    </property>
+    <property name="autoExclusive">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_lowsigma">
+    <property name="geometry">
+     <rect>
+      <x>302</x>
+      <y>180</y>
+      <width>176</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>10,    10,    10   (m)</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="le_pairselection_mode">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>277</x>
+      <y>70</y>
+      <width>264</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+font:14px;
+
+</string>
+    </property>
+    <item>
+     <property name="text">
+      <string>Default</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>Sequence</string>
+     </property>
+    </item>
+   </widget>
+   <widget class="QLabel" name="lbl_pairselection_mode">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>136</x>
+      <y>74</y>
+      <width>131</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">color: #A5A5A5;
+font:14px;</string>
+    </property>
+    <property name="text">
+     <string>pair selection mode</string>
+    </property>
+   </widget>
+   <widget class="QWidget" name="widget_atsetting_2" native="true">
+    <property name="geometry">
+     <rect>
+      <x>590</x>
+      <y>-180</y>
+      <width>560</width>
+      <height>221</height>
+     </rect>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>1000</width>
+      <height>251</height>
+     </size>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-color:#3D3D3D;
+font: 12px &quot;Arial&quot;;</string>
+    </property>
+    <widget class="QLabel" name="lbl_atsettings_3">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>10</y>
+       <width>75</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font: 14px &quot;Arial&quot;;</string>
+     </property>
+     <property name="text">
+      <string>AT Settings</string>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="radbtn_highsigma_3">
+     <property name="geometry">
+      <rect>
+       <x>276</x>
+       <y>152</y>
+       <width>16</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+     <property name="autoExclusive">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="radbtn_normalsigma_3">
+     <property name="geometry">
+      <rect>
+       <x>276</x>
+       <y>122</y>
+       <width>16</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+     <property name="autoExclusive">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_normal_sigma_3">
+     <property name="geometry">
+      <rect>
+       <x>302</x>
+       <y>122</y>
+       <width>233</width>
+       <height>14</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font:12px;</string>
+     </property>
+     <property name="text">
+      <string>2, 2, 5  (m)</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_highsigma_3">
+     <property name="geometry">
+      <rect>
+       <x>302</x>
+       <y>152</y>
+       <width>176</width>
+       <height>14</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font:12px;</string>
+     </property>
+     <property name="text">
+      <string>0.05,    0.05,    0.1   (m)</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_13">
+     <property name="geometry">
+      <rect>
+       <x>168</x>
+       <y>105</y>
+       <width>98</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color: #A5A5A5;
+font:14px;</string>
+     </property>
+     <property name="text">
+      <string>POS accuracy</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_keydensity_3">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>152</x>
+       <y>41</y>
+       <width>114</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color: #A5A5A5;
+font:14px;</string>
+     </property>
+     <property name="text">
+      <string>Keypoints desity</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="le_keydensity_3">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>276</x>
+       <y>34</y>
+       <width>264</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+font:14px;
+
+</string>
+     </property>
+     <item>
+      <property name="text">
+       <string>20000</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QRadioButton" name="radbtn_lowsigma_3">
+     <property name="geometry">
+      <rect>
+       <x>276</x>
+       <y>180</y>
+       <width>16</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QRadioButton
+{
+background: transparent;
+	color:black;
+	border:none;
+}
+QRadioButton:disabled
+{color:gray;
+}
+QRadioButton::indicator
+{	width:12px;
+	height:12px;
+	border-radius:8px;}QRadioButton::indicator:checked
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid rgb(4,156,232);
+border-radius:8px;}QRadioButton::indicator:checked:disabled
+{
+width:14px;
+height:14px;
+background-color:qradialgradient(spread:pad,cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,stop:0 rgba(4,156,232,255),stop:0.6 rgba(4,156,232,255),stop:0.65 rgba(255,255,255,255),stop:0.8 rgb(255,255,255,255),stop:0.85 rgba(4,156,232,255),stop:1 rgb(4,156,232,255));
+border:1px solid gray;
+border-radius:8px;}QRadioButton::indicator:unchecked
+{	background-color:white;
+	boder: 2px solid rgb(66,66,66);}QRadioButton::indicator:unchecked:disabled
+{background-color:rgb(213,213,213);
+boder: 2px solid rgb(200,200,200);}</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+     <property name="autoExclusive">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_lowsigma_3">
+     <property name="geometry">
+      <rect>
+       <x>302</x>
+       <y>180</y>
+       <width>176</width>
+       <height>14</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font:12px;</string>
+     </property>
+     <property name="text">
+      <string>10,    10,    10   (m)</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="le_pairselection_mode_3">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>277</x>
+       <y>70</y>
+       <width>264</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+font:14px;
+
+</string>
+     </property>
+     <item>
+      <property name="text">
+       <string>Default</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Sequence</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QLabel" name="lbl_pairselection_mode_3">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>136</x>
+       <y>74</y>
+       <width>131</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Arial</family>
+       <pointsize>-1</pointsize>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color: #A5A5A5;
+font:14px;</string>
+     </property>
+     <property name="text">
+      <string>pair selection mode</string>
+     </property>
+    </widget>
+   </widget>
+  </widget>
+  <widget class="QWidget" name="widget_gcpmarkedinfo" native="true">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>477</y>
+     <width>560</width>
+     <height>106</height>
+    </rect>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>560</width>
+     <height>106</height>
+    </size>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+     <pointsize>-1</pointsize>
+     <weight>50</weight>
+     <italic>false</italic>
+     <bold>false</bold>
+    </font>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color:#3D3D3D;
+font: 12px &quot;Arial&quot;;</string>
+   </property>
+   <widget class="QLabel" name="lbl_gcpmarked_result">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>128</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>GCP marked result</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_totalgcpinfo">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>28</y>
+      <width>120</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>GCP total:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_gcpmarked">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>52</y>
+      <width>130</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>Marked GCP:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lbl_gcpmarkedphoto">
+    <property name="geometry">
+     <rect>
+      <x>276</x>
+      <y>76</y>
+      <width>180</width>
+      <height>14</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font:12px;</string>
+    </property>
+    <property name="text">
+     <string>GCP Marked Photos:</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QPushButton" name="BtnOK">
+   <property name="geometry">
+    <rect>
+     <x>710</x>
+     <y>597</y>
+     <width>140</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+     <pointsize>-1</pointsize>
+     <weight>50</weight>
+     <italic>false</italic>
+     <bold>false</bold>
+    </font>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton{
+	
+	background-color: #545454;
+	border: 1px solid rgba(70,70,70,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.5);
+	border-radius: 4px;
+}
+
+QPushButton:pressed{	
+	background-color: #538CCF;
+}
+
+QPushButton:hover{	
+	background-color: #538CCF;
+}</string>
+   </property>
+   <property name="text">
+    <string>OK</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="BtnCancle">
+   <property name="geometry">
+    <rect>
+     <x>860</x>
+     <y>597</y>
+     <width>140</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Arial</family>
+     <pointsize>-1</pointsize>
+     <weight>50</weight>
+     <italic>false</italic>
+     <bold>false</bold>
+    </font>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton{
+	
+	background: #545454;
+	border: 1px solid rgba(70,70,70,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.5);
+	border-radius: 4px;
+}
+QPushButton:pressed{	
+	background-color: #538CCF;
+}
+
+QPushButton:hover{	
+	background-color: #538CCF;
+}</string>
+   </property>
+   <property name="text">
+    <string>Close</string>
+   </property>
+  </widget>
+  <widget class="QWidget" name="widget_2" native="true">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>60</y>
+     <width>438</width>
+     <height>521</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color:#3D3D3D;
+font: 12px &quot;Arial&quot;;</string>
+   </property>
+   <widget class="QLabel" name="le_tiepointspolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>60</y>
+      <width>54</width>
+      <height>12</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tie points</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="esitmitationpolicytext">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>20</y>
+      <width>221</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>-1</pointsize>
+      <weight>50</weight>
+      <italic>false</italic>
+      <bold>false</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 14px &quot;Arial&quot;;</string>
+    </property>
+    <property name="text">
+     <string>Estimation policies</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="le_posepolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>100</y>
+      <width>54</width>
+      <height>12</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Pose</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="le_fpolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>170</y>
+      <width>71</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Focal length</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="le_ppapolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>210</y>
+      <width>81</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Principal Point</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="le_rdispolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>250</y>
+      <width>91</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Radial distortion</string>
+    </property>
+   </widget>
+   <widget class="Line" name="line">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>140</y>
+      <width>376</width>
+      <height>2</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-color: rgb(255, 255, 255);</string>
+    </property>
+    <property name="orientation">
+     <enum>Qt::Horizontal</enum>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_tiepointspolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>58</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_Posepolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>97</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_fpolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>170</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_ppapolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>210</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_rdispolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>249</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="le_tdispolicy">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>300</y>
+      <width>111</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tangential distortion</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="cmb_tdispolicy">
+    <property name="geometry">
+     <rect>
+      <x>160</x>
+      <y>300</y>
+      <width>241</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QComboBox
+{
+	background: #1D1D1D;
+	border: 1px solid rgba(61,61,61,1);
+	box-shadow: 0px 1px 1px 0px rgba(0,0,0,0.2);
+	border-radius: 4px;
+}
+
+QComboBox:drop-down
+{
+	margin-right: 5px;
+	border: none; 
+}
+
+QComboBox:down-arrow
+{
+	width:16px;
+	height:16px;
+	border-image:url(:/new/prefix1/skin/updown1x.png);
+}
+
+QComboBox:disabled 
+{
+	color: white;
+	background-color:gray;
+}
+
+font:14px;
+</string>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <resources>
+  <include location="../MoldAI.qrc"/>
+ </resources>
+ <connections/>
+</ui>

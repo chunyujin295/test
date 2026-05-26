@@ -1,0 +1,63 @@
+set(TARGET_NAME testAI3DProject)
+
+# all files exclude Test* files
+#file(GLOB_RECURSE SRC_FILES *.cpp *.c *.h)
+AI3D_USING_GFLAGS()
+AI3D_USING_GLOG()
+AI3D_USING_PROJ()
+AI3D_USING_FREEIMAGE()
+AI3D_USING_EIGEN()
+AI3D_USING_SQLITE()
+AI3D_USING_EXIV2()
+AI3D_USING_BOOST()
+AI3D_USING_EXPAT()
+AI3D_USING_EIGEN()
+AI3D_USING_GEOGRAPHICLIB()
+AI3D_USING_RAPIDJSON()
+############################### GRAB HEADERS #####################################
+FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} 
+									${CMAKE_CURRENT_SOURCE_DIR}/*.h
+									#${CMAKE_CURRENT_SOURCE_DIR}/Core/*.h
+									)
+		
+
+########################################### BEGIN: GRAB SOURCE FILES ##########################################
+FILE(GLOB SRC_LIST RELATIVE_PATH	"${CMAKE_CURRENT_SOURCE_DIR}"
+										"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"	
+	#"${CMAKE_CURRENT_SOURCE_DIR}/Core/*.cpp"	
+#"${CMAKE_CURRENT_SOURCE_DIR}/Core/*.cc"	
+								)
+
+set(SRC_FILES ${SRC_FILES} ${HEADER_LIST} ${SRC_LIST})
+
+add_executable(${TARGET_NAME} ${SRC_FILES} )
+
+set(DEPENDS_LIBS ${AI3D_GLOG_LIB} ${AI3D_SQLITE_LIB} ${AI3D_GFLAGS_LIB}  ${AI3D_PROJ_LIB}
+${AI3D_GEOGRAPHICLIB_LIB} ${AI3D_FREEIMAGE_LIB} ${AI3D_EXPAT_LIB} ${AI3D_EXIV2_LIB} ${AI3D_BOOST_LIB} CORE)
+
+
+target_link_libraries(${TARGET_NAME}  ${DEPENDS_LIBS})
+
+set_target_properties(${TARGET_NAME} PROPERTIES  FOLDER "Test")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

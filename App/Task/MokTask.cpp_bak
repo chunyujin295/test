@@ -1,0 +1,1011 @@
+﻿
+#include "Util/CatchProcess.h"
+#include <atomic>
+#include <list>
+#include <map>
+#include <vector>
+#include <mutex>
+#include <condition_variable>
+#include "Core/ReturnCode.h"
+#include "Core/TaskDef.h"
+#include "Core/Application.h"
+//#include "MyrapidJson.h"
+
+#include <QList>
+#include <QSettings>
+
+#include <QDir>
+#include <QFileInfoList>
+#include <QStringList>
+#include <QTime>
+#include <QtGlobal>
+#include <QTextCodec>
+#include <stdio.h>
+#include <share.h>
+#include <QHostInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QVector>
+#include <QMap>
+#include <QJsonArray>
+#include <QApplication>
+#include <QCoreApplication>
+#include <QProcess>
+#include <QDateTime>
+#include <boost/algorithm/string.hpp>
+#include "boost/filesystem.hpp"
+#include "time.h"
+#include <stdlib.h>
+#include "Core/String.h"
+#include <Reconstruction/Reconstruct.h>
+#include "Core/TaskDef.h"
+#include <sstream>
+#include "Core/File.h"
+#include "Core/ATData.h"
+#include "Core/CoordinateSystem.h"
+#include "Core/BlockObject.h"
+#include "Util/Settings.h"
+#include "Util/TaskProcess.h"
+#include "ATPreprocessTask.h"
+#ifdef _MSC_VER
+#include "Windows.h"
+#include "DbgHelp.h"
+#endif // _MSC_VER
+
+#include "Util/Statistic.h"
+#include "Util/Settings.h"
+#include "boost/filesystem/path.hpp"  
+#include "boost/filesystem/operations.hpp"  
+
+#include <signal.h>
+
+int resultCode = -1;
+bool isChinese = false;
+
+
+void GetLanguageVersion()
+{
+	AI3D::CORE::Application::Getinstance().ParseConfig();
+	isChinese =  AI3D::CORE::BlockObject::isChineseVersion();
+}
+
+class XLog
+{
+public:
+	static std::ostream& stream() {
+		return *os;
+	}
+
+	static std::ostream& showMsg(std::string& msg, const char* file, char* func, int line)
+	{
+		*os << file << " " << func << " " << line << " :" << msg << std::endl;
+		return *os;
+	}
+
+	static std::string& std_string_format(std::string& _str, const char* _Format, ...) {
+		std::string tmp;
+
+		va_list marker = NULL;
+		va_start(marker, _Format);
+
+		size_t num_of_chars = _vscprintf(_Format, marker);
+
+		if (num_of_chars > tmp.capacity()) {
+			tmp.resize(num_of_chars + 1);
+		}
+
+		vsprintf_s((char*)tmp.data(), tmp.capacity(), _Format, marker);
+
+		va_end(marker);
+
+		_str = tmp.c_str();
+		return _str;
+	}
+
+	static std::ostream& log(const char* file, char* func, int line, const char* format, ...)
+	{
+		std::string msg;
+
+		va_list va = NULL;
+		va_start(va, format);
+
+		size_t num_of_chars = _vscprintf(format, va);
+
+		if (num_of_chars > msg.capacity()) {
+			msg.resize(num_of_chars + 1);
+		}
+
+		vsprintf_s((char*)msg.data(), msg.capacity(), format, va);
+
+		va_end(va);
+
+		*os << file << " " << func << " " << line << " :" << msg << std::endl;
+
+		return *os;
+	}
+
+public:
+	static std::ostream* os;
+};
+
+std::ostream* XLog::os = &std::cout;
+
+#if (_WIN32||WIN64)
+#define MYFILE(x) strrchr(x,'\\')?strrchr(x,'\\')+1:x
+#else
+#define MYFILE(x) strrchr(x,'/')?strrchr(x,'/')+1:x
+#endif
+#define XLOGI(msg) XLog::stream() << MYFILE(__FILE__) << " " << __FUNCTION__ << " " << __LINE__ << ":" << msg << std::endl;
+#define XLOGV(msg) XLog::showMsg(msg,MYFILE(__FILE__),__FUNCTION__,__LINE__);
+
+//QSettings *sets = nullptr;
+int GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers)
+{
+	// 定义函数指针
+	typedef BOOL(WINAPI* MiniDumpWriteDumpT)(
+		HANDLE,
+		DWORD,
+		HANDLE,
+		MINIDUMP_TYPE,
+		PMINIDUMP_EXCEPTION_INFORMATION,
+		PMINIDUMP_USER_STREAM_INFORMATION,
+		PMINIDUMP_CALLBACK_INFORMATION
+		);
+	// 从 "DbgHelp.dll" 库中获取 "MiniDumpWriteDump" 函数
+	MiniDumpWriteDumpT pfnMiniDumpWriteDump = NULL;
+	HMODULE hDbgHelp = LoadLibraryA("DbgHelp.dll");
+	if (NULL == hDbgHelp)
+	{
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	pfnMiniDumpWriteDump = (MiniDumpWriteDumpT)GetProcAddress(hDbgHelp, "MiniDumpWriteDump");
+
+	if (NULL == pfnMiniDumpWriteDump)
+	{
+		FreeLibrary(hDbgHelp);
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	// 创建 dmp 文件件
+	char szFileName[MAX_PATH] = { 0 };
+	char* szVersion = "Dump4MoTask";
+	SYSTEMTIME stLocalTime;
+	GetLocalTime(&stLocalTime);
+	sprintf(szFileName, "%s-%04d%02d%02d-%02d%02d%02d.dmp",
+		szVersion, stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay,
+		stLocalTime.wHour, stLocalTime.wMinute, stLocalTime.wSecond);
+	HANDLE hDumpFile = CreateFileA(szFileName, GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+	if (INVALID_HANDLE_VALUE == hDumpFile)
+	{
+		FreeLibrary(hDbgHelp);
+		return EXCEPTION_CONTINUE_EXECUTION;
+	}
+	// 写入 dmp 文件
+	MINIDUMP_EXCEPTION_INFORMATION expParam;
+	expParam.ThreadId = GetCurrentThreadId();
+	expParam.ExceptionPointers = pExceptionPointers;
+	expParam.ClientPointers = FALSE;
+	pfnMiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
+		hDumpFile, MiniDumpWithDataSegs, (pExceptionPointers ? &expParam : NULL), NULL, NULL);
+	// 释放文件
+	CloseHandle(hDumpFile);
+	FreeLibrary(hDbgHelp);
+
+	exit(1099);
+
+	return EXCEPTION_EXECUTE_HANDLER;
+	///return 1099; // failed.
+}
+
+LONG WINAPI ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo)
+{
+	// 这里做一些异常的过滤或提示
+	qDebug() << "has come to exception filter now.";
+	std::cout << "has come to exception filter now." << std::endl;
+	if (IsDebuggerPresent())
+	{
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	return GenerateMiniDump(lpExceptionInfo);
+}
+
+void SigInt_Handler(int nSignal)
+{
+	qDebug() << "catch int signal:" << QString::number(nSignal);
+	std::cout << "catch int signal:" << std::to_string(nSignal) << std::endl;
+
+	exit(0);
+}
+
+void SigBreak_Handler(int nSignal)
+{
+	qDebug() << "catch break signal:" << QString::number(nSignal);
+	std::cout << "catch break signal:" << std::to_string(nSignal) << std::endl;
+
+	exit(1099);
+	//exit(29);
+}
+
+void customized_exit()
+{
+	std::cout << "exit task" << std::endl;
+	qDebug() << "exit task.";
+}
+
+///QString sOTASecondPath = "Y:/Softwares/Mohacker/0Mohacker_Release";
+///QString sOTASecondBinPath = "Y:/Softwares/Mohacker/0Mohacker_Release/newpackage/bin";
+///QString sRemoteNoChinesePathConfig = "Y:/Softwares/Mohacker/0Mohacker_Release/newpackage/bin/nochinesepath.json";
+
+///bool bUsingNoChinesePath = true;
+///bool bForceCheckLocal = false;
+#define EXTRA_FILES_CONFIG "extra_files.json"
+#define NO_CHINESE_PATH_CONFIG "nochinesepath.json"
+
+extern bool UsingNoChinesePathVersion();
+#if 0
+bool UsingNoChinesePathVersion()
+{
+	// todo:temporarily disabled,for returning back to original version without chinese correctness.
+	bUsingNoChinesePath = true;
+	return true;
+
+	bUsingNoChinesePath = false;
+
+	if (!QDir(sOTASecondPath).exists() || !QDir(sOTASecondBinPath).exists())
+	{
+		if (bForceCheckLocal)
+		{
+			if (QFileInfo::exists(NO_CHINESE_PATH_CONFIG))
+			{
+				bUsingNoChinesePath = true;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	if (!QFileInfo::exists(sRemoteNoChinesePathConfig))
+	{
+		if (bForceCheckLocal)
+		{
+			if (QFileInfo::exists(NO_CHINESE_PATH_CONFIG))
+			{
+				bUsingNoChinesePath = true;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bUsingNoChinesePath = true;
+
+	return true;
+}
+#endif
+
+namespace fs = boost::filesystem;
+
+float lastprogress = 0.0;
+std::string lastMsg = "";
+std::string resultMsg = "";
+int currenttaskid = -1;
+std::string currentblockpath = "";
+std::string currentblock = "";
+std::string jobname = "";
+bool GShoudStop = false;
+std::string premsg = "";
+std::string current_job_file;
+int current_task_id;
+std::string current_feedback_file;
+
+#ifdef WIN32
+// for catching taskkill singal,just record the event while doing taskkill command.
+/*用于监听控制台退出事件,在退出程序前输出记录数据到文件*/
+BOOL WINAPI HandlerRoutine(DWORD dwCtrlType)
+{
+	// todo:does it differ normal exit state with exception?
+	qDebug() << "has come to handler routine now:dwCtrlType" << dwCtrlType;
+	std::cout << "has come to handler routine now:dwCtrlType" << dwCtrlType << std::endl;
+
+	if (CTRL_CLOSE_EVENT == dwCtrlType || CTRL_C_EVENT == dwCtrlType || CTRL_BREAK_EVENT == dwCtrlType \
+		|| CTRL_LOGOFF_EVENT == dwCtrlType || CTRL_SHUTDOWN_EVENT == dwCtrlType)
+	{
+/*
+		JobFeedBack_s feadback;
+		if (!boost::filesystem::exists(current_job_file))
+		{
+			//std::cout << __FUNCTION__ << " LINE " << __LINE__ << "  exist current_job_file " << current_job_file << std::endl;
+			return false;
+		}
+		feadback.Msg= current_job_file+" return code "+std::to_string(resultCode) ;
+		feadback.TaskRetVal = -3;
+		feadback.save(current_feedback_file);
+		std::cout << "--------task-resultCode-" << resultCode << std::endl;
+*/
+	}
+	return true;
+}
+#endif // _WIN32
+
+jobtype_e jobtype;
+//status的状态在此处一直为running，其他状态有engine来更改
+//进度目前的策略：如果子任务只有一个则用实时的换算，如果多余1个则只统计成功的避免频繁读写job文件
+//job 不加锁，因为此处只读不写，跟cc不一样
+//float fvalue : 算法返回的进度是以1为百分百
+// to make sure that the following callback can be reentrant? or just called by a single thread?
+void cbProgress(float fvalue)
+{
+	JobFeedBack_s feedback;
+	JobFullInfo_s curjob;
+	int retryTimes = 0;
+
+	try
+	{
+		//std::cout << "cbProgress:" << fvalue << std::endl;
+		//std::cout << __FUNCTION__ << " LINE " << __LINE__ << "  cbProgress " << fvalue << std::endl;
+		////避免提交了cancel请求或者程序失败，此处覆盖,此处必须有current_job_file
+
+///	if (!boost::filesystem::exists(current_feedback_file + ".lock"))
+		{
+			// 必须要有jobfile不然无法计算进度
+		///	qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			if (!boost::filesystem::exists(current_job_file))
+			{
+				//std::cout << __FUNCTION__ << " LINE " << __LINE__ << "  exist current_job_file " << current_job_file << std::endl;
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				return;
+			}
+
+			if (!curjob.load(current_job_file))
+			{
+				//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " load current_job_file " << current_job_file << std::endl; 
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				return;
+			}
+
+			if (premsg != resultMsg)
+			{
+				// todo2:
+				feedback.Msg = resultMsg;
+
+				premsg = resultMsg;
+			}
+
+			bool bLoadFeedbackFileError = false;
+			float progreestemp = 0.0;
+			/*jobsta_e statustemp = jobsta_e(0);
+			std::string msgtemp = "";*/
+
+			if (!feedback.load(current_feedback_file))
+			{
+				//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " load current_feedback_file " << current_feedback_file << std::endl;
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				bLoadFeedbackFileError = true;
+				/// return;
+			}
+
+			if (!bLoadFeedbackFileError && (feedback.Status == jobsta_e::STATUS_CANCLE || feedback.Status == jobsta_e::STATUS_FAILURE))
+			{
+				//std::cout << __FUNCTION__ << " LINE " << __LINE__ << " feadback.Status " << feadback.Status << std::endl;
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				return;
+			}
+
+			progreestemp = feedback.Percent;
+
+			// todo2:
+			
+		
+			feedback.Msg = resultMsg;
+
+			float currentpercent = 0;
+			if (jobtype == JOB_AT /*|| jobtype== JOB_TILE*/)
+			{
+				currentpercent = curjob.tg.GetProgress((double)fvalue, current_task_id);;
+				qDebug() <<  " progress input"<< fvalue << " progress out " << currentpercent << " taskid "<< current_task_id;
+			}
+			else if (jobtype == JOB_BATCH)
+			{
+				currentpercent = fvalue;;
+			}
+			else if (jobtype == JOB_TILE)
+			{
+				currentpercent = fvalue*100.;;
+			}														 	
+			if (progreestemp < currentpercent)
+			{
+				feedback.Percent = currentpercent;
+			}
+			else
+			{
+				// no need to assign this value indeed again.
+				feedback.Percent = progreestemp;
+			}
+
+			lastprogress = feedback.Percent;
+
+			// add lock mechanism to prevent it from  concurrent collisions on writing.
+			feedback.TaskRetVal = -2;
+			if (feedback.Status == jobsta_e::STATUS_PENDDING)
+				feedback.Status = jobsta_e::STATUS_RUNNING;
+
+			///qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			// todo:check it later  whether write collision exists.
+			bool a = feedback.save_with_retry(current_feedback_file, false);
+			/*std::cout << __FUNCTION__ << " LINE " << __LINE__ << " save  current_feedback_file" << a << std::endl;*/
+			//std::cout << "progres "<< feadback.Percent << std::endl;
+			///qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+		}
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		//LOGI(oss.str());
+	//	qDebug() << QString::fromStdString(oss.str());
+		qDebug() << str2qstr(oss.str());
+		std::cout << oss.str() << endl;
+	}
+	catch (std::exception ex)
+	{
+		qDebug()  << __FUNCTION__ << __LINE__ << ex.what();
+		std::cout  << __FUNCTION__ << __LINE__ << ex.what() << std::endl;
+
+		return;
+	}
+}
+void cbMsg(std::string msg)
+{
+	//std::cout << msg << std::endl;
+	// todo2:
+	// utf8?gbk?
+	lastMsg = AI3D::CORE::String::LocaleToUtf8(msg);
+}
+
+static ReconstructCallBack cb([](int finish) {std::cout << "[FINISH]" << std::endl; },
+	cbProgress, cbMsg, & GShoudStop);
+
+
+
+int execTaskFile2Only(std::string fileName);
+// todo2:input fileName encoded by gbk?
+int execTaskFile2Only(std::string fileName)
+{
+	// using some functions which simulate the actual algorithms execution to test exceptional situations.
+	// providing some special execution flow between master and engine to test task failing or crashing while going to extremes.
+	//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+
+	try
+	{ 
+		int retryTimes = 0;
+		int lastDot = fileName.rfind(".json");
+		int fileNamePos = fileName.rfind("task_def_");
+
+		if (lastDot == std::string::npos || fileNamePos == std::string::npos || fileNamePos >= lastDot)
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			return resultCode;
+		}
+
+		std::string taskNumStr = fileName.substr(fileNamePos + strlen("task_def_"), lastDot - fileNamePos);
+
+		int taskdefNum = atoi(taskNumStr.c_str());
+		if (taskdefNum < 0)
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			return resultCode;
+		}
+
+		ATTaskInfo atparam;
+		//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+		if (!boost::filesystem::exists(fileName))
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+			return resultCode;
+		}
+		atparam.load(fileName);
+
+		std::string function = atparam.task_.fun_name_;
+		std::ifstream ifs(fileName);
+		if (!ifs.is_open())
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+			std::cout << "open " + fileName + " failed" << std::endl;
+			return -1;
+		}
+
+		std::string strall((std::istreambuf_iterator<char>(ifs)),
+			std::istreambuf_iterator<char>());
+		ifs.close();
+
+		currentblockpath = atparam.projectFile2_;
+		currentblock = atparam.blockItem2_;
+		jobname = atparam.job2_;
+
+		//std::cout << "moktask:[" << currentblockpath << "] [" << currentblock << "] [" << jobname << "]" << std::endl;
+		//std::cout << "moktask1:[" << atparam.projectFile_ << "] [" << atparam.blockItem_ << "] [" << atparam.job_ << "]" << std::endl;
+		//std::cout << "moktask2:[" << atparam.projectFile2_ << "] [" << atparam.blockItem2_ << "] [" << atparam.job2_ << "]" << std::endl;
+
+		jobtype = GetJobType(jobname);
+
+		current_task_id = atparam.task_.id_;
+		resultMsg = StepATFromfunctionToshow.at(function);
+		if (isChinese)
+		{
+
+			resultMsg = StepATFromfunctionToshow_chinese.at(function);
+
+			
+		}
+		
+		QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+		//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+		std::cout << "[" << timenow.toStdString() << "] Starting Task " << jobname  << " / " << taskdefNum  << " " << resultMsg /*atparam.task_.fun_name_*/ << std::endl;
+
+		/*std::string feedname = ;;*/
+		current_feedback_file = MAKE_FEEDBAK_FILE(AI3D::CORE::File::GetParentDir(currentblockpath) + "/" + currentblock + "/", jobname);//AI3D::CORE::File::GetParentDir(currentblockpath) + "/" + currentblock + "/" + feedname;
+
+		//获取jobname
+
+///		std::string jobdir = Settings::getEngineJobQueue().toStdString();
+
+		std::string jobdir = qstr2str(Settings::getEngineJobQueue());
+
+		current_job_file = jobdir + "/Running/" + jobname + ".json";
+	
+		///if (boost::filesystem::exists(current_feedback_file + ".lock"))
+		///{
+		///	return AI3D_FAILUREORCANCLED_REQUEST;
+		///}
+
+		//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+
+		int type = atparam.task_.type_;
+		if (type == 0)
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+			return -1;
+		}
+	
+		{
+			// it may be not necessary to do such things like this here.
+			// change it as needed.
+
+			///JobFeedBack_s feadback(current_feedback_file);
+			///feadback.TaskRetVal = 0;//代表启动了
+			///feadback.Msg = function;
+			///feadback.save(current_feedback_file);
+		
+			JobFeedBack_s feedback;
+			bool bLoadFeedbackFileError = false;
+
+			if (!feedback.load(current_feedback_file))
+			{
+				///			fclose(fpLock);
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+				bLoadFeedbackFileError = true;
+				// need to retry more times?
+				///return -1;
+			}
+
+			if (!bLoadFeedbackFileError && (feedback.Status == jobsta_e::STATUS_CANCLE || feedback.Status == jobsta_e::STATUS_FAILURE))
+			{
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+				return -1;
+			}
+
+			if (bLoadFeedbackFileError)
+			{
+				feedback.Status = jobsta_e::STATUS_RUNNING;
+				feedback.Percent = lastprogress;
+			}
+
+			feedback.TaskRetVal = 0;//代表启动了
+			// todo2:
+			feedback.Msg = function;
+
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+			feedback.save_with_retry(current_feedback_file,false);
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+	#if 0
+			qDebug() << "inside MoTask,start testing sleep before actual algorithm function.";
+
+			Sleep(5000);
+
+			qDebug() << "inside MoTask,in the middle of testing sleep before actual algorithm function.";
+		
+			//float num = 30.0;
+			//int num = 30;
+			//num = num / 0;
+
+			Sleep(35000);
+
+			qDebug() << "inside MoTask,end testing sleep before actual algorithm function.";
+	#endif
+
+			std::cout << "[" << timenow.toStdString() << "] Starting Task " << jobname << " / " << taskdefNum << " function:" << resultMsg /*atparam.task_.fun_name_*/ << std::endl;
+			qDebug() << "before algorithm function:" << QString::fromStdString(function) << " " << QString::fromStdString(fileName);
+
+			/*
+			if (taskdefNum == 2)
+			{
+				// just for testing failed status temporarily.
+				std::cout << "before failed test..." << std::endl;
+				qDebug() << "before failed test...";
+				///resultCode = 1005;
+
+				///float num = 30.0;
+				int num = 30;
+				num = num / 0;
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+				std::cout << "after failed test..." << std::endl;
+				qDebug() << "after failed test...";
+			}
+			else */ if (function == "RunGenTasks" || function == "GenTasks")//执行函数名称 
+			{
+			/*	resultMsg = "GenTasks";*/
+			/*	std::cout << __FUNCTION__ << " LINE " << __LINE__ << " strall " << strall << std::endl;*/
+				resultCode = RunGenTasks(strall, cb);
+				/*std::cout << __FUNCTION__ << " LINE " << __LINE__ << "  resultCode " << resultCode << std::endl;*/
+
+			}
+
+			else if (function == "RunFeatureDetection")//执行函数名称 
+			{
+				/*resultMsg = "FeatureDetection";*/
+				resultCode = RunFeatureDetection(strall, cb);
+
+			}
+
+			else if (function == "RunMatchPairs")
+			{
+
+				/*resultMsg = "MatchPairs";*/
+				resultCode = RunMatchPairs(strall, cb);//
+
+			}
+			else if (function == "RunPairSelection")
+			{
+				/*resultMsg = "RunPairSelection";*/
+				resultCode = RunPairSelection(strall, cb);
+			}
+			//else if (function == "RunOptimizeAT")
+			//{
+			///*	resultMsg = "OptimizeAT";*/
+			//	resultCode = RunOptimizeAT(strall, cb);
+			//}
+			else if (function == "RunSfM")
+			{
+				/*resultMsg = "SfM";*/
+				resultCode = RunSfM(strall, cb);//
+
+			}
+			else if (function == "RunReconstruction")
+			{
+				//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+				resultCode = RunReconstruction(strall, cb);//
+				//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			}
+			else if (function == "RunBatchPrepare")
+			{
+			
+				resultCode = RunBatchPrePare(strall, cb);//
+
+			}
+			else
+			{
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				std::cout << "no function specified." << std::endl;
+				return -1;
+			}
+
+			std::cout << "[" << timenow.toStdString() << "] End Task " << jobname << " / " << taskdefNum << " function:" << resultMsg /*atparam.task_.fun_name_*/ << std::endl;
+			qDebug() << "after algorithm function:" << QString::fromStdString(function) << " " << QString::fromStdString(fileName);
+		}
+
+		//std::cout << resultCode << std::endl;
+
+		//对于失败的情形只有在程序运行完根据返回值才能知道这个时候因
+		//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		do
+		{
+			FILE* fpLock = _fsopen((current_feedback_file + ".lock").c_str(), "wt", _SH_DENYWR);
+			if (fpLock == NULL)
+			{
+				retryTimes++;
+				std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+				continue;
+			}
+
+			///JobFeedBack_s feadback(current_feedback_file);
+			JobFeedBack_s feedback;
+			bool bLoadFeedbackFileError = false;
+
+			if (!feedback.load(current_feedback_file))
+			{
+	///			fclose(fpLock);
+				bLoadFeedbackFileError = true;
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+				// need to retry more times?
+				///return -1;
+			}
+
+			if(!bLoadFeedbackFileError && (feedback.Status == jobsta_e::STATUS_CANCLE || feedback.Status == jobsta_e::STATUS_FAILURE))
+			{
+				fclose(fpLock);
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+				//std::cout  << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+				return -1;
+			}	
+
+			//在running 时的cancle和 failure会产生feedback.lock文件，如果有此文件其余的则不能写进去，但可以继续运行，task遇到这种情形则不写进去交给engine处理
+
+		///	if (boost::filesystem::exists(current_feedback_file + ".lock"))
+		///	{
+		///		return -1;
+		///	}
+
+			// while reaching here,one of the algorithm functions above must have been executed successfully.
+			// the 'resultCode' which means the return value of a specific algorithm function must be equal or greater than 1000.
+			// among all the possible value of the 'resultCode',1000 means completed successfully,1002 means cancelled,
+			// other value which must be  greater than 1000  means failed.
+			feedback.TaskRetVal = resultCode;
+			// todo2:
+
+			
+			feedback.Msg = resultMsg;
+
+			// change it later,for the 'lastprogress' may have some risk while running among multiple engine nodes.
+			if(bLoadFeedbackFileError || lastprogress > feedback.Percent)
+				feedback.Percent = lastprogress;
+			else
+			{
+				// keep the percent loaded from feedback file,which may be fresher than 'lastprogress'.
+			}
+
+			if (resultCode == 1000)
+			{
+				std::cout << "Info: Task completed ( returned : " << resultCode << " )" << " " << resultMsg << std::endl;
+			
+				// make some in-depth comparisons?
+				// when reaching here,the feedbak status cannot be CANCELLED or Failed.
+				// how to identify the source of engine which has the 'TaskRetVal' been come from,especially while multiple engines running simultaneously?
+
+				if (bLoadFeedbackFileError || feedback.Status == jobsta_e::STATUS_PENDDING)
+				{
+					//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+					feedback.Status = jobsta_e::STATUS_RUNNING;
+				}
+				
+
+				// some risks rest while saving feedback file directly without locking it.
+				// if already running,need to write it again?
+				// no need to write running status here,it may encounter some write collisions,and it is not necessary to do it in fact.
+				// just only need to write running-state once,the best opportunity to write running state is  at the same time  
+				// when hold the job lock just inside 'GetPendingJob'.
+				// it will also reduce concurrent collisions on feedback-file to strip duplicate writes while in running state.
+
+				/// check it later:write progress?
+				feedback.save(current_feedback_file);
+			}
+			else if (resultCode == 1002)
+			{
+				std::cout << "Info: Task cancelled ( returned : " << resultCode << " )" << " " << resultMsg << std::endl;
+				/*JobFeedBack_s feadback;*/
+				feedback.Status = jobsta_e::STATUS_CANCLE;
+
+				feedback.Msg = lastMsg;
+
+				feedback.save(current_feedback_file);
+
+				/*FILE* fp1 = _fsopen((current_job_file + ".lock").c_str(), "wt", _SH_DENYWR);
+				if (fp1 != NULL)
+				{
+					fclose(fp1);
+				}*/
+			}
+			else
+			{
+				feedback.Msg = lastMsg;
+				std::cout << "Info: Task failed ( returned : " << resultCode << " )" << " " << atparam.task_.fun_name_ << std::endl;
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__ << resultCode;
+
+				/*JobFeedBack_s feadback;*/
+				feedback.Status = jobsta_e::STATUS_FAILURE;
+
+				feedback.save(current_feedback_file);
+
+				//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+
+				// it is not necessary to lock current job at this time.
+
+				///FILE* fp1 = _fsopen((current_job_file + ".lock").c_str(), "wt", _SH_DENYWR);
+				///if (fp1 != NULL)
+				///{
+				///	fclose(fp1);
+				///}
+
+			}
+
+			fclose(fpLock);
+			break;
+		}while (retryTimes < 3);
+
+
+		//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+		//qDebug() << __FILE__ << __FUNCTION__ << __LINE__ << resultCode;
+		///std::cout << __FILE__ << __FUNCTION__ << __LINE__ << resultCode << std::endl;
+		return resultCode;
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		//LOGI(oss.str());
+//		qDebug() << QString::fromStdString(oss.str());
+		qDebug() << str2qstr(oss.str());
+		std::cout << oss.str() << endl;
+		return -1;
+	}
+	catch (std::exception ex)
+	{
+		qDebug() <<  __FUNCTION__ << __LINE__ << ex.what();
+		///std::cout << __FILE__ << __FUNCTION__ << __LINE__ << ex.what() << std::endl;
+		///return -1;
+		std::cout << "Exception:" << ex.what() << std::endl;
+		return 1001;
+	}
+}
+
+	int doTaskInProcess(int argc, char** argv)
+	{
+		if (argc != 2)
+		{
+			// may bring confusion with some other task run status value(e.g.TASK::Failed),especially when we need the return value to perform furthur steps.  
+		///	return AI3D_FAILURE;
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+			return -1;
+		}
+
+		///QString taskJsonName = QString::fromStdString(argv[1]);
+		QString taskJsonName = QString::fromLocal8Bit(argv[1]);
+
+		QFileInfo finfo(taskJsonName);
+		QString fileName = finfo.fileName();
+
+		//qDebug() << __FILE__ << __FUNCTION__ << __LINE__ << " " << taskJsonName;
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << " " << taskJsonName.toStdString() << std::endl;
+
+		if (!finfo.exists() || finfo.size() <= 0)
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+			return -1;
+		}
+
+		if (!fileName.startsWith("task_def_", Qt::CaseInsensitive) ||
+			!fileName.endsWith(".json", Qt::CaseInsensitive))
+		{
+			//qDebug() << __FILE__ << __FUNCTION__ << __LINE__;
+			//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << std::endl;
+
+			return -1;
+		}
+
+		return execTaskFile2Only(argv[1]);
+
+}
+
+
+std::string GetAPPPath()
+{
+	std::string app_path;
+#ifdef _MSC_VER
+	TCHAR buf[MAX_PATH + 1] = { 0 };
+	GetModuleFileName(NULL, buf, MAX_PATH);
+	std::string path;
+	try
+	{
+		path = boost::filesystem::path(buf).parent_path().string();
+	}
+	catch (boost::filesystem::filesystem_error& fse)
+	{
+		std::ostringstream oss;
+		oss << "fse error:" << fse.code() << " " << fse.what() << " " << fse.path1() << " " << fse.path2();
+		//LOGI(oss.str());
+		//qDebug() << QString::fromStdString(oss.str());
+		qDebug() << str2qstr(oss.str());
+		std::cout << oss.str() << endl;
+	}
+	catch (std::exception& ex)
+	{
+		qDebug() << __FUNCTION__ << __LINE__ << ex.what();
+		//std::cout << __FILE__ << __FUNCTION__ << __LINE__ << ex.what() << std::endl;
+	}
+
+	return path;
+#else // _MSC_VER//Linux平台待添加
+	LPTSTR home = getenv("HOME");
+	if (home == NULL)
+		return String();
+	String name(String(home) + "/app");
+	return ensureUnifySlash(name);
+#endif // _MSC_VER
+	return app_path;
+}
+
+std::string GetGDALPath()
+{
+	std::string gdal_path;
+	gdal_path = GetAPPPath() + "\\data";
+	return gdal_path;
+}
+//?chy是不是不再在running搜索了
+int main(int argc, char** argv)
+{
+	//std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+
+	// test different termination signals(exit/quit,internal or external signal).
+#ifdef WIN32
+	SetUnhandledExceptionFilter(ExceptionFilter);
+	SetConsoleCtrlHandler(HandlerRoutine, TRUE);//注册监听程序退出事件
+
+
+#endif // WIN32
+
+	::atexit(customized_exit);
+
+	signal(SIGINT, SigInt_Handler);
+	signal(SIGBREAK, SigBreak_Handler);
+	signal(SIGTERM, SigBreak_Handler);
+	signal(SIGABRT, SigBreak_Handler);
+
+	QApplication app(argc, argv);
+
+	qInstallMessageHandler(customMessageHandler);
+
+	///UsingNoChinesePathVersion();
+
+	int enginePid = qApp->applicationPid();
+	std::string gdalDir = GetGDALPath();
+	std::string strEnv = "PROJ_LIB=" + gdalDir;
+	putenv(strEnv.c_str());
+	GetLanguageVersion();
+	//const char* paths[] = { gdalDir.c_str(),nullptr };
+	//OSRSetPROJSearchPaths(paths);
+	//CPLSetConfigOption("GDAL_DATA", paths[0]);
+	//CPLSetConfigOption("GDAL_FILENAME_IS_UTF8","NO");//支持中文路径
+	//CPLSetConfigOption("SHAPE_ENCODING","");//解决中文乱码问题
+	qDebug() << "task process start.";
+
+	int rtn = doTaskInProcess(argc, argv);
+	if (rtn == -1)
+	{
+		std::cout << "Info: Task failed ( returned : " << -1 << " )" << std::endl;
+		qDebug() << "task process failed:return -1";
+	}
+	else
+	{
+		qDebug() << "task process return:" << QString::number(rtn);
+		std::cout << "task process return:" << std::to_string(rtn) << std::endl;
+	}
+
+	return rtn;
+}

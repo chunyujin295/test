@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TheFirstDiaWgt</class>
+ <widget class="QWidget" name="TheFirstDiaWgt">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>682</width>
+    <height>256</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>682</width>
+    <height>254</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>682</width>
+    <height>258</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>LaunchingWindow</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QWidget#TheFirstDiaWgt
+{
+	font: 12px &quot;Arial&quot;;
+	background-color: rgb(101, 101, 101);
+	border-radius: 5px;
+    border: 1px solid #717171;
+}
+
+
+QPushButton#pushButton
+{
+  font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color:#ffffff;
+   border-radius: 2px;
+}
+
+QPushButton#pushButton:hover
+{
+  font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color: #eaeaea;
+}
+
+QPushButton#pushButton:pressed
+{
+  font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color: #f0f0f0;
+}
+
+QPushButton#pushButton_2
+{
+  font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color:#ffffff;
+   border-radius: 2px;
+}
+
+QPushButton#pushButton_2:hover
+{
+  font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color: #eaeaea;
+}
+
+QPushButton#pushButton_2:pressed
+{
+ font: 12px &quot;Arial&quot;;
+   color:#000000;
+   background-color: #f0f0f0;
+}
+
+QPushButton#pushButton_3
+{
+   font: 12px &quot;Arial&quot;;
+   background-color:#414141;
+   border-radius: 2px;
+}
+
+
+QPushButton#pushButton_3:hover
+{
+   font: 14px &quot;Arial&quot;;
+   color:#ffffff;
+   background-color: #50a6e7;
+}
+
+QPushButton#pushButton_3:pressed
+{
+   font: 14px &quot;Arial&quot;;
+   color:#ffffff;
+   background-color: #4692D3;
+}
+
+</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <property name="leftMargin">
+    <number>1</number>
+   </property>
+   <property name="topMargin">
+    <number>1</number>
+   </property>
+   <property name="rightMargin">
+    <number>1</number>
+   </property>
+   <property name="bottomMargin">
+    <number>1</number>
+   </property>
+   <property name="spacing">
+    <number>6</number>
+   </property>
+   <item row="0" column="0">
+    <layout class="QHBoxLayout" name="horizontalLayout_2">
+     <property name="spacing">
+      <number>2</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="label">
+       <property name="minimumSize">
+        <size>
+         <width>254</width>
+         <height>254</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>254</width>
+         <height>254</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">image: url(:/new/prefix1/skin/popWgt.png);
+</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayout" stretch="1,2,2,2">
+       <property name="spacing">
+        <number>20</number>
+       </property>
+       <property name="leftMargin">
+        <number>85</number>
+       </property>
+       <property name="topMargin">
+        <number>20</number>
+       </property>
+       <property name="rightMargin">
+        <number>10</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Fixed</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton">
+         <property name="minimumSize">
+          <size>
+           <width>266</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>266</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true"/>
+         </property>
+         <property name="text">
+          <string>New project</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_2">
+         <property name="minimumSize">
+          <size>
+           <width>266</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>266</width>
+           <height>30</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font: 12px &quot;Arial&quot;;</string>
+         </property>
+         <property name="text">
+          <string>Open project</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <property name="topMargin">
+          <number>10</number>
+         </property>
+         <property name="bottomMargin">
+          <number>10</number>
+         </property>
+         <item>
+          <spacer name="horizontalSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButton_3">
+           <property name="minimumSize">
+            <size>
+             <width>80</width>
+             <height>28</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>80</width>
+             <height>28</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true"/>
+           </property>
+           <property name="text">
+            <string>Close</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <resources>
+  <include location="../MoldAI.qrc"/>
+ </resources>
+ <connections/>
+</ui>

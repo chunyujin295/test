@@ -1,0 +1,76 @@
+
+set(AI3D_BIN_DIR    ${AI3D_DIR}Bin)
+set(AI3D_LIB_DIR    ${AI3D_DIR}Lib)
+
+set(AI3D_THIRDPARTY_DIR ${AI3D_DIR}Externals)
+
+option(USE_RELEASEWITHDEBUG_ENABLED "enable releasewith debug" ON)  #CHY 提测时需改为OFF
+if(WIN32)
+ if(USE_RELEASEWITHDEBUG_ENABLED)
+		set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi -Od")
+ 		set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF") 
+		set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+	 endif(USE_RELEASEWITHDEBUG_ENABLED)
+endif(WIN32)
+
+add_definitions(-DUNICODE -D_UNICODE)
+add_definitions(-D_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS)
+
+if (WIN32)
+        if (${CMAKE_SIZEOF_VOID_P} MATCHES "8") 
+            set(AI3D_PLATFORM_NAME x64)
+            add_definitions(-DWIN64)
+        else (${CMAKE_SIZEOF_VOID_P} MATCHES "8")
+            set(AI3D_PLATFORM_NAME Win32)
+            add_definitions(-DWIN32)
+        endif(${CMAKE_SIZEOF_VOID_P} MATCHES "8")
+else()
+        if (${CMAKE_SIZEOF_VOID_P} MATCHES "8") 
+            set(AI3D_PLATFORM_NAME x64)
+        else (${CMAKE_SIZEOF_VOID_P} MATCHES "8")
+            set(AI3D_PLATFORM_NAME x86)
+        endif(${CMAKE_SIZEOF_VOID_P} MATCHES "8")
+endif()
+
+
+
+
+
+include(ThirdpartyPathList)
+
+
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+set(CMAKE_DEBUG_PREFIX "d")
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
+
+### 设置输出路径，CMake会自动在后面添加Configuration名称
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+    ${LIB_OUTPUT_PATH} CACHE
+    PATH "Directory where all the .lib files are dumped." FORCE)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+    ${EXEC_OUTPUT_PATH} CACHE
+    PATH "Directory where .so and .dll files are dumped." FORCE)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+    ${EXEC_OUTPUT_PATH} CACHE
+    PATH "Directory where .exe and .dll files are dumped." FORCE)
+
+include_directories(
+    ${AI3D_THIRDPARTY_DIR}
+)
+
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/${AI3D_TEST_TARGETDIR}/Lib/${AI3D_PLATFORM_NAME})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/${AI3D_TEST_TARGETDIR}/Bin/${AI3D_PLATFORM_NAME})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/${AI3D_TEST_TARGETDIR}/Bin/${AI3D_PLATFORM_NAME})
+
+
+link_directories(${CMAKE_ARCHIVE_OUTPUT_DIRECTORY} )
+
+#endif(APPLE)
+if(WIN32)
+link_directories(   
+    ${AI3D_LIB_DIR}/$(Platform)
+   
+)
+endif(WIN32)

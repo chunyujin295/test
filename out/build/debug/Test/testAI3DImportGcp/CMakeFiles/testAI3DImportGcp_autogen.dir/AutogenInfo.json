@@ -1,0 +1,418 @@
+{
+	"AUTOGEN_COMMAND_LINE_LENGTH_MAX" : 32000,
+	"BUILD_DIR" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/testAI3DImportGcp_autogen",
+	"CMAKE_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug",
+	"CMAKE_CURRENT_BINARY_DIR" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp",
+	"CMAKE_CURRENT_SOURCE_DIR" : "D:/Code/moldaiengine/Test/testAI3DImportGcp",
+	"CMAKE_EXECUTABLE" : "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+	"CMAKE_LIST_FILES" : 
+	[
+		"D:/Code/moldaiengine/Test/testAI3DImportGcp/CMakeLists.txt",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigVersion.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Config.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeEarlyPolicyHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigExtras.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeVersionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtInstallPaths.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Targets.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6VersionlessAliasTargets.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtFeature.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CheckCXXCompilerFlag.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtFeatureCommon.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicAndroidHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicAppleHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeVersionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicExternalProjectHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicFinalizerHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicFindPackageHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicGitHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicPluginHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicPluginHelpers_v2.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomAttributionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCommonGenerationHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCycloneDXHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomDocumentNamespaceHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomDepHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomFileHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomGenerationHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomGenerationCycloneDXHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomLicenseHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomOpsHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomPurlHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomPythonHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomQtEntityHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomSystemDepHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicTargetHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicTestHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicToolHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicWalkLibsHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicWindowsHelpers.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeFindDependencyMacro.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Dependencies.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigVersion.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Config.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeEarlyPolicyHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6ConfigExtras.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeVersionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtInstallPaths.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Targets.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6VersionlessAliasTargets.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtFeature.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CheckCXXCompilerFlag.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtFeatureCommon.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicAndroidHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicAppleHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicCMakeVersionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicExternalProjectHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicFinalizerHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicFindPackageHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicGitHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicPluginHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicPluginHelpers_v2.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomAttributionHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCommonGenerationHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomCycloneDXHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomDocumentNamespaceHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomDepHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomFileHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomGenerationHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomGenerationCycloneDXHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomLicenseHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomOpsHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomPurlHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomPythonHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomQtEntityHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicSbomSystemDepHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicTargetHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicTestHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicToolHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicWalkLibsHelpers.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/QtPublicWindowsHelpers.cmake",
+		"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-3.31/Modules/CMakeFindDependencyMacro.cmake",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/lib/cmake/Qt6/Qt6Dependencies.cmake"
+	],
+	"CMAKE_SOURCE_DIR" : "D:/Code/moldaiengine",
+	"CROSS_CONFIG" : false,
+	"DEP_FILE" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/testAI3DImportGcp_autogen/deps",
+	"DEP_FILE_RULE_NAME" : "testAI3DImportGcp_autogen/timestamp",
+	"HEADERS" : 
+	[
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/QComboxTree.h",
+			"Mu",
+			"EWIEGA46WW/moc_QComboxTree.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatereferencesystem.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatereferencesystem.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatereferencesystem_legacy.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatereferencesystem_legacy.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatereferencesystem_p.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatereferencesystem_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransform.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatetransform.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransform_p.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatetransform_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransformcontext.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatetransformcontext.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransformcontext_p.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgscoordinatetransformcontext_p.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsdatumtransform.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsdatumtransform.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsfilterlineedit.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsfilterlineedit.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgshighlightablecombobox.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgshighlightablecombobox.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgslocalec.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgslocalec.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectiondialog.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsprojectionselectiondialog.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectiontreewidget.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsprojectionselectiontreewidget.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectionwidget.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsprojectionselectionwidget.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojutils.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsprojutils.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsreadwritelocker.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgsreadwritelocker.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgssettings.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgssettings.cpp",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgssqliteutils.h",
+			"Mu",
+			"EWIEGA46WW/moc_qgssqliteutils.cpp",
+			null
+		]
+	],
+	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
+	"INCLUDE_DIR" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/testAI3DImportGcp_autogen/include",
+	"MOC_COMPILATION_FILE" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/testAI3DImportGcp_autogen/mocs_compilation.cpp",
+	"MOC_DEFINITIONS" : 
+	[
+		"ACCEPT_USE_OF_DEPRECATED_PROJ_API_H",
+		"AI3D_GFLAGS_NAMESPACE=",
+		"GLOG_NO_ABBREVIATED_SEVERITIES",
+		"HAVE_GEOS",
+		"QT_CORE_LIB",
+		"QT_GUI_LIB",
+		"QT_NETWORK_LIB",
+		"QT_OPENGL_LIB",
+		"QT_SQL_LIB",
+		"QT_USE_QSTRINGBUILDER",
+		"QT_WIDGETS_LIB",
+		"QT_XML_LIB",
+		"UNICODE",
+		"USE_AI3D_PROJ",
+		"USE_OPENMP",
+		"WIN32",
+		"WIN64",
+		"_ENABLE_EXTENDED_ALIGNED_STORAGE",
+		"_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS",
+		"_UNICODE",
+		"_USE_BOOST",
+		"_USE_EIGEN",
+		"_WIN64"
+	],
+	"MOC_DEPEND_FILTERS" : 
+	[
+		[
+			"Q_PLUGIN_METADATA",
+			"[\n][ \t]*Q_PLUGIN_METADATA[ \t]*\\([^\\)]*FILE[ \t]*\"([^\"]+)\""
+		]
+	],
+	"MOC_INCLUDES" : 
+	[
+		"D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp",
+		"D:/Code/moldaiengine/Test/testAI3DImportGcp",
+		"D:/Code/moldaiengine/Externals",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtConcurrent",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtPrintSupport",
+		"D:/Code/moldaiengine/Include",
+		"D:/vc142/Eigen/3.3.4/include",
+		"D:/vc142/gflags/2.2.0/include",
+		"D:/vc142/glog/0.4.0/include",
+		"D:/vc142/proj/6.3.2/include",
+		"D:/vc142/Freeimage/3.18.0/include",
+		"D:/vc142/sqlite3/3.36/include",
+		"D:/vc142/exiv2/0.28.0/include",
+		"D:/vc142/boost/1.71.0/include",
+		"D:/vc142/expat/2.4.1/include",
+		"D:/vc142/gdal/3.3.0/include",
+		"D:/vc142/geographiclib/1.50.1/include",
+		"D:/vc142/rapidjson/include",
+		"D:/vc142/pugixml/1.11.0/include",
+		"D:/vc142/openssl/1.1.1k/include",
+		"D:/vc142/opencv/4100/include",
+		"D:/vc142/libiconv/1.17/include",
+		"D:/vc142/libfreexl/1.0.6/include",
+		"D:/vc142/xlnt/1.5.0/include",
+		"D:/vc142/libkml/0.0.2/include",
+		"D:/vc142/geos/3.7.1/include",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtOpenGL",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtCore",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtGui",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtWidgets",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtXml",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtSql",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/include/QtNetwork",
+		"D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/mkspecs/win32-msvc"
+	],
+	"MOC_MACRO_NAMES" : 
+	[
+		"Q_OBJECT",
+		"Q_GADGET",
+		"Q_NAMESPACE",
+		"Q_NAMESPACE_EXPORT",
+		"Q_GADGET_EXPORT",
+		"Q_ENUM_NS"
+	],
+	"MOC_OPTIONS" : [],
+	"MOC_PATH_PREFIX" : false,
+	"MOC_PREDEFS_CMD" : [],
+	"MOC_PREDEFS_FILE" : "",
+	"MOC_RELAXED_MODE" : false,
+	"MOC_SKIP" : 
+	[
+		"D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/ui_qgsgenericprojectionselectorbase.h",
+		"D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/ui_qgsprojectionselectorbase.h"
+	],
+	"MULTI_CONFIG" : false,
+	"PARALLEL" : 12,
+	"PARSE_CACHE_FILE" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/CMakeFiles/testAI3DImportGcp_autogen.dir/ParseCache.txt",
+	"QT_MOC_EXECUTABLE" : "D:/Qt/Qt6.10.2/6.10.2/msvc2022_64/bin/moc.exe",
+	"QT_UIC_EXECUTABLE" : "",
+	"QT_VERSION_MAJOR" : 6,
+	"QT_VERSION_MINOR" : 10,
+	"SETTINGS_FILE" : "D:/Code/moldaiengine/out/build/debug/Test/testAI3DImportGcp/CMakeFiles/testAI3DImportGcp_autogen.dir/AutogenUsed.txt",
+	"SOURCES" : 
+	[
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/QComboxTree.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatereferencesystem.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransform.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransform_p.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgscoordinatetransformcontext.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsdatumtransform.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsfilterlineedit.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgshighlightablecombobox.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgslocalec.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectiondialog.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectiontreewidget.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojectionselectionwidget.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsprojutils.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgsreadwritelocker.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgssettings.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/qgssqliteutils.cpp",
+			"Mu",
+			null
+		],
+		[
+			"D:/Code/moldaiengine/Test/testAI3DImportGcp/testAI3DImportGcp.cpp",
+			"Mu",
+			null
+		]
+	],
+	"USE_BETTER_GRAPH" : true,
+	"VERBOSITY" : 0
+}
