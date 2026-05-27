@@ -20,14 +20,16 @@ Phase 1 + 2 可以并行开工
 
 | 新增 | 对标现有 | 说明 |
 |------|---------|------|
-| `GenTaskProcess.h` | `Util/TaskProcess.h` | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo` + 枚举 + API 类型） |
-| `GenJobInfo` | `JobInfo_s` | Job 文件读写结构体。`JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo` 存 `task_uuid/GenerationParams/server_task_id/result_url` |
+| `GenTaskProcess.h` | `Util/TaskProcess.h` | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo_s` + 枚举 + API 类型） |
+| `DataStruct.h` (修改) | `FeedBackFile` / `JobInfoData` / `BLKBinFile` | 新增 `GenJobInfoData`/`GenJobFile`（对标 `FeedBackData`/`FeedBackFile` 的 BIN 模式）；`JobInfoData` 增加 `task_category`；`BLKBinFile` 增加 `block_task_category` |
+| `GenJobInfo_s` | `JobInfo_s` | 纯数据结构体 — `JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo_s` 存 `task_uuid/GenerationParams/server_task_id/result_url`。仅含 `to_json`/`from_json`，无 I/O 方法 |
+| `GenJobFullInfo_s` | `JobFullInfo_s` | 文件级结构体 — 持有 `job_name` + `GenJobInfo_s job`，提供 `save`/`load`（`JOB_INFO_USE_BIN` 分发）+ `WriteToBin`/`LoadFromBin`（手动拷贝到 `GenJobInfoData`/`GenJobFile`） |
 | `GenTaskRequest` | 无现成对标 | HTTP submit 请求体，序列化为 JSON POST 到服务端。重建式没有远程 API，所以这是全新概念 |
 | `GenTaskResponse` | 无现成对标 | HTTP 响应体。服务端返回的 task status/progress/result_url |
 | `GenerationParams` | `ATOptions`（局部类似） | 用户填写的生成参数（prompt、模型版本、面数等）。概念上类似 `ATOptions`（空三参数），但结构完全不同 |
 | `GenTaskCategory/SubType/Status` | `jobsta_e`（局部类似） | 生成式任务的状态枚举。`jobsta_e` 是重建式 job 状态（PENDING/RUNNING/COMPLETE...），`GenTaskStatus` 多了 IDLE + 服务端状态 |
 | `block_task_category` (Task_Info 新增) | 无，新增字段 | 在已有的 `BlockObject::Task_Info` 中增加的 int 字段，区分 Block 是重建式(0)还是生成式(1)。类似 `type_` 字段的作用 |
-| `JobFeedBack_s` 新增 6 字段 | 无，字段扩展 | 在已有的 `JobFeedBack_s` 尾部追加 `result_url/preview_url/server_task_id/error_message/cost_credits/points_balance`，重建式不写这些字段 |
+| `JobFeedBack_s` — **不修改** | 自身 | 生成式任务复用 `Status`/`Percent`/`Msg`/`TaskRetVal` 做进度反馈。结果数据（`result_url` 等）存在 `GenJobInfo_s` 中，不扩展 feedback 字段 |
 
 ### 调度与通信层
 
@@ -35,7 +37,7 @@ Phase 1 + 2 可以并行开工
 |------|---------|------|
 | `GenTaskThread` | `searchPendingJobThread2` (CallEngine.cpp) | 调度线程。`searchPendingJobThread2` 遍历 `jobs/` 调度重建式任务，`GenTaskThread::Run()` 遍历 `jobs_gen/` 调度生成式任务。两者独立运行，互不干扰 |
 | `GenHttpClient` | `spawn Task.exe` 子进程 | 任务执行方式。重建式通过文件 IPC + spawn `MoldAITask.exe` 子进程执行，生成式通过 HTTP POST/GET 提交和轮询远程服务端。都是"提交任务→等待结果"的模式 |
-| `jobs_gen/` 目录 | `jobs/` 目录 | 文件系统 IPC 的工作目录。`jobs/` 存重建式 Job 文件（BIN+JSON），`jobs_gen/` 存生成式 Job 文件（仅 JSON） |
+| `jobs_gen/` 目录 | `jobs/` 目录 | 文件系统 IPC 的工作目录。`jobs/` 存重建式 Job 文件（`J_*`），`jobs_gen/` 存生成式 Job 文件（同样 `J_*` 前缀，BIN/JSON 格式由 `JOB_INFO_USE_BIN` 控制）。启动时需同样清理残留 `.lock` 文件 |
 | `getGenEngineJobQueue()` | `getEngineJobQueue()` | 获取队列根路径。`getEngineJobQueue()` 读注册表 `engine` key，`getGenEngineJobQueue()` 取其父目录 + `/jobs_gen`，无需新注册表项 |
 
 ### SDK 与接口层
@@ -50,8 +52,7 @@ Phase 1 + 2 可以并行开工
 | 文件 | 对标什么 | 说明 |
 |------|---------|------|
 | `BlockObject.h/cpp` | 自身 | `Task_Info` 加 `block_task_category` 区分 Block 类型 |
-| `BlockInfo.h` | 自身 | `BlockFile` 加 `block_task_category`（BIN 格式兼容） |
-| `TaskProcess.h` | 自身 | `JobInfo_s` 加 `task_category`；`JobFeedBack_s` 加 6 个生成式扩展字段，更新 10+ 个序列化方法 |
+| `TaskProcess.h` | 自身 | `JobInfo_s` 加 `task_category`；`JobFullInfo_s::WriteToBin/LoadFromBin` 加 `task_category` 拷贝。`JobFeedBack_s` 不动 |
 | `Settings.h/cpp` | 自身 | 新增 `getGenEngineJobQueue()` |
 | `CallEngine.cpp` | 自身 | MakePath 创建 `jobs_gen/` 目录；main 启动 `GenTaskThread` |
 | `App/Engine/CMakeLists.txt` | 自身 | HEADER_LIST 添加 `GenTaskProcess.h`（唯一需改的 CMakeLists） |
@@ -68,191 +69,196 @@ Phase 1 + 2 可以并行开工
 
 ```cpp
 // Include/Util/GenTaskProcess.h
-// 位置说明: 放在 Util/ 而非 Core/ 是因为 TaskProcess.h (JobInfo_s, JobFeedBack_s)
-// 也在 Util/ 下。GenJobInfo 本质上和 JobInfo_s 是同层级的 job 调度结构体。
-// json 使用项目内 "Core/json.h" (vendored nlohmann 3.7.2), 与 TaskProcess.h 一致。
+// ============================================================================
+// @file    GenTaskProcess.h
+// @brief   生成式任务的数据结构定义, 对标 TaskProcess.h (重建式任务)
+//
+// 放在 Util/ 而非 Core/ 的原因: TaskProcess.h (JobInfo_s, JobFeedBack_s) 也在
+// Util/ 下, GenJobInfo_s 本质上和 JobInfo_s 是同层级的 job 调度结构体 — 都是
+// Engine 调度层 (MoldAINode.exe) 使用的 job 文件读写结构体, 不是 Core 层的
+// 基础数据模型。
+//
+// JSON 库: 使用项目内 "Core/json.h" (vendored nlohmann 3.7.2), 与 TaskProcess.h
+//          一致。所有序列化均为手动 to_json/from_json, 因为 3.7.2 不支持
+//          NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE (需 3.10+)。
+//          枚举在 JSON 中存为 int, 对标 TaskProcess.h 中 jobsta_e 的序列化方式。
+//
+// std::optional: C++17 标准库类型, 项目内首次使用。用于区分"字段显式设为空"
+//                和"字段未提供", 替代空字符串/哨兵值(-1)的模糊语义。
+//                JSON 序列化时仅在 has_value() 为 true 时才写入字段。
+// ============================================================================
 
-#ifndef _AI3D_UTIL_GEN_TASK_PROCESS_H_
-#define _AI3D_UTIL_GEN_TASK_PROCESS_H_
+#pragma once
 
 #include <string>
 #include <vector>
-#include <optional>
-#include "Core/json.h"       // 项目内 vendored nlohmann 3.7.2, 与 TaskProcess.h 一致
+#include <optional>   // C++17, 项目内首次使用: 区分"未提供"与"显式设空"
+#include <thread>      // save_with_retry / load_with_retry 中的 sleep_for
+#include <chrono>
+
+#include "Core/json.h"       // 项目内 vendored nlohmann 3.7.2
+#include "Core/File.h"       // FopenDenyWriteLockUtf8 / OpenOfstreamUtf8 (save/load + 锁)
+#include "Core/Logging.h"    // LOGE / LOGI / LOGW
+#include "Core/DataStruct.h" // GenJobInfoData / GenJobFile (BIN I/O, Phase 1.2 定义)
+#include "Core/Types.h"      // JOB_INFO_USE_BIN (GenJobFullInfo_s::save/load 分发用)
 
 namespace AI3D {
 namespace CORE {
 
-// ========== 枚举 ==========
+// ============================================================================
+// 四个枚举 — 在整个生成式任务系统中的角色
+//
+//                            ┌─────────────────┐
+//  前端填写 ───────────────→ │ GenerationParams │ → JSON → GenTaskRequest → HTTP POST
+//  (MoldAIData.dll)          │  · category      │
+//                            │  · sub_type      │
+//                            └─────────────────┘
+//
+//  调度线程维护 ───────────→ │ GenJobInfo_s       │ → JSON → jobs_gen/ 下各状态目录
+//  (MoldAINode.exe)          │  · status        │
+//                            └─────────────────┘
+//
+//  AssetKind 是资源引用的解析指令 — GenTaskThread 据此决定是否 upload
+// ============================================================================
 
+/// @brief 任务大类 — 决定服务端路由到哪个 processing pipeline
+///
+/// 使用位置:
+///   - GenerationParams::category — 前端填写, 序列化到 HTTP submit body
+///   - GenJobInfo_s::category       — job 文件记录, 用于日志/监控分类
+///
+/// 数据流: 前端 SDK → GenJobInfo_s JSON → GenTaskThread 读取 → GenTaskRequest JSON → HTTP POST
 enum class GenTaskCategory {
-    TEXT_TO_3D,
-    IMAGE_TO_3D,
-    TEXTURING,
-    UTILITY,
-    IMAGE_GENERATION,
+    TEXT_TO_3D,         // 文生3D (文字描述 → 3D 模型)
+    IMAGE_TO_3D,        // 图生3D (参考图 → 3D 模型)
+    TEXTURING,          // 贴图生成 (模型 + 文字 → 带贴图的模型)
+    UTILITY,            // 工具类 (格式转换 / 减面 / 渲染)
+    IMAGE_GENERATION,   // 图片生成 (文字 → 图片 / 预览图)
 };
 
+/// @brief 任务子类型 — 决定服务端 API endpoint 和具体的 algorithm
+///
+/// 使用位置:
+///   - GenerationParams::sub_type — 前端填写, 序列化到 HTTP submit body
+///   - GenJobInfo_s::sub_type       — job 文件记录
+///
+/// 与 GenTaskCategory 的关系: category 定义大类, sub_type 在同类内细化路由
+///   例: category=TEXT_TO_3D + sub_type=TEXT_TO_MODEL → 输出 .glb 模型
+///       category=TEXT_TO_3D + sub_type=TEXT_TO_MESH  → 输出 .obj mesh
 enum class GenTaskSubType {
-    TEXT_TO_MODEL,
-    TEXT_TO_MESH,
-    IMAGE_TO_MODEL,
-    IMAGE_TO_MESH,
-    TEXTURE_MODEL,
-    TEXT_TO_TEXTURE,
-    MODEL_PREVIEW_RENDER,
-    MODEL_REMESH,
-    CONVERT_MODEL_FORMAT,
-    IMAGE_GENERATION,
+    TEXT_TO_MODEL,          // 文本 → 3D 模型文件 (.glb)
+    TEXT_TO_MESH,           // 文本 → Mesh 数据 (.obj)
+    IMAGE_TO_MODEL,         // 图片 → 3D 模型文件 (.glb)
+    IMAGE_TO_MESH,          // 图片 → Mesh 数据 (.obj)
+    TEXTURE_MODEL,          // 模型 + 文字 → 贴图 (输入 model_file + prompt)
+    TEXT_TO_TEXTURE,        // 文字 → 贴图 (无输入模型)
+    MODEL_PREVIEW_RENDER,   // 模型预览渲染 (360° 旋转图)
+    MODEL_REMESH,           // 模型减面 / 重构拓扑
+    CONVERT_MODEL_FORMAT,   // 模型格式转换 (obj↔glb↔fbx)
+    IMAGE_GENERATION,       // 图片生成 (2D)
 };
 
+/// @brief 任务状态 — 驱动 job 文件在状态目录间流转
+///
+/// 使用位置:
+///   - GenJobInfo_s::status          — job 文件内记录, GenTaskThread 读写
+///   - GenTaskResponse::status     — 服务端 HTTP 响应解析
+///   - GenTaskAPI::TaskStatusResult::status — 前端查询返回值 (从 JobFeedBack_s 映射)
+///
+/// 状态 → 目录映射 (GenTaskThread 执行):
+///   IDLE        → (仅内存状态, 尚未写入任何目录)
+///   PENDING     → jobs_gen/Pending/   (等待 submit)
+///   IN_PROGRESS → jobs_gen/Running/   (已 submit, 轮询中)
+///   COMPLETED   → jobs_gen/Completed/ (完成)
+///   FAILED      → jobs_gen/Failed/    (失败)
+///   CANCELLED   → jobs_gen/Cancelled/ (取消)
+///
+/// 状态 → jobsta_e 映射 (UpdateFeedback 中):
+///   IDLE/PENDING → STATUS_PENDDING,  IN_PROGRESS → STATUS_RUNNING
+///   COMPLETED    → STATUS_COMPLETE,  FAILED      → STATUS_FAILED
+///   CANCELLED    → STATUS_CANCELLED
 enum class GenTaskStatus {
-    IDLE,
-    PENDING,
-    IN_PROGRESS,
-    COMPLETED,
-    FAILED,
-    CANCELLED,
+    IDLE,           // 初始 / 网络不通 — GenTaskResponse.status==IDLE 且 error_message 有值 = 超时
+    PENDING,        // 已写入 jobs_gen/Pending/, 等待 GenTaskThread pick up
+    IN_PROGRESS,    // 已 POST submit 到服务端, GenTaskThread 正在周期性 GET query
+    COMPLETED,      // 服务端返回完成, GenTaskThread 回填 result_url 并移到 Completed/
+    FAILED,         // 执行失败 — 可能是服务端 FAILED, 也可能是连续 5 次轮询超时
+    CANCELLED,      // 用户取消 — GenTaskThread 发送 POST cancel 后移到 Cancelled/
 };
 
+/// @brief 资源引用类型 — 决定 AssetRef::value 的解析方式
+///
+/// 使用位置:
+///   - AssetRef::kind — 标记 value 字段是本地路径、服务端 key 还是远程 URL
+///
+/// GenTaskThread::ProcessPendingJobs 中的处理逻辑:
+///   FILE_PATH → 调用 GenHttpClient::UploadFile 上传 → 改为 FILE_KEY
+///   FILE_KEY  → 直接放入 GenTaskRequest JSON, 服务端根据 key 查找已上传文件
+///   URL       → 直接放入 GenTaskRequest JSON, 服务端自行下载
+///   NONE      → AssetRef 无有效数据
 enum class AssetKind {
-    NONE,
-    FILE_PATH,
-    FILE_KEY,
-    URL,
+    NONE,           // 无资源引用 (AssetRef 为空)
+    FILE_PATH,      // value = 本地文件绝对路径 → GenTaskThread 需 upload → 变为 FILE_KEY
+    FILE_KEY,       // value = 服务端返回的 file_key → submit 时直接传给 API
+    URL,            // value = 完整 URL → submit 时直接传给 API, 服务端自行下载
 };
 
-// ========== 枚举 ↔ 字符串 转换 (nlohmann 3.7.2 无 NLOHMANN_JSON_SERIALIZE_ENUM) ==========
+// ============================================================================
+// 数据结构体 + 手动 to_json / from_json
+// 枚举在 JSON 中存为 int (对标 TaskProcess.h 中 jobsta_e 的序列化方式)
+// ============================================================================
 
-inline std::string to_string(GenTaskCategory v) {
-    switch (v) {
-    case GenTaskCategory::TEXT_TO_3D:       return "text_to_3d";
-    case GenTaskCategory::IMAGE_TO_3D:      return "image_to_3d";
-    case GenTaskCategory::TEXTURING:        return "texturing";
-    case GenTaskCategory::UTILITY:          return "utility";
-    case GenTaskCategory::IMAGE_GENERATION: return "image_generation";
-    }
-    return "unknown";
-}
-inline GenTaskCategory to_GenTaskCategory(const std::string& s) {
-    if (s == "text_to_3d")       return GenTaskCategory::TEXT_TO_3D;
-    if (s == "image_to_3d")      return GenTaskCategory::IMAGE_TO_3D;
-    if (s == "texturing")        return GenTaskCategory::TEXTURING;
-    if (s == "utility")          return GenTaskCategory::UTILITY;
-    if (s == "image_generation") return GenTaskCategory::IMAGE_GENERATION;
-    return GenTaskCategory::TEXT_TO_3D;
-}
-
-inline std::string to_string(GenTaskSubType v) {
-    switch (v) {
-    case GenTaskSubType::TEXT_TO_MODEL:         return "text_to_model";
-    case GenTaskSubType::TEXT_TO_MESH:          return "text_to_mesh";
-    case GenTaskSubType::IMAGE_TO_MODEL:        return "image_to_model";
-    case GenTaskSubType::IMAGE_TO_MESH:         return "image_to_mesh";
-    case GenTaskSubType::TEXTURE_MODEL:         return "texture_model";
-    case GenTaskSubType::TEXT_TO_TEXTURE:       return "text_to_texture";
-    case GenTaskSubType::MODEL_PREVIEW_RENDER:  return "model_preview_render";
-    case GenTaskSubType::MODEL_REMESH:          return "model_remesh";
-    case GenTaskSubType::CONVERT_MODEL_FORMAT:  return "convert_model_format";
-    case GenTaskSubType::IMAGE_GENERATION:      return "image_generation";
-    }
-    return "unknown";
-}
-inline GenTaskSubType to_GenTaskSubType(const std::string& s) {
-    if (s == "text_to_model")         return GenTaskSubType::TEXT_TO_MODEL;
-    if (s == "text_to_mesh")          return GenTaskSubType::TEXT_TO_MESH;
-    if (s == "image_to_model")        return GenTaskSubType::IMAGE_TO_MODEL;
-    if (s == "image_to_mesh")         return GenTaskSubType::IMAGE_TO_MESH;
-    if (s == "texture_model")         return GenTaskSubType::TEXTURE_MODEL;
-    if (s == "text_to_texture")       return GenTaskSubType::TEXT_TO_TEXTURE;
-    if (s == "model_preview_render")  return GenTaskSubType::MODEL_PREVIEW_RENDER;
-    if (s == "model_remesh")          return GenTaskSubType::MODEL_REMESH;
-    if (s == "convert_model_format")  return GenTaskSubType::CONVERT_MODEL_FORMAT;
-    if (s == "image_generation")      return GenTaskSubType::IMAGE_GENERATION;
-    return GenTaskSubType::TEXT_TO_MODEL;
-}
-
-inline std::string to_string(GenTaskStatus v) {
-    switch (v) {
-    case GenTaskStatus::IDLE:        return "idle";
-    case GenTaskStatus::PENDING:     return "pending";
-    case GenTaskStatus::IN_PROGRESS: return "in_progress";
-    case GenTaskStatus::COMPLETED:   return "completed";
-    case GenTaskStatus::FAILED:      return "failed";
-    case GenTaskStatus::CANCELLED:   return "cancelled";
-    }
-    return "unknown";
-}
-inline GenTaskStatus to_GenTaskStatus(const std::string& s) {
-    if (s == "idle")        return GenTaskStatus::IDLE;
-    if (s == "pending")     return GenTaskStatus::PENDING;
-    if (s == "in_progress") return GenTaskStatus::IN_PROGRESS;
-    if (s == "completed")   return GenTaskStatus::COMPLETED;
-    if (s == "failed")      return GenTaskStatus::FAILED;
-    if (s == "cancelled")   return GenTaskStatus::CANCELLED;
-    return GenTaskStatus::IDLE;
-}
-
-inline std::string to_string(AssetKind v) {
-    switch (v) {
-    case AssetKind::NONE:      return "none";
-    case AssetKind::FILE_PATH: return "file_path";
-    case AssetKind::FILE_KEY:  return "file_key";
-    case AssetKind::URL:       return "url";
-    }
-    return "none";
-}
-inline AssetKind to_AssetKind(const std::string& s) {
-    if (s == "file_path") return AssetKind::FILE_PATH;
-    if (s == "file_key")  return AssetKind::FILE_KEY;
-    if (s == "url")       return AssetKind::URL;
-    return AssetKind::NONE;
-}
-
-// ========== 结构体 + 手动 to_json / from_json ==========
-
+/// @brief 资源引用 (图片文件 / 模型文件)
+/// kind 决定 value 的解析方式: FILE_PATH 需先 upload, FILE_KEY 直接传给 API
 struct AssetRef {
     AssetKind   kind = AssetKind::NONE;
     std::string value;
     std::string content_type;
 };
 inline void to_json(nlohmann::json& j, const AssetRef& v) {
-    j["kind"]         = to_string(v.kind);
+    j["kind"]         = static_cast<int>(v.kind);
     j["value"]        = v.value;
     j["content_type"] = v.content_type;
 }
 inline void from_json(const nlohmann::json& j, AssetRef& v) {
-    if (j.contains("kind"))         v.kind         = to_AssetKind(j.at("kind").get<std::string>());
+    if (j.contains("kind"))         v.kind         = static_cast<AssetKind>(j.at("kind").get<int>());
     if (j.contains("value"))        v.value        = j.at("value").get<std::string>();
     if (j.contains("content_type")) v.content_type = j.value("content_type", "");
 }
 
+/// @brief 生成参数 — 用户指定的生成配置
+/// 所有 optional 字段: 有值时在 JSON 中包含, 无值时不出现在 JSON 中
 struct GenerationParams {
-    GenTaskCategory category = GenTaskCategory::TEXT_TO_3D;
-    GenTaskSubType  sub_type = GenTaskSubType::TEXT_TO_MODEL;
+    GenTaskCategory category = GenTaskCategory::TEXT_TO_3D;  // 任务大类
+    GenTaskSubType  sub_type = GenTaskSubType::TEXT_TO_MODEL; // 子类型
 
-    std::optional<std::string> prompt;
-    std::optional<std::string> negative_prompt;
-    std::optional<std::string> style;
+    // --- 文字输入 ---
+    std::optional<std::string> prompt;           // 正向提示词 (TEXT_TO_3D / TEXTURING 必填)
+    std::optional<std::string> negative_prompt;  // 反向提示词 (可选)
+    std::optional<std::string> style;            // 风格预设名 (可选)
 
-    std::optional<AssetRef> image_file;
-    std::optional<AssetRef> model_file;
+    // --- 资源输入 (FILE_PATH → 由 GenTaskThread 上传 → FILE_KEY) ---
+    std::optional<AssetRef> image_file;  // 输入图片 (IMAGE_TO_3D / TEXTURING)
+    std::optional<AssetRef> model_file;  // 输入模型 (TEXTURING / REMESH / CONVERT)
 
-    std::optional<std::string> model_version;
-    std::optional<int>         polygon_limit;
-    std::optional<int>         texture_size;
+    // --- 模型参数 ---
+    std::optional<std::string> model_version;   // 模型版本号 (可选, 默认最新)
+    std::optional<int>         polygon_limit;   // 面数上限 (TEXT_TO_3D / IMAGE_TO_3D)
+    std::optional<int>         texture_size;    // 贴图分辨率 (TEXTURING)
 
-    std::optional<std::string>              render_mode;
-    std::optional<int>                      image_count;
-    std::optional<std::vector<std::string>> camera_angles;
-    std::optional<std::string>              preset_name;
+    // --- 渲染 / 工具参数 ---
+    std::optional<std::string>              render_mode;    // 渲染模式 (如 "360_spin")
+    std::optional<int>                      image_count;    // 图片生成数量
+    std::optional<std::vector<std::string>> camera_angles;  // 相机角度列表
+    std::optional<std::string>              preset_name;    // 预设名
 
-    std::optional<int>         target_poly_count;
-    std::optional<std::string> output_format;
+    // --- 后处理参数 ---
+    std::optional<int>         target_poly_count;  // 目标面数 (减面)
+    std::optional<std::string> output_format;       // 输出格式 (如 "glb", "obj")
 };
 inline void to_json(nlohmann::json& j, const GenerationParams& v) {
-    j["category"] = to_string(v.category);
-    j["sub_type"] = to_string(v.sub_type);
+    j["category"] = static_cast<int>(v.category);
+    j["sub_type"] = static_cast<int>(v.sub_type);
     if (v.prompt)           j["prompt"]           = *v.prompt;
     if (v.negative_prompt)  j["negative_prompt"]  = *v.negative_prompt;
     if (v.style)            j["style"]            = *v.style;
@@ -269,8 +275,8 @@ inline void to_json(nlohmann::json& j, const GenerationParams& v) {
     if (v.output_format)    j["output_format"]    = *v.output_format;
 }
 inline void from_json(const nlohmann::json& j, GenerationParams& v) {
-    v.category = to_GenTaskCategory(j.value("category", "text_to_3d"));
-    v.sub_type = to_GenTaskSubType(j.value("sub_type", "text_to_model"));
+    v.category = static_cast<GenTaskCategory>(j.value("category", 0));
+    v.sub_type = static_cast<GenTaskSubType>(j.value("sub_type", 0));
     auto maybe = [&](const char* key, auto& opt) {
         if (j.contains(key)) opt = j.at(key).get<typename std::remove_reference_t<decltype(opt)>::value_type>();
     };
@@ -290,11 +296,12 @@ inline void from_json(const nlohmann::json& j, GenerationParams& v) {
     maybe("output_format",     v.output_format);
 }
 
+/// @brief HTTP 提交请求体 — POST /api/v1/task/submit
 struct GenTaskRequest {
-    std::string     task_id;
-    std::string     engine_id;
-    std::string     user_account;
-    GenerationParams params;
+    std::string     task_id;       // 客户端生成的 UUID (幂等键)
+    std::string     engine_id;     // 发起请求的 Engine 标识 (主机名)
+    std::string     user_account;  // 用户账号 (积分计费用)
+    GenerationParams params;       // 生成参数
 };
 inline void to_json(nlohmann::json& j, const GenTaskRequest& v) {
     j["task_id"]      = v.task_id;
@@ -309,20 +316,22 @@ inline void from_json(const nlohmann::json& j, GenTaskRequest& v) {
     j.at("params").get_to(v.params);
 }
 
+/// @brief HTTP 响应体 — 服务端返回的任务状态
+/// 所有 optional 字段仅在服务端提供对应值时才有值
 struct GenTaskResponse {
-    std::string                task_id;
-    std::optional<std::string> triverse_task_uuid;
-    GenTaskStatus              status = GenTaskStatus::IDLE;
-    int                        progress = 0;
-    std::optional<std::string> result_url;
-    std::optional<std::string> preview_url;
-    std::optional<std::string> error_message;
-    int                        cost_credits = 0;
-    int                        points_balance = 0;
+    std::string                task_id;              // 回显客户端的 task_uuid
+    std::optional<std::string> triverse_task_uuid;   // 服务端分配的任务ID (save 到 job 的 server_task_id)
+    GenTaskStatus              status = GenTaskStatus::IDLE;  // 任务状态
+    int                        progress = 0;          // 进度百分比 0-100
+    std::optional<std::string> result_url;            // 结果文件下载链接 (COMPLETED 时有值)
+    std::optional<std::string> preview_url;           // 预览图链接
+    std::optional<std::string> error_message;         // 错误详情 (FAILED 时有值)
+    int                        cost_credits = 0;      // 本次消耗积分
+    int                        points_balance = 0;    // 积分余额
 };
 inline void to_json(nlohmann::json& j, const GenTaskResponse& v) {
     j["task_id"]   = v.task_id;
-    j["status"]    = to_string(v.status);
+    j["status"]    = static_cast<int>(v.status);
     j["progress"]  = v.progress;
     if (v.triverse_task_uuid) j["triverse_task_uuid"] = *v.triverse_task_uuid;
     if (v.result_url)         j["result_url"]         = *v.result_url;
@@ -334,7 +343,7 @@ inline void to_json(nlohmann::json& j, const GenTaskResponse& v) {
 inline void from_json(const nlohmann::json& j, GenTaskResponse& v) {
     v.task_id   = j.value("task_id", "");
     v.progress  = j.value("progress", 0);
-    v.status    = to_GenTaskStatus(j.value("status", "idle"));
+    v.status    = static_cast<GenTaskStatus>(j.value("status", 0));
     if (j.contains("triverse_task_uuid")) v.triverse_task_uuid = j.at("triverse_task_uuid").get<std::string>();
     if (j.contains("result_url"))         v.result_url         = j.at("result_url").get<std::string>();
     if (j.contains("preview_url"))        v.preview_url        = j.at("preview_url").get<std::string>();
@@ -343,87 +352,295 @@ inline void from_json(const nlohmann::json& j, GenTaskResponse& v) {
     v.points_balance = j.value("points_balance", 0);
 }
 
-// ========== GenJobInfo — job 文件顶层结构 ==========
+// ============================================================================
+// GenJobInfo_s — job 文件顶层结构, 对标 TaskProcess.h 的 JobInfo_s
+//
+// 生命周期: GenTaskAPI::SubmitGenTask 创建并写入 jobs_gen/Pending/
+//          → GenTaskThread::ProcessPendingJobs 读取并 submit
+//          → GenTaskThread::ProcessRunningJobs 轮询并更新状态
+//          → 完成后移到 jobs_gen/Completed/ 或 jobs_gen/Failed/
+//
+// 序列化策略: 对标 JobInfo_s + JobFullInfo_s 模式。
+//   GenJobInfo_s     — 纯数据 (对标 JobInfo_s), 仅 to_json/from_json
+//   GenJobFullInfo_s — 文件级结构体 (对标 JobFullInfo_s), 持有 GenJobInfo_s + job_name,
+//                    save()/load() 通过 JOB_INFO_USE_BIN 分发 BIN/JSON
+//   GenJobInfoData/GenJobFile — DataStruct.h 中的 BIN 线格式 (对标 JobInfoData/JobListFile)
+//
+// 内联实现, 参照 JobFullInfo_s::save/load 模式, 无需 .cpp
+// ============================================================================
 
-struct GenJobInfo {
-    std::string task_uuid;
-    std::string job_name;
-    std::string engine_id;
-    std::string user_account;
+/// @brief 单个生成式任务的纯数据结构 (对标 JobInfo_s, 不包含任何 I/O 方法)
+struct GenJobInfo_s {
+    // --- 客户端标识 ---
+    std::string task_uuid;     // 客户端生成的 UUID, 全局唯一, 前端通过此 ID 查询
+    std::string engine_id;     // 发起 Engine 的主机名
+    std::string user_account;  // 用户账号 (submit 时传给服务端)
 
-    std::string project_path;
-    std::string block_item;
+    // --- Block 关联 (定位 feedback 文件用) ---
+    std::string project_path;  // 所属项目目录
+    std::string block_item;    // 所属 Block 名称 (feedback 路径 = project/block_item/JF_job_name.bin/.json)
 
+    // --- 任务参数 ---
     GenTaskCategory category = GenTaskCategory::TEXT_TO_3D;
     GenTaskSubType  sub_type = GenTaskSubType::TEXT_TO_MODEL;
     GenerationParams params;
 
+    // --- 运行时状态 (终态时由 GenTaskThread 从 HTTP 响应回填) ---
     GenTaskStatus status = GenTaskStatus::IDLE;
-    std::string server_task_id;
-    std::string result_url;
-    int query_retry_count = 0;
-
-    // 保存/加载 (内联实现, 参照 JobInfo_s::WriteToJson 的模式, 无需 .cpp)
-    bool save(const std::string& filePath) const {
-        try {
-            nlohmann::json j = *this;
-            std::ofstream ofs = File::OpenOfstreamUtf8(filePath, std::ios::out);
-            if (!ofs.good()) return false;
-            ofs << j.dump(4);
-            ofs.close();
-            return true;
-        } catch (std::exception& ex) {
-            LOGE(std::string("GenJobInfo::save failed: ") + ex.what());
-            return false;
-        }
-    }
-
-    static GenJobInfo load(const std::string& filePath) {
-        std::ifstream ifs = File::OpenIfstreamUtf8(filePath, std::ios::in);
-        if (!ifs.is_open()) return {};
-        std::string str((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        ifs.close();
-        if (str.empty()) return {};
-        try {
-            return nlohmann::json::parse(str).get<GenJobInfo>();
-        } catch (std::exception& ex) {
-            LOGE(std::string("GenJobInfo::load failed: ") + ex.what());
-            return {};
-        }
-    }
+    std::string server_task_id;    // 服务端 triverse_task_uuid (崩溃恢复判断依据)
+    std::string result_url;         // 结果下载链接 (COMPLETED 时填充)
+    std::string preview_url;        // 预览图链接
+    std::string error_message;      // 详细错误信息 (FAILED 时填充)
+    int cost_credits = 0;           // 本次消耗积分
+    int points_balance = 0;         // 积分余额
+    int query_retry_count = 0;      // 连续轮询失败次数 (>= 5 则标记失败)
 };
 
-inline void to_json(nlohmann::json& j, const GenJobInfo& v) {
+// GenJobInfo_s 纯数据 to_json / from_json
+inline void to_json(nlohmann::json& j, const GenJobInfo_s& v) {
     j["task_uuid"]    = v.task_uuid;
-    j["job_name"]     = v.job_name;
     j["engine_id"]    = v.engine_id;
     j["user_account"] = v.user_account;
     j["project_path"] = v.project_path;
     j["block_item"]   = v.block_item;
-    j["category"]     = to_string(v.category);
-    j["sub_type"]     = to_string(v.sub_type);
+    j["category"]     = static_cast<int>(v.category);
+    j["sub_type"]     = static_cast<int>(v.sub_type);
     j["params"]       = v.params;
-    j["status"]       = to_string(v.status);
+    j["status"]       = static_cast<int>(v.status);
     if (!v.server_task_id.empty()) j["server_task_id"] = v.server_task_id;
     if (!v.result_url.empty())     j["result_url"]     = v.result_url;
+    if (!v.preview_url.empty())    j["preview_url"]    = v.preview_url;
+    if (!v.error_message.empty())  j["error_message"]  = v.error_message;
+    j["cost_credits"]   = v.cost_credits;
+    j["points_balance"] = v.points_balance;
     j["query_retry_count"] = v.query_retry_count;
 }
-
-inline void from_json(const nlohmann::json& j, GenJobInfo& v) {
+inline void from_json(const nlohmann::json& j, GenJobInfo_s& v) {
     j.at("task_uuid").get_to(v.task_uuid);
-    j.at("job_name").get_to(v.job_name);
     j.at("engine_id").get_to(v.engine_id);
     j.at("user_account").get_to(v.user_account);
     j.at("project_path").get_to(v.project_path);
     j.at("block_item").get_to(v.block_item);
-    v.category = to_GenTaskCategory(j.at("category").get<std::string>());
-    v.sub_type = to_GenTaskSubType(j.at("sub_type").get<std::string>());
+    v.category = static_cast<GenTaskCategory>(j.at("category").get<int>());
+    v.sub_type = static_cast<GenTaskSubType>(j.at("sub_type").get<int>());
     j.at("params").get_to(v.params);
-    v.status = to_GenTaskStatus(j.value("status", "idle"));
+    v.status = static_cast<GenTaskStatus>(j.value("status", 0));
     v.server_task_id    = j.value("server_task_id", "");
     v.result_url        = j.value("result_url", "");
+    v.preview_url       = j.value("preview_url", "");
+    v.error_message     = j.value("error_message", "");
+    v.cost_credits      = j.value("cost_credits", 0);
+    v.points_balance    = j.value("points_balance", 0);
     v.query_retry_count = j.value("query_retry_count", 0);
 }
+
+// ============================================================================
+// GenJobFullInfo_s — 文件级结构体 (对标 JobFullInfo_s)
+//
+// 与 JobFullInfo_s 的对应关系:
+//   JobFullInfo_s { JobName, TaskGraph_s { JobInfo_s, RunInfo_s, JobFeedBack_s, tasksmap } }
+//   GenJobFullInfo_s { JobName, GenJobInfo_s }
+//
+// GenJobFullInfo_s 比 JobFullInfo_s 简单: 生成式任务没有子任务拆分 (tasksmap),
+// 没有 RunInfo_s, 执行方式为 HTTP 调用而非 spawn 子进程。
+//
+// save/load 模式与 JobFullInfo_s 完全一致:
+//   - JOB_INFO_USE_BIN = true  → WriteToBin/LoadFromBin (XOR 0xAB 加密)
+//   - JOB_INFO_USE_BIN = false → WriteToJson/LoadFromJson (明文调试)
+// ============================================================================
+
+struct GenJobFullInfo_s {
+    std::string job_name;    // J_<BlockName>_<timestamp>, 用作文件名, 对标 JobFullInfo_s::JobName
+    GenJobInfo_s  job;         // 任务数据, 对标 JobFullInfo_s::tg.job (JobInfo_s)
+
+    GenJobFullInfo_s() {}
+    GenJobFullInfo_s(const std::string& file) {
+        load(file);
+    }
+
+    // ========================================================================
+    // WriteToBin / LoadFromBin — XOR 0xAB 加密 BIN
+    // 对标 JobFullInfo_s::WriteToBin / LoadFromBin
+    // ========================================================================
+
+    bool WriteToBin(const std::string& filePath) const {
+        std::ofstream out = File::OpenOfstreamUtf8(filePath, std::ios::binary);
+        if (!out.is_open()) {
+            LOGE("GenJobFullInfo_s::WriteToBin: failed to open: " + filePath);
+            return false;
+        }
+
+        GenJobFile genJobFile;
+        genJobFile.jobName = job_name;
+        // GenJobInfo_s → GenJobInfoData (手动拷贝, 对标 JobFullInfo_s::WriteToBin)
+        GenJobInfoData& d = genJobFile.genJobInfoData;
+        d.task_uuid      = job.task_uuid;
+        d.job_name       = job_name;
+        d.engine_id      = job.engine_id;
+        d.user_account   = job.user_account;
+        d.project_path   = job.project_path;
+        d.block_item     = job.block_item;
+        d.category       = static_cast<int>(job.category);
+        d.sub_type       = static_cast<int>(job.sub_type);
+        d.status         = static_cast<int>(job.status);
+        d.server_task_id = job.server_task_id;
+        d.result_url     = job.result_url;
+        d.preview_url    = job.preview_url;
+        d.error_message  = job.error_message;
+        d.cost_credits   = job.cost_credits;
+        d.points_balance = job.points_balance;
+        d.query_retry_count = job.query_retry_count;
+        // GenerationParams 序列化为内嵌 JSON 字符串
+        nlohmann::json paramsJson = job.params;
+        d.params_json = paramsJson.dump();
+
+        genJobFile.Serialize(out);
+        out.close();
+        return true;
+    }
+
+    bool LoadFromBin(const std::string& filePath) {
+        std::ifstream in = File::OpenIfstreamUtf8(filePath, std::ios::binary);
+        if (!in.is_open())
+            return false;
+
+        GenJobFile genJobFile;
+        if (!genJobFile.Deserialize(in)) {
+            in.close();
+            return false;
+        }
+        in.close();
+
+        job_name = genJobFile.jobName;
+        // GenJobInfoData → GenJobInfo_s (手动拷贝, 对标 JobFullInfo_s::LoadFromBin)
+        GenJobInfoData& d = genJobFile.genJobInfoData;
+        job.task_uuid      = d.task_uuid;
+        job.engine_id      = d.engine_id;
+        job.user_account   = d.user_account;
+        job.project_path   = d.project_path;
+        job.block_item     = d.block_item;
+        job.category       = static_cast<GenTaskCategory>(d.category);
+        job.sub_type       = static_cast<GenTaskSubType>(d.sub_type);
+        job.status         = static_cast<GenTaskStatus>(d.status);
+        job.server_task_id = d.server_task_id;
+        job.result_url     = d.result_url;
+        job.preview_url    = d.preview_url;
+        job.error_message  = d.error_message;
+        job.cost_credits   = d.cost_credits;
+        job.points_balance = d.points_balance;
+        job.query_retry_count = d.query_retry_count;
+
+        // 从内嵌 JSON 反序列化 GenerationParams
+        try {
+            job.params = nlohmann::json::parse(d.params_json).get<GenerationParams>();
+        } catch (std::exception& ex) {
+            LOGE(std::string("GenJobFullInfo_s::LoadFromBin: params parse error: ") + ex.what());
+        }
+
+        return true;
+    }
+
+    // ========================================================================
+    // save / load — JOB_INFO_USE_BIN 分发 (对标 JobFullInfo_s::save/load)
+    // ========================================================================
+
+    bool save(const std::string& filePath) const {
+        if (JOB_INFO_USE_BIN) {
+            bool result = WriteToBin(filePath);
+            if (!result) {
+                LOGE("GenJobFullInfo_s::save: WriteToBin failed: " + filePath);
+            }
+            return result;
+        }
+        else {
+            try {
+                nlohmann::json j;
+                j["job_name"] = job_name;
+                j["job"]      = job;
+                std::ofstream ofs = File::OpenOfstreamUtf8(filePath, std::ios::out);
+                if (ofs.fail()) return false;
+                ofs << j.dump(4);
+                ofs.close();
+            } catch (std::exception& ex) {
+                LOGE(std::string("GenJobFullInfo_s::save JSON error: ") + ex.what());
+                return false;
+            }
+            return true;
+        }
+    }
+
+    bool load(const std::string& filePath) {
+        if (JOB_INFO_USE_BIN) {
+            bool result = LoadFromBin(filePath);
+            if (!result) {
+                LOGE("GenJobFullInfo_s::load: LoadFromBin failed: " + filePath);
+            }
+            return result;
+        }
+        else {
+            std::ifstream ifs = File::OpenIfstreamUtf8(filePath, std::ios::in);
+            if (ifs.fail()) return false;
+            std::string str((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+            ifs.close();
+            if (str.empty()) return false;
+
+            try {
+                nlohmann::json j = nlohmann::json::parse(str);
+                job_name = j.at("job_name").get<std::string>();
+                job      = j.at("job").get<GenJobInfo_s>();
+            } catch (std::exception& ex) {
+                LOGE(std::string("GenJobFullInfo_s::load JSON error: ") + ex.what());
+                return false;
+            }
+            return true;
+        }
+    }
+
+    // ========================================================================
+    // save_with_retry / load_with_retry — deny-write 锁 + 3 次重试
+    // 对标 JobFeedBack_s::save_with_retry / load_with_retry, 但操作 GenJobFullInfo_s
+    // ========================================================================
+
+    bool save_with_retry(const std::string& filePath) const {
+        int retryTimes = 0;
+        do {
+            FILE* fpLock = File::FopenDenyWriteLockUtf8(filePath + ".lock");
+            if (fpLock == NULL) {
+                retryTimes++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                continue;
+            }
+            bool result = save(filePath);
+            fclose(fpLock);
+            return result;
+        } while (retryTimes < 3);
+
+        LOGE(std::string("GenJobFullInfo_s::save_with_retry failed after 3 retries: ") + filePath);
+        return false;
+    }
+
+    static GenJobFullInfo_s load_with_retry(const std::string& filePath) {
+        int retryTimes = 0;
+        do {
+            FILE* fpLock = File::FopenDenyWriteLockUtf8(filePath + ".lock");
+            if (fpLock == NULL) {
+                retryTimes++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                continue;
+            }
+            GenJobFullInfo_s info;
+            bool result = info.load(filePath);
+            fclose(fpLock);
+            if (result) return info;
+
+            retryTimes++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        } while (retryTimes < 3);
+
+        LOGE(std::string("GenJobFullInfo_s::load_with_retry failed after 3 retries: ") + filePath);
+        return {};
+    }
+};
 
 } // namespace CORE
 } // namespace AI3D
@@ -431,10 +648,245 @@ inline void from_json(const nlohmann::json& j, GenJobInfo& v) {
 #endif // _AI3D_UTIL_GEN_TASK_PROCESS_H_
 ```
 
-### 1.2 修改 BlockObject — Task_Info 扩展
+### 1.2 修改 DataStruct.h — 增加 GenJobInfoData/GenJobFile + JobInfoData/BLKBinFile 扩展
+
+> `GenJobFullInfo_s::WriteToBin/LoadFromBin` 引用了 `GenJobInfoData`/`GenJobFile`，两者定义在 DataStruct.h 中，对标 `FeedBackData`/`FeedBackFile` + `JobInfoData`/`JobListFile` 的 BIN 序列化模式。同时 `JobInfoData` 增加 `task_category`，`BLKBinFile` 增加 `block_task_category`。
+
+- [ ] `Include/Core/DataStruct.h`：在 `FeedBackFile` 之后、`JobInfoData` 之前增加 `GenJobInfoData` + `GenJobFile`
+- [ ] `Include/Core/DataStruct.h`：`JobInfoData` 增加 `int task_category = 0` + 更新 Serialize/Deserialize
+- [ ] `Include/Core/DataStruct.h`：`BLKBinFile` 增加 `int block_task_category = 0` + 更新 Serialize/Deserialize
+
+#### GenJobInfoData / GenJobFile — 生成式任务 BIN 序列化 (XOR 0xAB 加密)
+
+> 对标 `FeedBackData`/`FeedBackFile` + `JobInfoData`/`JobListFile`。`GenerationParams` 序列化为 JSON 字符串存入 `params_json`，避免 BIN 格式随参数增减而频繁变动。
+
+```cpp
+// ============================================================================
+// GenJobInfoData / GenJobFile — 生成式任务 BIN 序列化 (XOR 0xAB 加密)
+// 对标 FeedBackData/FeedBackFile, 供 GenJobFullInfo_s::WriteToBin/LoadFromBin 使用
+// ============================================================================
+
+struct GenJobInfoData {
+    std::string task_uuid;
+    std::string job_name;
+    std::string engine_id;
+    std::string user_account;
+    std::string project_path;
+    std::string block_item;
+    int category;
+    int sub_type;
+    int status;
+    std::string server_task_id;
+    std::string result_url;
+    std::string preview_url;
+    std::string error_message;
+    int cost_credits;
+    int points_balance;
+    int query_retry_count;
+    std::string params_json;       // GenerationParams 序列化为内嵌 JSON
+    ByteCrypt byteCrypt;
+
+    GenJobInfoData() {
+        task_uuid = "";
+        job_name = "";
+        engine_id = "";
+        user_account = "";
+        project_path = "";
+        block_item = "";
+        category = 0;
+        sub_type = 0;
+        status = 0;
+        server_task_id = "";
+        result_url = "";
+        preview_url = "";
+        error_message = "";
+        cost_credits = 0;
+        points_balance = 0;
+        query_retry_count = 0;
+        params_json = "";
+    }
+
+    bool Serialize(std::ofstream& out) const {
+        unsigned int task_uuid_len = task_uuid.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&task_uuid_len), sizeof(task_uuid_len));
+        byteCrypt.WriteByteDecrypted(out, task_uuid.c_str(), task_uuid_len);
+        unsigned int job_name_len = job_name.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&job_name_len), sizeof(job_name_len));
+        byteCrypt.WriteByteDecrypted(out, job_name.c_str(), job_name_len);
+        unsigned int engine_id_len = engine_id.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&engine_id_len), sizeof(engine_id_len));
+        byteCrypt.WriteByteDecrypted(out, engine_id.c_str(), engine_id_len);
+        unsigned int user_account_len = user_account.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&user_account_len), sizeof(user_account_len));
+        byteCrypt.WriteByteDecrypted(out, user_account.c_str(), user_account_len);
+        unsigned int project_path_len = project_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&project_path_len), sizeof(project_path_len));
+        byteCrypt.WriteByteDecrypted(out, project_path.c_str(), project_path_len);
+        unsigned int block_item_len = block_item.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&block_item_len), sizeof(block_item_len));
+        byteCrypt.WriteByteDecrypted(out, block_item.c_str(), block_item_len);
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&category), sizeof(int));
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&sub_type), sizeof(int));
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&status), sizeof(int));
+        unsigned int server_task_id_len = server_task_id.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&server_task_id_len), sizeof(server_task_id_len));
+        byteCrypt.WriteByteDecrypted(out, server_task_id.c_str(), server_task_id_len);
+        unsigned int result_url_len = result_url.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_url_len), sizeof(result_url_len));
+        byteCrypt.WriteByteDecrypted(out, result_url.c_str(), result_url_len);
+        unsigned int preview_url_len = preview_url.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_url_len), sizeof(preview_url_len));
+        byteCrypt.WriteByteDecrypted(out, preview_url.c_str(), preview_url_len);
+        unsigned int error_message_len = error_message.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&error_message_len), sizeof(error_message_len));
+        byteCrypt.WriteByteDecrypted(out, error_message.c_str(), error_message_len);
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&cost_credits), sizeof(int));
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&points_balance), sizeof(int));
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&query_retry_count), sizeof(int));
+        unsigned int params_json_len = params_json.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&params_json_len), sizeof(params_json_len));
+        byteCrypt.WriteByteDecrypted(out, params_json.c_str(), params_json_len);
+        return true;
+    };
+
+    bool Deserialize(std::ifstream& in) {
+        unsigned int task_uuid_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&task_uuid_len), sizeof(unsigned int));
+        task_uuid.resize(task_uuid_len);
+        byteCrypt.ReadByteDecrypted(in, &task_uuid[0], task_uuid_len);
+        unsigned int job_name_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&job_name_len), sizeof(unsigned int));
+        job_name.resize(job_name_len);
+        byteCrypt.ReadByteDecrypted(in, &job_name[0], job_name_len);
+        unsigned int engine_id_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&engine_id_len), sizeof(unsigned int));
+        engine_id.resize(engine_id_len);
+        byteCrypt.ReadByteDecrypted(in, &engine_id[0], engine_id_len);
+        unsigned int user_account_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&user_account_len), sizeof(unsigned int));
+        user_account.resize(user_account_len);
+        byteCrypt.ReadByteDecrypted(in, &user_account[0], user_account_len);
+        unsigned int project_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&project_path_len), sizeof(unsigned int));
+        project_path.resize(project_path_len);
+        byteCrypt.ReadByteDecrypted(in, &project_path[0], project_path_len);
+        unsigned int block_item_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&block_item_len), sizeof(unsigned int));
+        block_item.resize(block_item_len);
+        byteCrypt.ReadByteDecrypted(in, &block_item[0], block_item_len);
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&category), sizeof(int));
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&sub_type), sizeof(int));
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&status), sizeof(int));
+        unsigned int server_task_id_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&server_task_id_len), sizeof(unsigned int));
+        server_task_id.resize(server_task_id_len);
+        byteCrypt.ReadByteDecrypted(in, &server_task_id[0], server_task_id_len);
+        unsigned int result_url_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_url_len), sizeof(unsigned int));
+        result_url.resize(result_url_len);
+        byteCrypt.ReadByteDecrypted(in, &result_url[0], result_url_len);
+        unsigned int preview_url_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_url_len), sizeof(unsigned int));
+        preview_url.resize(preview_url_len);
+        byteCrypt.ReadByteDecrypted(in, &preview_url[0], preview_url_len);
+        unsigned int error_message_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&error_message_len), sizeof(unsigned int));
+        error_message.resize(error_message_len);
+        byteCrypt.ReadByteDecrypted(in, &error_message[0], error_message_len);
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&cost_credits), sizeof(int));
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&points_balance), sizeof(int));
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&query_retry_count), sizeof(int));
+        unsigned int params_json_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&params_json_len), sizeof(unsigned int));
+        params_json.resize(params_json_len);
+        byteCrypt.ReadByteDecrypted(in, &params_json[0], params_json_len);
+        return true;
+    };
+};
+
+struct GenJobFile {
+    std::string jobName;       // 文件名 (对标 JobListFile::jobName)
+    GenJobInfoData genJobInfoData;
+    ByteCrypt byteCrypt;
+
+    GenJobFile() {}
+
+    bool Serialize(std::ofstream& out) const {
+        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
+        std::string header(SOURCE_HEADER_LABEL, 15);
+        byteCrypt.WriteByteDecrypted(out, header.c_str(), 15);
+
+        unsigned int jobName_len = jobName.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&jobName_len), sizeof(jobName_len));
+        byteCrypt.WriteByteDecrypted(out, jobName.c_str(), jobName_len);
+
+        genJobInfoData.Serialize(out);
+        return true;
+    };
+
+    bool Deserialize(std::ifstream& in) {
+        char header[15];
+        byteCrypt.ReadByteDecrypted(in, header, sizeof(header));
+        std::string decrypted_header(header, 15);
+        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
+        if (decrypted_header != std::string(SOURCE_HEADER_LABEL, 15)) {
+            return false;
+        }
+
+        unsigned int jobName_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&jobName_len), sizeof(unsigned int));
+        jobName.resize(jobName_len);
+        byteCrypt.ReadByteDecrypted(in, &jobName[0], jobName_len);
+
+        genJobInfoData.Deserialize(in);
+        return true;
+    };
+};
+```
+
+#### JobInfoData — 在现有字段末尾增加
+
+```cpp
+// JobInfoData 中增加 (在 itemPath 字段之后):
+int task_category = 0;  // 0=重建, 1=生成式
+
+// Serialize 中增加:
+byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&task_category), sizeof(int));
+
+// Deserialize 中增加:
+byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&task_category), sizeof(int));
+```
+
+#### BLKBinFile — 在现有字段末尾增加
+
+```cpp
+// BLKBinFile 中增加:
+int block_task_category = 0;  // 0=重建(默认), 1=生成式
+
+// Serialize 中增加:
+byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&block_task_category), sizeof(int));
+
+// Deserialize 中增加:
+byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&block_task_category), sizeof(int));
+```
+
+> **兼容性**: 旧文件没有这些字段 → Deserialize 后保持默认值 0。新字段追加在末尾，旧 reader 读完已知字段后停止，不受影响。
+
+> **魔数汇总**:
+> | 文件类型 | 魔数 | 用途 |
+> |----------|------|------|
+> | Feedback | `FEED-FILE-3MO` | JobFeedBack_s |
+> | Task Def | `TASKDEF-FILE-3MO` | ATTaskInfo |
+> | Job List | `JLIST-FILE-3MO` | JobFullInfo_s |
+> | Block | `BBLK-FILE-3MO` | BlockObject |
+> | TimeSum | `TTIME-FILE-3MO` | ATTimeSummary_s |
+> | **GenJob** | **`GENJOB-FILE-3MO`** | **GenJobFullInfo_s (新增)** |
+
+### 1.3 修改 BlockObject — Task_Info 扩展
 
 - [ ] `Include/Core/BlockObject.h`：`Task_Info` 增加 `int block_task_category = 0`
-- [ ] `Include/Core/BlockObject.cpp`：4 个序列化方法增加新字段读写
+- [ ] `Include/Core/DataStruct.h`：`BLKBinFile` 增加 `int block_task_category = 0` + `Serialize`/`Deserialize` 更新
+- [ ] `Include/Core/BlockObject.cpp`：4 个序列化方法 (`WriteBlockInfoToJson`/`ReadBlockInfoJson`/`WriteBlockInfoToBin`/`ReadBlockInfoBin`) 增加新字段读写
 
 #### 修改 BlockObject.h —— 在 `Task_Info` 中增加字段
 
@@ -467,33 +919,18 @@ if (njson.contains("block_task_category"))
 `WriteBlockInfoToBin()` 中，在现有字段后追加：
 
 ```cpp
-engineFile.block_task_category = block_info_.block_task_category;
-```
-
-同时需要修改 `BlockInfo.h` 中的 `BlockFile` 结构体，增加字段：
-
-```cpp
-// Include/Core/BlockInfo.h — BlockFile 结构体中增加:
-int block_task_category = 0;
+bLKBinFile.block_task_category = block_task_category;
 ```
 
 `ReadBlockInfoBin()` 中，读取处增加：
 
 ```cpp
-block_info_.block_task_category = engineFile.block_task_category;
+block_task_category = bLKBinFile.block_task_category;
 ```
 
-#### BlockInfo.h 中 BlockFile 的序列化更新
+> **注**: BIN 序列化使用 `BLKBinFile`（定义在 `Include/Core/DataStruct.h`），不经过 `BlockInfo.h`。`BLKBinFile::Serialize/Deserialize` 中已增加 `block_task_category` 的读写（见 Phase 1.1b）。
 
-在 `BlockFile::Serialize` 中增加：
-
-```cpp
-ar & block_task_category;
-```
-
-（cereal 自动处理，只需在 BlockFile 结构体中增加字段声明即可）
-
-### 1.3 修改 JobInfo_s
+### 1.4 修改 JobInfo_s
 
 - [ ] `Include/Util/TaskProcess.h`：`JobInfo_s` 增加 `int task_category = 0`
 
@@ -538,116 +975,35 @@ if (value.HasMember("task_category"))
     jobinfo.task_category = value["task_category"].GetInt();
 ```
 
-### 1.4 修改 JobFeedBack_s
+#### JobFullInfo_s::WriteToBin / LoadFromBin — BIN 路径增加 task_category
 
-- [ ] `Include/Util/TaskProcess.h`：`JobFeedBack_s` 增加以下字段
+> `JobFullInfo_s` (J_*.bin 的主结构体) 的 `WriteToBin` 和 `LoadFromBin` 手动逐字段拷贝 `JobInfo_s` → `JobInfoData`。`task_category` 需要在 BIN 中持久化，否则重建式 Job 读回时丢失。
 
-在 `JobFeedBack_s` 结构体中（TaskRetVal 之后）增加：
-
-```cpp
-// ===== 新增: 生成式任务扩展字段 =====
-std::string result_url;       // 结果下载链接
-std::string preview_url;      // 预览图链接
-std::string server_task_id;   // 服务端分配的任务ID (Triverse)
-std::string error_message;    // 详细错误信息
-int cost_credits = 0;         // 本次消耗积分
-int points_balance = 0;       // 积分余额
-```
-
-#### 更新所有序列化方法
-
-**WriteToJson()** — 在 return 前追加：
+**WriteToBin()** — 在 `jobListFile.jobInfoData.itemPath = ...` 之后增加：
 
 ```cpp
-if (!result_url.empty())    json_str["result_url"] = result_url;
-if (!preview_url.empty())   json_str["preview_url"] = preview_url;
-if (!server_task_id.empty()) json_str["server_task_id"] = server_task_id;
-if (!error_message.empty())  json_str["error_message"] = error_message;
-json_str["cost_credits"]   = cost_credits;
-json_str["points_balance"] = points_balance;
+jobListFile.jobInfoData.task_category = tg.job.task_category;
 ```
 
-**WriteToJsonV2()** — 在 document.Accept(writer) 前追加：
+**LoadFromBin()** — 在 `tg.job.ItemPath = jobListFile.jobInfoData.itemPath` 之后增加：
+
 ```cpp
-if (!result_url.empty())
-    document.AddMember("result_url", rapidjson::Value(result_url.c_str(), allocator), allocator);
-if (!preview_url.empty())
-    document.AddMember("preview_url", rapidjson::Value(preview_url.c_str(), allocator), allocator);
-if (!server_task_id.empty())
-    document.AddMember("server_task_id", rapidjson::Value(server_task_id.c_str(), allocator), allocator);
-if (!error_message.empty())
-    document.AddMember("error_message", rapidjson::Value(error_message.c_str(), allocator), allocator);
-document.AddMember("cost_credits",   rapidjson::Value(cost_credits),   allocator);
-document.AddMember("points_balance", rapidjson::Value(points_balance), allocator);
+tg.job.task_category = jobListFile.jobInfoData.task_category;
 ```
 
-**WriteToJsonV3()** — 在末尾追加：
-```cpp
-if (!result_url.empty())
-    document.AddMember("result_url", rapidjson::Value(result_url.c_str(), allocator), allocator);
-if (!preview_url.empty())
-    document.AddMember("preview_url", rapidjson::Value(preview_url.c_str(), allocator), allocator);
-if (!server_task_id.empty())
-    document.AddMember("server_task_id", rapidjson::Value(server_task_id.c_str(), allocator), allocator);
-if (!error_message.empty())
-    document.AddMember("error_message", rapidjson::Value(error_message.c_str(), allocator), allocator);
-document.AddMember("cost_credits",   rapidjson::Value(cost_credits),   allocator);
-document.AddMember("points_balance", rapidjson::Value(points_balance), allocator);
-```
+> **注**: `JobInfoData` (DataStruct.h) 中 `task_category` 的 Serialize/Deserialize 已在 Phase 1.2 中完成。JSON 路径 (`WriteToJson`/`load` JSON 分支) 委托给 `JobInfo_s` 自己的序列化方法，`task_category` 自动传导，无需额外修改。
 
-**CreateFromJson()** — 在 return 前追加：
-```cpp
-if (json_str.find("result_url") != json_str.end())
-    jobinfo.result_url = json_str.at("result_url").get<std::string>();
-if (json_str.find("preview_url") != json_str.end())
-    jobinfo.preview_url = json_str.at("preview_url").get<std::string>();
-if (json_str.find("server_task_id") != json_str.end())
-    jobinfo.server_task_id = json_str.at("server_task_id").get<std::string>();
-if (json_str.find("error_message") != json_str.end())
-    jobinfo.error_message = json_str.at("error_message").get<std::string>();
-if (json_str.find("cost_credits") != json_str.end())
-    jobinfo.cost_credits = json_str.at("cost_credits").get<int>();
-if (json_str.find("points_balance") != json_str.end())
-    jobinfo.points_balance = json_str.at("points_balance").get<int>();
-```
+### 1.5 JobFeedBack_s — 不修改
 
-**CreateFromJsonV2()** — 在 return 前追加：
-```cpp
-if (document.HasMember("result_url") && document["result_url"].IsString())
-    jobinfo.result_url = document["result_url"].GetString();
-if (document.HasMember("preview_url") && document["preview_url"].IsString())
-    jobinfo.preview_url = document["preview_url"].GetString();
-if (document.HasMember("server_task_id") && document["server_task_id"].IsString())
-    jobinfo.server_task_id = document["server_task_id"].GetString();
-if (document.HasMember("error_message") && document["error_message"].IsString())
-    jobinfo.error_message = document["error_message"].GetString();
-if (document.HasMember("cost_credits") && document["cost_credits"].IsInt())
-    jobinfo.cost_credits = document["cost_credits"].GetInt();
-if (document.HasMember("points_balance") && document["points_balance"].IsInt())
-    jobinfo.points_balance = document["points_balance"].GetInt();
-```
+> `JobFeedBack_s`（`FeedBackFile`）是固定格式的进度反馈文件，只有 `Status`/`Percent`/`Msg`/`TaskRetVal` 四个字段。生成式任务直接复用：
+> - `Status` → 映射 `GenTaskStatus` → `jobsta_e`
+> - `Percent` → 进度百分比
+> - `Msg` → 状态描述文字
+> - `TaskRetVal` → 0=成功, 非0=失败
+>
+> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`cost_credits`/`error_message`）全部存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。前端通过 `GenTaskAPI::QueryTaskStatus` 读取 `GenJobInfo_s` 获取结果。
 
-**CreateFromJsonV3()** — 在 return 前追加（同上模式）：
-```cpp
-if (value.HasMember("result_url") && value["result_url"].IsString())
-    jobinfo.result_url = value["result_url"].GetString();
-if (value.HasMember("preview_url") && value["preview_url"].IsString())
-    jobinfo.preview_url = value["preview_url"].GetString();
-if (value.HasMember("server_task_id") && value["server_task_id"].IsString())
-    jobinfo.server_task_id = value["server_task_id"].GetString();
-if (value.HasMember("error_message") && value["error_message"].IsString())
-    jobinfo.error_message = value["error_message"].GetString();
-if (value.HasMember("cost_credits") && value["cost_credits"].IsInt())
-    jobinfo.cost_credits = value["cost_credits"].GetInt();
-if (value.HasMember("points_balance") && value["points_balance"].IsInt())
-    jobinfo.points_balance = value["points_balance"].GetInt();
-```
-
-**load() / load_with_retry() / load_with_retry2()** — 无需修改（这些方法通过 `CreateFromJsonV2` 或 nlohmann::json 构造函数间接调用反序列化，字段自动传递）。
-
-**BIN 相关（LoadFeedbackBin / WriteToBin）** — 不修改。生成式任务只用 JSON，BIN 路径仅服务于重建式任务，新字段保持默认值即可。
-
-### 1.5 编译验证与 CMake 修改
+### 1.6 编译验证与 CMake 修改
 
 - [ ] 头文件变更后全量编译通过
 
@@ -678,7 +1034,7 @@ FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 
 #### 不需要 GenTaskProcess.cpp
 
-`GenJobInfo::save/load` 内联在 `GenTaskProcess.h` 头文件中（参照 `JobInfo_s::WriteToJson` 的同款写法），不需要单独的 `.cpp` 文件，也无需修改 `Src/Util/` 下的 CMakeLists。
+`GenJobFullInfo_s::save_with_retry/load_with_retry` 内联在 `GenTaskProcess.h` 头文件中（参照 `JobFeedBack_s::save_with_retry/load_with_retry` 的同款写法，内含 deny-write 锁 + 最多 3 次重试），不需要单独的 `.cpp` 文件，也无需修改 `Src/Util/` 下的 CMakeLists。
 
 ---
 
@@ -716,7 +1072,18 @@ QString Settings::getGenEngineJobQueue()
 
 ### 2.2 main() 创建 jobs_gen 目录
 
-- [ ] `App/Engine/CallEngine.cpp`：在 `MakePath()` 函数末尾增加
+- [ ] `App/Engine/CallEngine.cpp`：在文件顶部（其他全局变量声明附近，如 `bQuitingApplication`）增加全局变量定义：
+
+```cpp
+// ===== 新增: 生成式任务路径 (全局变量, GenTaskThread 通过 extern 引用) =====
+std::string genPendingJobPath;
+std::string genRunningJobPath;
+std::string genCompletedJobPath;
+std::string genFailedJobPath;
+std::string genCancelledJobPath;
+```
+
+- [ ] `App/Engine/CallEngine.cpp`：在 `MakePath()` 函数末尾增加目录创建 + **对上述全局变量赋值**（无类型声明）：
 
 在 `MakePath()` 函数末尾（line ~4343，cancelledJobPath 赋值之后）增加：
 
@@ -729,27 +1096,38 @@ if (!JobMonitor::CreateJobQueueDir(str2qstr(genEnginePath)))
     JobMonitor::CreateJobQueueDir(str2qstr(genEnginePath));
 }
 
-std::string genPendingJobPath   = genEnginePath + pathSeperator + JOBPENDINGSTR   + pathSeperator;
-std::string genRunningJobPath   = genEnginePath + pathSeperator + JOBRUNNINGSTR   + pathSeperator;
-std::string genCompletedJobPath = genEnginePath + pathSeperator + JOBCOMPLETEDSTR + pathSeperator;
-std::string genFailedJobPath    = genEnginePath + pathSeperator + JOBFAILEDSTR     + pathSeperator;
-std::string genCancelledJobPath = genEnginePath + pathSeperator + JOBCANCELLEDSTR + pathSeperator;
+// 对全局变量赋值 (去掉 std::string 类型前缀, 否则会变成局部变量遮蔽全局)
+genPendingJobPath   = genEnginePath + pathSeperator + JOBPENDINGSTR   + pathSeperator;
+genRunningJobPath   = genEnginePath + pathSeperator + JOBRUNNINGSTR   + pathSeperator;
+genCompletedJobPath = genEnginePath + pathSeperator + JOBCOMPLETEDSTR + pathSeperator;
+genFailedJobPath    = genEnginePath + pathSeperator + JOBFAILEDSTR     + pathSeperator;
+genCancelledJobPath = genEnginePath + pathSeperator + JOBCANCELLEDSTR + pathSeperator;
 ```
 
-- [ ] `App/Engine/CallEngine.cpp`：声明 extern 变量
+### 2.3 启动时清理 jobs_gen/ 残留锁文件
 
-在文件顶部（其他 extern 声明附近）增加：
+- [ ] `App/Engine/CallEngine.cpp`：`doCleanupJobLockOnceWhileEngineStart()` 增加 jobs_gen/ 的清理
+
+现有 `doCleanupJobLockOnceWhileEngineStart()` 调用 `DoCleanupLockFiles()` 扫描 `jobs/` 下所有状态目录移除残留 `.lock` 文件和 `pid_*.bin`。需要为 `jobs_gen/` 增加同样的清理：
 
 ```cpp
-// 生成式任务路径 (供 GenTaskThread 使用)
-std::string genPendingJobPath;
-std::string genRunningJobPath;
-std::string genCompletedJobPath;
-std::string genFailedJobPath;
-std::string genCancelledJobPath;
+// 在 doCleanupJobLockOnceWhileEngineStart() 中，现有 jobs/ 清理逻辑之后增加:
+std::string genEnginePath = qstr2str(Settings::getGenEngineJobQueue());
+if (!genEnginePath.empty()) {
+    std::vector<std::string> genDirs = {
+        genEnginePath + pathSeperator + JOBPENDINGSTR,
+        genEnginePath + pathSeperator + JOBRUNNINGSTR,
+        genEnginePath + pathSeperator + JOBCOMPLETEDSTR,
+        genEnginePath + pathSeperator + JOBFAILEDSTR,
+        genEnginePath + pathSeperator + JOBCANCELLEDSTR
+    };
+    for (const auto& dir : genDirs) {
+        DoCleanupLockFiles(str2qstr(dir));
+    }
+}
 ```
 
-> **注意**: 上面 `MakePath()` 中的局部变量需改为对全局变量的赋值（去掉 `std::string` 类型声明），或者在 CallEngine.cpp 顶部声明全局变量供 GenTaskThread 引用。
+> **为什么不支持优先级子目录**: `jobs_gen/` 暂不实现 `High/Normal/Low` 优先级分层。生成式任务由 HTTP 服务端调度，本地仅串行 submit + 并行轮询，优先级由服务端 SLA 保证。
 
 ---
 
@@ -763,8 +1141,12 @@ std::string genCancelledJobPath;
 
 ```cpp
 // App/Engine/GenHttpClient.h
-#ifndef _AI3D_ENGINE_GEN_HTTP_CLIENT_H_
-#define _AI3D_ENGINE_GEN_HTTP_CLIENT_H_
+// ============================================================================
+// @brief 同步 HTTP 客户端 (QNetworkAccessManager + QEventLoop + QTimer)
+//        所有 HTTP 方法均为同步阻塞, 内部带超时和自动重试
+//        对标重建式任务的 spawn MoldAITask.exe 子进程: 两种"提交任务并等待结果"方式
+// ============================================================================
+#pragma once
 
 #include "Util/GenTaskProcess.h"
 #include <QString>
@@ -772,62 +1154,89 @@ std::string genCancelledJobPath;
 namespace AI3D {
 namespace CORE {
 
+/// @brief 同步 HTTP 客户端 — 封装与 MoldAI 后端 (→ Triverse) 的 REST API 通信
 class GenHttpClient
 {
 public:
-    // 初始化: 从 MoldAIConfig.ini [GenTask] 段读取 ServerUrl
+    /// @brief 从 MoldAIConfig.ini [GenTask] 段读取 ServerUrl / ApiPrefix
+    ///        accessToken 从注册表读取 (与现有 HttpClient 一致, 登录后由 User 模块写入)
     static void Init(const std::string& configPath);
 
-    // --- HTTP 方法 (同步, 带超时和重试) ---
+    // --- HTTP 方法 (同步阻塞, 带超时和重试) ---
 
-    // POST /api/v1/task/submit
+    /// @brief POST /api/v1/task/submit — 提交生成任务
     static GenTaskResponse SubmitTask(const GenTaskRequest& req,
                                        int timeout_ms = 5000,
                                        int max_retries = 3);
 
-    // GET /api/v1/task/status?task_id=<server_task_id>
+    /// @brief GET /api/v1/task/status?task_id=<server_task_id> — 查询任务状态
     static GenTaskResponse QueryTaskStatus(const std::string& server_task_id,
                                             int timeout_ms = 3000,
                                             int max_retries = 3);
 
-    // POST /api/v1/task/cancel
+    /// @brief POST /api/v1/task/cancel — 取消任务
     static bool CancelTask(const std::string& server_task_id,
                            int timeout_ms = 3000,
                            int max_retries = 3);
 
-    // POST /api/v1/upload — 上传本地文件, 返回 file_key (失败返回空)
+    /// @brief POST /api/v1/upload — 上传本地文件, 返回 file_key (失败返回空)
     static std::string UploadFile(const std::string& local_path,
                                    int timeout_ms = 10000,
                                    int max_retries = 2);
 
 private:
-    // 核心: 同步 HTTP GET
+    /// @brief 根据 服务端接口安全.md 规范构建 Authorization 头
+    ///        sign = MD5(moldai:<path>:<timestamp>:<data>:<token>).toBase64()
+    ///        与 Src/Util/HttpClient::calSign() 算法完全一致
+    static QString BuildAuthHeader(const QString& url,
+                                   const QString& dataJson = "");
+
+    /// @brief 从注册表读取当前登录用户的 accessToken
+    static QString LoadAccessToken();
+
+    /// @brief 同步 GET (QNetworkAccessManager + QEventLoop + QTimer)
     static QByteArray SyncGet(const QString& url, int timeout_ms);
 
-    // 核心: 同步 HTTP POST (JSON body)
+    /// @brief 同步 POST JSON (JSON body)
     static QByteArray SyncPost(const QString& url,
                                 const QJsonObject& body,
                                 int timeout_ms);
 
-    // 核心: 同步 HTTP POST (multipart 文件上传)
+    /// @brief 同步 POST multipart/form-data (文件上传, 无 JSON body, 签名中 data 为空)
     static QByteArray SyncPostMultipart(const QString& url,
                                          const QString& filePath,
                                          int timeout_ms);
 
-    static QString s_serverUrl;  // http://api.example.com
-    static QString s_apiPrefix;  // /api/v1
+    static QString s_serverUrl;   // 服务端基地址, 如 http://api.example.com
+    static QString s_apiPrefix;   // API 前缀, 如 /api/v1
+    static QString s_accessToken; // 登录后的 accessToken (从注册表读取, 可被 Init 刷新)
 };
 
 }} // namespace AI3D::CORE
-
-#endif
-```
 
 - [ ] 创建 `App/Engine/GenHttpClient.cpp`
 
 ```cpp
 // App/Engine/GenHttpClient.cpp
+// ============================================================================
+// @brief 同步 HTTP 客户端实现 (Triverse AI 生成服务)
+//
+// 使用 QNetworkAccessManager + QEventLoop + QTimer 实现同步 HTTP 请求,
+// 此模式与项目中 Src/Util/HttpClient.cpp 一致 (现有 HttpClient 用于 MoldAI
+// 自有后端的登录/更新/鉴权, 本类用于 Triverse 生成服务, 两者服务端不同)。
+//
+// 与现有 HttpClient 的区别:
+//   - 静态方法工具类 (非 QObject), 适合在 std::thread 中使用
+//   - 直接 return 值, 不使用 std::function 回调
+//   - 解析 GenTaskRequest/GenTaskResponse (而非 errorCode/errorMsg)
+//   - 内置自动重试 (max_retries 次, 间隔 500ms)
+//   - 支持 multipart 文件上传
+//
+// 每个方法内部自动重试, 失败后 sleep(500ms) 再试。
+// ============================================================================
+
 #include "GenHttpClient.h"
+#include "Core/Logging.h"          // LOGI / LOGE / LOGW
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -839,28 +1248,112 @@ private:
 #include <QFile>
 #include <QFileInfo>
 #include <QMimeDatabase>
-#include <QSettings>
+#include <QSettings>               // 注册表读取 accessToken (与 HttpClient 一致)
+#include <QDateTime>               // BuildAuthHeader 时间戳
+#include <QCryptographicHash>      // BuildAuthHeader MD5 签名
 #include <thread>
 #include <chrono>
 
 namespace AI3D {
 namespace CORE {
 
-QString GenHttpClient::s_serverUrl = "http://localhost:8080";
-QString GenHttpClient::s_apiPrefix = "/api/v1";
+// 默认值 — 开发环境 (Mock Server 不需要 accessToken)
+QString GenHttpClient::s_serverUrl   = "http://localhost:8080";
+QString GenHttpClient::s_apiPrefix   = "/api/v1";
+QString GenHttpClient::s_accessToken = "";
 
-// ========== 初始化 ==========
+// ============================================================================
+// Init — 从 MoldAIConfig.ini [GenTask] 段读取 ServerUrl / ApiPrefix
+//        accessToken 从注册表读取 (与 HttpClient 相同路径, 登录后由 User 模块写入)
+// ============================================================================
 
 void GenHttpClient::Init(const std::string& configPath)
 {
     QSettings settings(QString::fromStdString(configPath), QSettings::IniFormat);
     settings.beginGroup("GenTask");
     s_serverUrl = settings.value("ServerUrl", s_serverUrl).toString();
-    s_apiPrefix  = settings.value("ApiPrefix",  s_apiPrefix).toString();
+    s_apiPrefix = settings.value("ApiPrefix", s_apiPrefix).toString();
     settings.endGroup();
+
+    // 从注册表读取当前登录用户的 accessToken (与 Src/Util/HttpClient.cpp 一致)
+    s_accessToken = LoadAccessToken();
 }
 
-// ========== 同步 GET ==========
+// ============================================================================
+// LoadAccessToken — 从注册表读取 accessToken
+// 路径: HKCU\Software\MoldAI\User → CURRENT_PREFIX (当前用户名)
+//       → TOKEN_PREFIX + 用户名 → accessToken
+// 与 Src/Util/HttpClient::post() 中的读取逻辑完全一致
+// ============================================================================
+
+QString GenHttpClient::LoadAccessToken()
+{
+    QSettings* pSettings = new QSettings(SETTINGS_PREFIX + "\\User", QSettings::NativeFormat);
+
+    QString currentUser = pSettings->value(CURRENT_PREFIX, "").toString();
+    if (currentUser.isEmpty()) {
+        delete pSettings;
+        return "";
+    }
+
+    QString tokenKey = TOKEN_PREFIX + currentUser;
+    QString currentToken = pSettings->value(tokenKey, "").toString();
+    delete pSettings;
+    return currentToken;
+}
+
+// ============================================================================
+// BuildAuthHeader — 按 服务端接口安全.md 规范构建 Authorization 头
+//
+// 算法 (与 Src/Util/HttpClient::calSign() 完全一致):
+//   1. 提取 URL 路径 (去掉域名)
+//   2. 拼接 finalStr = moldai:<path>:<timestamp>:<data>:<accessToken>
+//      空值部分 (data, accessToken) 不参与拼接
+//   3. sign = MD5(finalStr).toBase64()
+//   4. 返回 "timestamp:<ts>,sign:<sign>[,accessToken:<token>]"
+// ============================================================================
+
+QString GenHttpClient::BuildAuthHeader(const QString& url,
+                                        const QString& dataJson)
+{
+    // 1. 提取 URL 路径 (去掉 scheme://host:port 前缀)
+    QString path = url;
+    path.remove(s_serverUrl);  // s_serverUrl 形如 http://api.example.com
+
+    // 2. 时间戳 (秒級 Unix timestamp)
+    QString timestampStr = QString::number(QDateTime::currentDateTime().toSecsSinceEpoch());
+
+    // 3. 按规范拼接: moldai:<path>:<timestamp>:<data>:<accessToken>
+    //    空值部分跳过 (data 可能为空, accessToken 可能为空)
+    QString finalStr = "moldai:" + path + ":" + timestampStr;
+
+    if (!dataJson.isEmpty()) {
+        finalStr += ":" + dataJson;
+    }
+
+    if (!s_accessToken.isEmpty()) {
+        finalStr += ":" + s_accessToken;
+    }
+
+    // 4. MD5 → Base64
+    QByteArray byteArray  = finalStr.toUtf8();
+    QByteArray md5        = QCryptographicHash::hash(byteArray, QCryptographicHash::Md5);
+    QByteArray signBase64 = md5.toBase64();
+
+    // 5. 组装 Authorization header
+    QString authHeader = "timestamp:" + timestampStr + ",sign:" + signBase64;
+
+    if (!s_accessToken.isEmpty()) {
+        authHeader += ",accessToken:" + s_accessToken;
+    }
+
+    return authHeader;
+}
+
+// ============================================================================
+// SyncGet — 同步 GET, 使用 QEventLoop 阻塞等待
+// 返回 QByteArray, 失败时为空
+// ============================================================================
 
 QByteArray GenHttpClient::SyncGet(const QString& url, int timeout_ms)
 {
@@ -868,6 +1361,8 @@ QByteArray GenHttpClient::SyncGet(const QString& url, int timeout_ms)
     QNetworkRequest request(QUrl(url));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setTransferTimeout(timeout_ms);
+    // 签名鉴权 (GET 无 body, dataJson 为空)
+    request.setRawHeader("Authorization", BuildAuthHeader(url, "").toUtf8());
 
     QNetworkReply* reply = manager.get(request);
 
@@ -895,19 +1390,26 @@ QByteArray GenHttpClient::SyncGet(const QString& url, int timeout_ms)
     return result;
 }
 
-// ========== 同步 POST (JSON) ==========
+// ============================================================================
+// SyncPost — 同步 POST JSON, 与 SyncGet 相同的 QEventLoop 模式
+// ============================================================================
 
 QByteArray GenHttpClient::SyncPost(const QString& url,
                                      const QJsonObject& body,
                                      int timeout_ms)
 {
     QNetworkAccessManager manager;
+
+    // 先序列化 body → 签名时 dataJson 必须与实际发送的 body 一致
+    QJsonDocument doc(body);
+    QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
+
     QNetworkRequest request(QUrl(url));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setTransferTimeout(timeout_ms);
-
-    QJsonDocument doc(body);
-    QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
+    // 签名鉴权 (dataJson = body 的 JSON 字符串)
+    request.setRawHeader("Authorization",
+        BuildAuthHeader(url, QString::fromUtf8(jsonData)).toUtf8());
 
     QNetworkReply* reply = manager.post(request, jsonData);
 
@@ -935,7 +1437,10 @@ QByteArray GenHttpClient::SyncPost(const QString& url,
     return result;
 }
 
-// ========== 同步 POST (multipart) ==========
+// ============================================================================
+// SyncPostMultipart — 同步 POST multipart/form-data (文件上传)
+// QHttpMultiPart 生命周期由 QNetworkReply 管理 (setParent)
+// ============================================================================
 
 QByteArray GenHttpClient::SyncPostMultipart(const QString& url,
                                               const QString& filePath,
@@ -963,6 +1468,8 @@ QByteArray GenHttpClient::SyncPostMultipart(const QString& url,
     QNetworkAccessManager manager;
     QNetworkRequest request(QUrl(url));
     request.setTransferTimeout(timeout_ms);
+    // 签名鉴权 (multipart 无 JSON body, dataJson 为空)
+    request.setRawHeader("Authorization", BuildAuthHeader(url, "").toUtf8());
 
     QNetworkReply* reply = manager.post(request, multiPart);
     multiPart->setParent(reply);  // reply 负责释放 multiPart
@@ -990,7 +1497,10 @@ QByteArray GenHttpClient::SyncPostMultipart(const QString& url,
     return result;
 }
 
-// ========== SubmitTask ==========
+// ============================================================================
+// SubmitTask — POST /api/v1/task/submit
+// 将 GenTaskRequest 序列化为 JSON, 发送到服务端, 解析返回的 GenTaskResponse
+// ============================================================================
 
 GenTaskResponse GenHttpClient::SubmitTask(const GenTaskRequest& req,
                                             int timeout_ms,
@@ -1028,7 +1538,9 @@ GenTaskResponse GenHttpClient::SubmitTask(const GenTaskRequest& req,
     return failResp;
 }
 
-// ========== QueryTaskStatus ==========
+// ============================================================================
+// QueryTaskStatus — GET /api/v1/task/status?task_id=<server_task_id>
+// ============================================================================
 
 GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
                                                  int timeout_ms,
@@ -1061,7 +1573,9 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
     return failResp;
 }
 
-// ========== CancelTask ==========
+// ============================================================================
+// CancelTask — POST /api/v1/task/cancel, 返回 true=成功
+// ============================================================================
 
 bool GenHttpClient::CancelTask(const std::string& server_task_id,
                                 int timeout_ms,
@@ -1088,7 +1602,9 @@ bool GenHttpClient::CancelTask(const std::string& server_task_id,
     return false;
 }
 
-// ========== UploadFile ==========
+// ============================================================================
+// UploadFile — POST /api/v1/upload, 上传本地文件, 返回 file_key (失败返回空)
+// ============================================================================
 
 std::string GenHttpClient::UploadFile(const std::string& local_path,
                                         int timeout_ms,
@@ -1144,56 +1660,84 @@ std::string GenHttpClient::UploadFile(const std::string& local_path,
 
 ```cpp
 // App/Engine/GenTaskThread.h
-#ifndef _AI3D_ENGINE_GEN_TASK_THREAD_H_
-#define _AI3D_ENGINE_GEN_TASK_THREAD_H_
+// ============================================================================
+// @brief 生成式任务调度线程 (对标 searchPendingJobThread2)
+//        在独立 std::thread 中运行, 每 2s 轮询 jobs_gen/ 目录
+// ============================================================================
+#pragma once
 
 #include <string>
 
 namespace AI3D {
 namespace CORE {
 
+/// @brief 生成式任务调度线程 (所有方法均为静态, 通过 Run() 启动)
 class GenTaskThread
 {
 public:
-    // 线程入口 — 在独立 std::thread 中调用
+    /// @brief 线程入口 — 在独立 std::thread 中调用, 死循环轮询
     static void Run();
 
-    // 取消任务 (需要在 App/Engine 层, 因为依赖 GenHttpClient)
+    /// @brief 取消生成式任务 (HTTP POST /cancel + 移文件到 Cancelled/)
     static bool CancelGenTask(const std::string& task_uuid);
 
+    /// @brief 异常任务扫描线程入口 (对标 searchUnnormaldRunningJobThread)
+    ///        扫描 Running/ 中长时间无进展的 job, 超时标记 FAILED 或移回 Pending
+    static void SearchUnnormalRunningJob();
+
 private:
+    /// @brief 扫描 jobs_gen/Pending/ → submit 新任务 → 移到 Running/
     static void ProcessPendingJobs();
+    /// @brief 扫描 jobs_gen/Running/ → 轮询服务端 → 移到 Completed/ 或 Failed/
     static void ProcessRunningJobs();
+    /// @brief 跨平台 sleep (std::this_thread::sleep_for)
     static void SleepMs(int ms);
 };
 
 }} // namespace AI3D::CORE
-
-#endif
 ```
 
 - [ ] 创建 `App/Engine/GenTaskThread.cpp`
 
 ```cpp
 // App/Engine/GenTaskThread.cpp
+// ============================================================================
+// @file    GenTaskThread.cpp
+// @brief   生成式任务调度线程, 对标 searchPendingJobThread2 (重建式)
+//
+// 独立线程, 在 CallEngine::main() 中以 std::thread 启动。
+// 每 2 秒轮询一次 jobs_gen/ 目录:
+//   ProcessPendingJobs() — 扫描 jobs_gen/Pending/, submit 新任务到服务端
+//   ProcessRunningJobs() — 扫描 jobs_gen/Running/, 轮询服务端任务状态
+//
+// 状态流转:
+//   IDLE → (写入 Pending/) → (submit) → Running/ → (轮询) → Completed/ 或 Failed/
+//
+// 锁机制: 操作 job 文件前通过 deny-write 锁文件 (.lock) 确保互斥,
+//         参照 TaskProcess.h 中的 FopenDenyWriteLockUtf8 模式。
+// ============================================================================
+
 #include "GenTaskThread.h"
 #include "GenHttpClient.h"
-#include "Core/GenTaskAPI.h"       // ← 回调触发: GenTaskAPI::TriggerTaskComplete
+#include "Core/GenTaskAPI.h"       // GenTaskAPI::TriggerTaskComplete / TriggerTaskFailed
 #include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
 #include "Util/Settings.h"
 #include "Core/Types.h"
-#include "Core/File.h"
+#include "Core/File.h"             // File::FopenDenyWriteLockUtf8 / BoostPathFromUtf8
+#include "Core/Logging.h"          // LOGI / LOGE / LOGW
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QFile>                   // QFile::rename (job 文件在状态目录间移动)
+#include <QDateTime>               // QDateTime::currentDateTime (SearchUnnormalRunningJob)
 #include <QHostInfo>
-#include <filesystem>
 #include <thread>
 #include <chrono>
 
-// extern from CallEngine.cpp
-extern std::string genPendingJobPath;
+// extern 声明
+extern bool bQuitingApplication;   // 由 CallEngine.cpp 定义, Node 关闭时置 true
+extern std::string genPendingJobPath;    // 由 CallEngine::MakePath() 初始化
 extern std::string genRunningJobPath;
 extern std::string genCompletedJobPath;
 extern std::string genFailedJobPath;
@@ -1202,53 +1746,62 @@ extern std::string genCancelledJobPath;
 namespace AI3D {
 namespace CORE {
 
-using namespace AI3D::CORE;
+// ============================================================================
+// 文件工具函数 (文件作用域, 仅本 .cpp 可见)
+//
+// 注: job 文件的读写锁已由 GenJobFullInfo_s::save_with_retry / load_with_retry 封装
+//     (内部使用 FopenDenyWriteLockUtf8, 与 TaskProcess.h 的 JobFeedBack_s 一致),
+//     因此本文件无需手动管理锁, 直接调用 save_with_retry / load_with_retry 即可。
+// ============================================================================
 
-// ========== 工具函数 ==========
+/// @brief 移动 job 文件到目标目录, 使用 QFile::rename
+///        对标项目中使用 QFile 操作文件的惯例 (而非 std::filesystem::rename)
+/// @param src    源文件完整路径
+/// @param dstDir 目标目录路径
+/// @return true=成功, false=失败
+static bool MoveJobFile(const std::string& src, const std::string& dstDir) {
+    QFileInfo fi(QString::fromStdString(src));
+    QString dstPath = QString::fromStdString(dstDir) + "/" + fi.fileName();
 
-static std::string LockFilePath(const std::string& filePath) {
-    return filePath + ".lock";
-}
-
-static bool AcquireLock(const std::string& filePath) {
-    FILE* fp = File::FopenDenyWriteLockUtf8(LockFilePath(filePath));
-    if (!fp) return false;
-    // 锁文件保持打开 = 持有锁, 调用者负责在操作完成后 fclose
-    return true;
-}
-
-static void ReleaseLock(const std::string& filePath) {
-    // 锁通过 fclose 释放; 这里直接删掉 .lock 文件
-    std::remove(LockFilePath(filePath).c_str());
-}
-
-static bool MoveFile(const std::string& src, const std::string& dstDir) {
-    namespace fs = std::filesystem;
-    fs::path srcPath = File::BoostPathFromUtf8(src);
-    fs::path dstPath = File::BoostPathFromUtf8(dstDir)
-                     / srcPath.filename();
-    std::error_code ec;
-    fs::rename(srcPath, dstPath, ec);
-    if (ec) {
-        LOGE("MoveFile failed: " + src + " -> " + dstDir + " err:" + ec.message());
-        return false;
+    // 1. 尝试直接 rename (原子操作, 同盘高效)
+    if (QFile::rename(QString::fromStdString(src), dstPath)) {
+        return true;
     }
-    return true;
+
+    // 2. rename 失败 (可能跨盘) → copy + remove 兜底
+    LOGW("MoveJobFile: rename failed, trying copy+remove: " + src + " -> " + dstDir);
+    if (QFile::copy(QString::fromStdString(src), dstPath)) {
+        QFile::remove(QString::fromStdString(src));
+        return true;
+    }
+
+    LOGE("MoveJobFile: both rename and copy+remove failed: " + src + " -> " + dstDir);
+    return false;
 }
 
-static std::string BuildFeedbackPath(const GenJobInfo& job) {
-    // feedback 放在项目目录下: project/BlockName/JF_<job_name>.json
-    return job.project_path + "/" + job.block_item
-         + "/JF_" + job.job_name + ".json";
+static std::string BuildFeedbackPath(const GenJobFullInfo_s& info) {
+    // feedback 放在项目目录下: project/BlockName/JF_<job_name>.bin (.json)
+    // 对标 CallEngine.cpp 中 MAKE_FEEDBAK_BIN_FILE / MAKE_FEEDBAK_JSON_FILE 宏
+    std::string base = info.job.project_path + "/" + info.job.block_item
+                     + "/JF_" + info.job_name;
+    if (JOB_FEEDBACK_USE_BIN) {
+        return base + BINFILE_POSTFIX;   // ".bin"
+    } else {
+        return base + JSONFILE_POSTFIX;  // ".json"
+    }
 }
 
-static void UpdateFeedback(const GenJobInfo& job) {
+/// @brief 更新 JobFeedBack_s — 仅写标准字段 (Status/Percent/Msg/TaskRetVal)
+///        结果数据 (result_url 等) 存在 GenJobInfo_s 自身中, 不写入 feedback
+static void UpdateFeedback(const GenJobFullInfo_s& info) {
     JobFeedBack_s fb;
-    std::string fbPath = BuildFeedbackPath(job);
+    std::string fbPath = BuildFeedbackPath(info);
+    const GenJobInfo_s& job = info.job;
 
-    // 先尝试加载已有 feedback (保留已有字段)
+    // 先尝试加载已有 feedback (保留可能已存在的其他字段)
     fb.load_with_retry(fbPath, false);
 
+    // GenTaskStatus → jobsta_e 映射
     switch (job.status) {
     case GenTaskStatus::IDLE:
     case GenTaskStatus::PENDING:
@@ -1261,70 +1814,77 @@ static void UpdateFeedback(const GenJobInfo& job) {
     case GenTaskStatus::COMPLETED:
         fb.Status  = jobsta_e::STATUS_COMPLETE;
         fb.Percent = 100.0f;
-        if (!job.result_url.empty())
-            fb.result_url = job.result_url;
         break;
     case GenTaskStatus::FAILED:
         fb.Status = jobsta_e::STATUS_FAILED;
-        fb.error_message = job.params.prompt.value_or("unknown error");
+        fb.Msg    = "generation task failed";
         break;
     case GenTaskStatus::CANCELLED:
         fb.Status = jobsta_e::STATUS_CANCELLED;
         break;
     }
 
-    fb.server_task_id = job.server_task_id;
     fb.save_with_retry(fbPath, false);
 }
 
-// ========== 主循环 ==========
+// ============================================================================
+// 主循环 (在独立 std::thread 中运行, 对标 searchPendingJobThread2)
+// ============================================================================
 
 void GenTaskThread::Run()
 {
     LOGI("GenTaskThread started");
 
     while (true) {
-        ProcessPendingJobs();
-        ProcessRunningJobs();
-        SleepMs(2000);  // 2s 轮询间隔
+        if (bQuitingApplication)
+            break;
+
+        ProcessPendingJobs();     // 1. 扫描 Pending → submit → 移到 Running
+        ProcessRunningJobs();    // 2. 扫描 Running → 轮询状态 → 移到 Completed/Failed
+        SleepMs(2000);           // 2 秒轮询间隔
     }
+
+    LOGI("GenTaskThread stopped");
 }
 
-// ========== 处理 Pending ==========
+// ============================================================================
+// ProcessPendingJobs — 处理 Pending 目录中的新任务
+//
+// 流程:
+//   1. 遍历 jobs_gen/Pending/*.json
+//   2. deny-write 锁 → 加载 job → 检查崩溃恢复
+//   3. 上传本地文件 (FILE_PATH → FILE_KEY)
+//   4. HTTP POST submit → 回填 server_task_id → 保存 → 移到 Running/
+//   5. submit 失败不移动文件, 下轮重试
+// ============================================================================
 
 void GenTaskThread::ProcessPendingJobs()
 {
     QString pendingDir = QString::fromStdString(genPendingJobPath);
-    QDirIterator it(pendingDir, {"*.json"}, QDir::Files);
+    QDirIterator it(pendingDir, {"J_*"}, QDir::Files);
 
     while (it.hasNext()) {
         it.next();
         QString filePath = it.filePath();
         std::string filePathStr = filePath.toStdString();
 
-        // 1. 获取锁
-        FILE* fpLock = File::FopenDenyWriteLockUtf8(LockFilePath(filePathStr));
-        if (!fpLock) continue;  // 被他人持有, skip
-
-        // 2. 加载 job 文件
-        GenJobInfo job = GenJobInfo::load(filePathStr);
+        // 1. 加载 job 文件 (load_with_retry 内部已处理 deny-write 锁)
+        GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(filePathStr);
+        GenJobInfo_s& job = info.job;
         if (job.task_uuid.empty()) {
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
             LOGE("ProcessPendingJobs: invalid job file: " + filePathStr);
             continue;
         }
 
-        // 3. 崩溃恢复: 已有 server_task_id 则直接移到 Running
+        // 2. 崩溃恢复: 已有 server_task_id 则直接移到 Running
         if (!job.server_task_id.empty()) {
             LOGI("Crash recovery: " + job.task_uuid + " already submitted, moving to Running");
-            MoveFile(filePathStr, genRunningJobPath);
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
+            MoveJobFile(filePathStr, genRunningJobPath);
             continue;
         }
 
-        // 4. 处理 AssetRef 上传 (FILE_PATH → FILE_KEY)
+        // 3. 处理 AssetRef 上传 (FILE_PATH → FILE_KEY)
+        bool uploadFailed = false;
         auto uploadAsset = [&](std::optional<AssetRef>& asset) {
             if (asset.has_value() && asset->kind == AssetKind::FILE_PATH) {
                 std::string fileKey = GenHttpClient::UploadFile(asset->value);
@@ -1333,27 +1893,32 @@ void GenTaskThread::ProcessPendingJobs()
                     asset->value = fileKey;
                 } else {
                     LOGW("UploadFile failed for: " + asset->value + ", will retry next round");
+                    uploadFailed = true;
                 }
             }
         };
         uploadAsset(job.params.image_file);
         uploadAsset(job.params.model_file);
 
-        // 5. 构造请求并 submit
+        // 任一上传失败 → 保存参数变更 (已拿到的 file_key 不丢) → 下轮重试
+        if (uploadFailed) {
+            info.save_with_retry(filePathStr);
+            continue;
+        }
+
+        // 4. 构造请求并 submit
         GenTaskRequest req;
-        req.task_id     = job.task_uuid;
-        req.engine_id   = job.engine_id;
+        req.task_id      = job.task_uuid;
+        req.engine_id    = job.engine_id;
         req.user_account = job.user_account;
-        req.params      = job.params;
+        req.params       = job.params;
 
         GenTaskResponse resp = GenHttpClient::SubmitTask(req);
 
-        // 6. 处理响应
+        // 5. 处理响应
         if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value()) {
             // 网络超时 → 不移动文件, 下轮重试
             LOGW("SubmitTask network timeout for: " + job.task_uuid);
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
             continue;
         }
 
@@ -1361,71 +1926,69 @@ void GenTaskThread::ProcessPendingJobs()
             // 服务端拒绝
             job.status = GenTaskStatus::FAILED;
             job.server_task_id = resp.triverse_task_uuid.value_or("");
-            UpdateFeedback(job);
-            MoveFile(filePathStr, genFailedJobPath);
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
+            UpdateFeedback(info);
+            info.save_with_retry(filePathStr);
+            MoveJobFile(filePathStr, genFailedJobPath);
             continue;
         }
 
-        // 7. 提交成功 → 回填 server_task_id → 移动到 Running
+        // 6. 提交成功 → 回填 server_task_id → 写入 → 移到 Running
         if (resp.triverse_task_uuid.has_value()) {
             job.server_task_id = resp.triverse_task_uuid.value();
         }
         job.status = GenTaskStatus::PENDING;
-        job.save(filePathStr);
-        UpdateFeedback(job);
-        MoveFile(filePathStr, genRunningJobPath);
-
-        fclose(fpLock);
-        ReleaseLock(filePathStr);
+        info.save_with_retry(filePathStr);
+        UpdateFeedback(info);
+        MoveJobFile(filePathStr, genRunningJobPath);
 
         LOGI("Submitted: " + job.task_uuid + " server_task_id=" + job.server_task_id);
     }
 }
 
-// ========== 处理 Running ==========
+// ============================================================================
+// ProcessRunningJobs — 轮询运行中的任务
+//
+// 流程:
+//   1. 遍历 jobs_gen/Running/J_*
+//   2. deny-write 锁 → 加载 job
+//   3. HTTP GET query 服务端状态
+//   4. 根据返回: COMPLETED → 移 Completed/, FAILED → 移 Failed/, IN_PROGRESS → 更新 feedback
+//   5. 连续 5 次网络超时 → 标记 FAILED
+// ============================================================================
 
 void GenTaskThread::ProcessRunningJobs()
 {
     QString runningDir = QString::fromStdString(genRunningJobPath);
-    QDirIterator it(runningDir, {"*.json"}, QDir::Files);
+    QDirIterator it(runningDir, {"J_*"}, QDir::Files);
 
     while (it.hasNext()) {
         it.next();
         QString filePath = it.filePath();
         std::string filePathStr = filePath.toStdString();
 
-        // 1. 获取锁
-        FILE* fpLock = File::FopenDenyWriteLockUtf8(LockFilePath(filePathStr));
-        if (!fpLock) continue;
-
-        // 2. 加载
-        GenJobInfo job = GenJobInfo::load(filePathStr);
+        // 1. 加载 job 文件 (load_with_retry 内部已处理 deny-write 锁)
+        GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(filePathStr);
+        GenJobInfo_s& job = info.job;
         if (job.task_uuid.empty() || job.server_task_id.empty()) {
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
             continue;
         }
 
-        // 3. 查询状态
+        // 2. 查询服务端状态
         GenTaskResponse resp = GenHttpClient::QueryTaskStatus(job.server_task_id);
 
+        // 3. 网络超时 → 递增重试计数
         if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value()) {
-            // 网络超时: query_retry_count++
             job.query_retry_count++;
             if (job.query_retry_count >= 5) {
                 LOGE("Task " + job.task_uuid + " query failed 5 times, moving to Failed");
                 job.status = GenTaskStatus::FAILED;
-                UpdateFeedback(job);
-                MoveFile(filePathStr, genFailedJobPath);
+                info.save_with_retry(filePathStr);
+                UpdateFeedback(info);
+                MoveJobFile(filePathStr, genFailedJobPath);
                 GenTaskAPI::TriggerTaskFailed(job.task_uuid, "连续 5 次轮询超时");
-                }
             } else {
-                job.save(filePathStr);  // 仅更新计数
+                info.save_with_retry(filePathStr);
             }
-            fclose(fpLock);
-            ReleaseLock(filePathStr);
             continue;
         }
 
@@ -1435,12 +1998,16 @@ void GenTaskThread::ProcessRunningJobs()
         switch (resp.status) {
 
         case GenTaskStatus::COMPLETED: {
-            job.status     = GenTaskStatus::COMPLETED;
+            job.status = GenTaskStatus::COMPLETED;
             if (resp.result_url.has_value())
                 job.result_url = resp.result_url.value();
-            job.save(filePathStr);
-            UpdateFeedback(job);
-            MoveFile(filePathStr, genCompletedJobPath);
+            if (resp.preview_url.has_value())
+                job.preview_url = resp.preview_url.value();
+            job.cost_credits   = resp.cost_credits;
+            job.points_balance = resp.points_balance;
+            info.save_with_retry(filePathStr);
+            UpdateFeedback(info);
+            MoveJobFile(filePathStr, genCompletedJobPath);
             LOGI("Completed: " + job.task_uuid);
             GenTaskAPI::TriggerTaskComplete(job.task_uuid, job.result_url);
             break;
@@ -1448,9 +2015,13 @@ void GenTaskThread::ProcessRunningJobs()
 
         case GenTaskStatus::FAILED: {
             job.status = GenTaskStatus::FAILED;
-            job.save(filePathStr);
-            UpdateFeedback(job);
-            MoveFile(filePathStr, genFailedJobPath);
+            if (resp.error_message.has_value())
+                job.error_message = resp.error_message.value();
+            job.cost_credits   = resp.cost_credits;
+            job.points_balance = resp.points_balance;
+            info.save_with_retry(filePathStr);
+            UpdateFeedback(info);
+            MoveJobFile(filePathStr, genFailedJobPath);
             LOGE("Failed: " + job.task_uuid);
             GenTaskAPI::TriggerTaskFailed(job.task_uuid,
                 resp.error_message.value_or("server returned failed"));
@@ -1458,19 +2029,28 @@ void GenTaskThread::ProcessRunningJobs()
         }
 
         case GenTaskStatus::IN_PROGRESS: {
-            // 更新进度到 feedback
+            // 进度更新: 保存状态 + 写 feedback
             job.status = GenTaskStatus::IN_PROGRESS;
-            job.save(filePathStr);
-            UpdateFeedback(job);
+            info.save_with_retry(filePathStr);
+            UpdateFeedback(info);
+            break;
+        }
+
+        case GenTaskStatus::CANCELLED: {
+            // 服务端返回取消 (用户可能通过其他渠道取消)
+            job.status = GenTaskStatus::CANCELLED;
+            if (resp.error_message.has_value())
+                job.error_message = resp.error_message.value();
+            info.save_with_retry(filePathStr);
+            UpdateFeedback(info);
+            MoveJobFile(filePathStr, genCancelledJobPath);
+            LOGI("Cancelled by server: " + job.task_uuid);
             break;
         }
 
         default:
             break;
         }
-
-        fclose(fpLock);
-        ReleaseLock(filePathStr);
     }
 }
 
@@ -1478,8 +2058,190 @@ void GenTaskThread::SleepMs(int ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
+// ============================================================================
+// CancelGenTask — 取消生成式任务
+//
+// 流程:
+//   1. 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 job 文件
+//   2. HTTP POST cancel 到服务端 (如果有 server_task_id)
+//   3. 更新状态为 CANCELLED → 保存 → 移到 Cancelled/
+//   4. 更新 feedback
+//
+// 对标: CallEngine.cpp 中 searchCancelledRunningJob 的取消逻辑
+//       (重建式通过 kill 子进程 + 移文件取消, 生成式通过 HTTP cancel + 移文件)
+// ============================================================================
+
+bool GenTaskThread::CancelGenTask(const std::string& task_uuid)
+{
+    QString genRoot = Settings::getGenEngineJobQueue();
+    QStringList subDirs = {JOBPENDINGSTR, JOBRUNNINGSTR, JOBCOMPLETEDSTR,
+                           JOBFAILEDSTR, JOBCANCELLEDSTR};
+
+    for (const QString& sub : subDirs) {
+        QDirIterator it(genRoot + "/" + sub, {"J_*"}, QDir::Files);
+        while (it.hasNext()) {
+            it.next();
+            std::string filePathStr = it.filePath().toStdString();
+
+            GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(filePathStr);
+            if (info.job.task_uuid != task_uuid)
+                continue;
+
+            GenJobInfo_s& job = info.job;
+
+            // 已处于终态, 不再操作
+            if (job.status == GenTaskStatus::COMPLETED ||
+                job.status == GenTaskStatus::FAILED ||
+                job.status == GenTaskStatus::CANCELLED) {
+                LOGW("CancelGenTask: task " + task_uuid + " already in terminal state");
+                return true;
+            }
+
+            // 1. HTTP cancel (有 server_task_id 才需要)
+            if (!job.server_task_id.empty()) {
+                GenHttpClient::CancelTask(job.server_task_id);
+            }
+
+            // 2. 更新状态 → 保存
+            job.status = GenTaskStatus::CANCELLED;
+            info.save_with_retry(filePathStr);
+            UpdateFeedback(info);
+
+            // 3. 移到 Cancelled/
+            MoveJobFile(filePathStr, genCancelledJobPath);
+
+            LOGI("Cancelled: " + task_uuid);
+            return true;
+        }
+    }
+
+    LOGW("CancelGenTask: task_uuid not found: " + task_uuid);
+    return false;
+}
+
 }} // namespace AI3D::CORE
 ```
+
+### 4.2 异常任务扫描线程
+
+> 对标 `searchUnnormaldRunningJobThread`，处理崩溃/孤儿/卡死任务。
+
+- [ ] `App/Engine/GenTaskThread.h`：增加声明
+- [ ] `App/Engine/GenTaskThread.cpp`：增加实现
+- [ ] `App/Engine/CallEngine.cpp` `main()`：启动线程
+
+#### 为什么需要
+
+现有系统有两个调度线程：
+1. `searchPendingJobThread2` — 正常调度（Pending → Running → Completed/Failed）
+2. `searchUnnormaldRunningJobThread` — 异常兜底（处理 Running 中卡死的任务）
+
+生成式任务同样存在异常场景：
+
+| 场景 | 后果 | 需要 |
+|------|------|------|
+| Node 在 HTTP submit **回包前**崩溃 | job 在 Pending/，但 `server_task_id` 已回填 → 重启后被 ProcessPendingJobs 的崩溃恢复路径处理 | 已有 |
+| Node 在轮询期间崩溃 | job 在 Running/，重启后 ProcessRunningJobs 会继续轮询 | 已有 |
+| 服务端任务被管理员删除/过期 | job 在 Running/ 永久轮询，永远拿不到终态 | **需兜底** |
+| 网络长时间中断 (>5 次轮询) | ProcessRunningJobs 会标记 FAILED | 已有 |
+| Running/ 中残留超过 24h 的任务 | 可能是早期 bug 遗留的孤儿文件 | **需兜底** |
+
+#### 头文件声明
+
+在 `GenTaskThread.h` 中增加：
+
+```cpp
+/// @brief 异常任务扫描线程入口 — 对标 searchUnnormaldRunningJobThread
+///        扫描 Running/ 中长时间无进展的 job, 超时标记 FAILED 或重试
+static void SearchUnnormalRunningJob();
+```
+
+#### 实现
+
+在 `GenTaskThread.cpp` 中增加：
+
+```cpp
+// ============================================================================
+// SearchUnnormalRunningJob — 扫描异常运行态任务 (对标 searchUnnormaldRunningJobThread)
+//
+// 独立线程, 每 30s 扫描一次 jobs_gen/Running/:
+//   1. 遍历所有 job 文件
+//   2. 检查 job 最后修改时间 (QFileInfo::lastModified)
+//   3. 超过 24h 无更新 → 标记 FAILED 并移到 Failed/
+//   4. 超过 1h 无更新 且 server_task_id 为空 → 移除 (submit 阶段残留)
+//
+// 与 ProcessRunningJobs 的分工:
+//   ProcessRunningJobs  — 2s 间隔, 正常轮询服务端状态
+//   SearchUnnormalRunningJob — 30s 间隔, 仅兜底清理长时间卡死的孤儿任务
+// ============================================================================
+
+void GenTaskThread::SearchUnnormalRunningJob()
+{
+    while (true) {
+        if (bQuitingApplication)
+            break;
+
+        QString runningDir = QString::fromStdString(genRunningJobPath);
+        QDirIterator it(runningDir, {"J_*"}, QDir::Files);
+        QDateTime now = QDateTime::currentDateTime();
+
+        while (it.hasNext()) {
+            it.next();
+            QFileInfo fi(it.filePath());
+            std::string filePathStr = fi.absoluteFilePath().toStdString();
+
+            qint64 secsSinceMod = fi.lastModified().secsTo(now);
+
+            // 1. 超过 24h 未更新 → 标记失败
+            if (secsSinceMod > 86400) {  // 24 * 3600
+                GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(filePathStr);
+                if (info.job.task_uuid.empty()) {
+                    // 损坏文件, 直接删除
+                    QFile::remove(fi.absoluteFilePath());
+                    continue;
+                }
+
+                LOGE("UnnormalRunning: " + info.job.task_uuid
+                     + " stuck for " + std::to_string(secsSinceMod / 3600) + "h, moving to Failed");
+
+                info.job.status = GenTaskStatus::FAILED;
+                info.job.error_message = "task stuck in Running for over 24h";
+                info.save_with_retry(filePathStr);
+                UpdateFeedback(info);
+                MoveJobFile(filePathStr, genFailedJobPath);
+                GenTaskAPI::TriggerTaskFailed(info.job.task_uuid, info.job.error_message);
+                continue;
+            }
+
+            // 2. 超过 1h 无更新 且无 server_task_id → submit 阶段残留, 移回 Pending 重试
+            if (secsSinceMod > 3600) {
+                GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(filePathStr);
+                if (info.job.server_task_id.empty() && !info.job.task_uuid.empty()) {
+                    LOGW("UnnormalRunning: " + info.job.task_uuid
+                         + " no server_task_id for 1h, moving back to Pending");
+                    MoveJobFile(filePathStr, genPendingJobPath);
+                }
+            }
+        }
+
+        SleepMs(30000);  // 30s 扫描间隔
+    }
+}
+```
+
+#### 启动线程
+
+在 `CallEngine.cpp` `main()` 中，GenTaskThread 启动之后增加：
+
+```cpp
+// ===== 新增: 生成式异常任务扫描线程 =====
+std::thread searchUnnormalGenRunningJob(GenTaskThread::SearchUnnormalRunningJob);
+searchUnnormalGenRunningJob.detach();
+```
+
+#### CMakeLists
+
+无需修改 — 代码在 `GenTaskThread.cpp` 中，已被 `FILE(GLOB)` 自动拾取。
 
 ### 4.4 启动线程 + CMakeLists
 
@@ -1493,6 +2255,10 @@ GenHttpClient::Init(configpath);
 // ===== 新增: 生成式任务线程 =====
 std::thread genTaskThread(GenTaskThread::Run);
 genTaskThread.detach();
+
+// ===== 新增: 生成式异常任务扫描线程 =====
+std::thread searchUnnormalGenRunningJob(GenTaskThread::SearchUnnormalRunningJob);
+searchUnnormalGenRunningJob.detach();
 ```
 
 同时在 `CallEngine.cpp` 顶部 include：
@@ -1506,7 +2272,7 @@ genTaskThread.detach();
 
 ### 4.5 并行验证
 
-- [ ] 重建式任务（`searchPendingJobThread2`）和生成式任务（`generateThread`）同时运行
+- [ ] 重建式任务（`searchPendingJobThread2`）和生成式任务（`GenTaskThread`）同时运行
 - [ ] 确认两个线程互不干扰（操作不同目录）
 
 ---
@@ -1521,6 +2287,20 @@ genTaskThread.detach();
 
 ```cpp
 // Include/Core/GenTaskAPI.h
+// ============================================================================
+// @file    GenTaskAPI.h
+// @brief   生成式任务前端 SDK — 编译进 MoldAIData.dll
+//
+// 提供生成式任务的提交 / 查询 / 下载接口, 供 GUI 前端调用。
+//
+// 依赖方向: GenTaskAPI (MoldAIData.dll) ← GenTaskThread (MoldAINode.exe)
+//           GenTaskAPI 存储回调 → GenTaskThread 调用 TriggerXxx 触发回调
+//           单向依赖, GenTaskAPI 不依赖 App/Engine/ 下的任何文件
+//
+// 上下文: 本文件在 Include/Core/ 下, 被 Src/Core/CMakeLists.txt 的
+//         FILE(GLOB) 自动拾取, 编译进 MoldAIData.dll
+// ============================================================================
+
 #ifndef _AI3D_CORE_GEN_TASK_API_H_
 #define _AI3D_CORE_GEN_TASK_API_H_
 
@@ -1528,52 +2308,62 @@ genTaskThread.detach();
 #include <string>
 #include <functional>
 
-// 前向声明
+// 前向声明 — BlockObject 在 Include/Core/BlockObject.h 中定义
 namespace AI3D { namespace CORE { class BlockObject; } }
 
 namespace AI3D {
 namespace CORE {
 
+/// @brief 生成式任务前端 SDK (所有方法均为静态)
 class GenTaskAPI
 {
 public:
     // ========== 返回值结构 ==========
 
+    /// @brief SubmitGenTask 返回值
     struct SubmitResult {
-        std::string task_uuid;
-        std::string job_name;
-        std::string feedback_path;
-        bool        success = false;
-        std::string error_msg;
+        std::string task_uuid;       // 生成的 UUID, 前端后续查询用
+        std::string job_name;        // job 文件名 (BlockName + 时间戳)
+        std::string feedback_path;   // feedback 文件路径 (前端可直接读取)
+        bool        success = false; // 提交是否成功
+        std::string error_msg;       // 失败原因
     };
 
+    /// @brief QueryTaskStatus 返回值 (字段来源: GenJobInfo_s)
     struct TaskStatusResult {
-        GenTaskStatus status = GenTaskStatus::IDLE;
-        int           progress = 0;
-        std::string   result_url;
-        std::string   preview_url;
-        std::string   error_message;
-        int           cost_credits = 0;
+        GenTaskStatus status = GenTaskStatus::IDLE;  // 当前状态
+        int           progress = 0;                   // 进度 0-100 (来自 JobFeedBack_s.Percent)
+        std::string   result_url;                     // 结果下载链接
+        std::string   preview_url;                    // 预览图链接
+        std::string   server_task_id;                 // 服务端任务ID
+        std::string   error_message;                  // 错误详情
+        int           cost_credits = 0;               // 花费积分
+        int           points_balance = 0;             // 积分余额
     };
 
     // ========== 核心接口 (前端 SDK, 编译进 MoldAIData.dll) ==========
 
+    /// @brief 提交生成式任务 — 构造 GenJobInfo_s 并写入 jobs_gen/Pending/
     static SubmitResult SubmitGenTask(
         const AI3D::CORE::BlockObject::Task_Info& blockInfo,
         const GenerationParams& params,
         const std::string& user_account);
 
+    /// @brief 查询任务状态 — 先读 feedback 获取状态/进度, 终态时再读 GenJobInfo_s 获取结果详情
     static TaskStatusResult QueryTaskStatus(const std::string& task_uuid);
 
+    /// @brief 下载结果文件 — HTTP GET result_url → 保存到本地
     static bool DownloadResult(const std::string& task_uuid,
                                 const std::string& save_path);
 
     // ========== 回调 — 前端注册, GenTaskThread 触发 ==========
 
+    /// @brief 任务完成回调 (task_uuid, result_url)
     using TaskCompleteCallback = std::function<void(
         const std::string& task_uuid,
         const std::string& result_url)>;
 
+    /// @brief 任务失败回调 (task_uuid, error_message)
     using TaskFailedCallback = std::function<void(
         const std::string& task_uuid,
         const std::string& error)>;
@@ -1581,15 +2371,15 @@ public:
     static void SetTaskCompleteCallback(TaskCompleteCallback cb);
     static void SetTaskFailedCallback(TaskFailedCallback cb);
 
-    // 由 GenTaskThread 调用 (不依赖 App/Engine, 单向依赖)
+    // 以下两个方法由 GenTaskThread 调用 (GenTaskAPI ← GenTaskThread, 单向依赖)
     static void TriggerTaskComplete(const std::string& task_uuid,
                                      const std::string& result_url);
     static void TriggerTaskFailed(const std::string& task_uuid,
                                    const std::string& error);
 
 private:
-    static std::string FindFeedbackPath(const std::string& task_uuid);
-    static std::string FindServerTaskId(const std::string& task_uuid);
+    /// @brief 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 GenJobFullInfo_s
+    static GenJobFullInfo_s FindGenJob(const std::string& task_uuid);
 
     // 回调存储 (文件级静态变量, 在 GenTaskAPI.cpp 中定义)
     static TaskCompleteCallback s_completeCallback;
@@ -1605,19 +2395,36 @@ private:
 
 ```cpp
 // Src/Core/GenTaskAPI.cpp
-// 编译进 MoldAIData.dll, 不依赖 App/Engine/ 下的任何文件
+// ============================================================================
+// @brief   生成式任务前端 SDK 实现
+//          编译进 MoldAIData.dll, 不依赖 App/Engine/ 下的任何文件
+//
+// 依赖方向 (单向):
+//   GenTaskAPI (MoldAIData.dll) ← GenTaskThread (MoldAINode.exe)
+//   GenTaskAPI 定义回调接口 → GenTaskAPI.cpp 存储静态回调变量
+//   → GenTaskThread 调用 TriggerXxx 触发
+//
+// 文件写入:
+//   SubmitGenTask — 写 job JSON (GenJobInfo_s) 到 jobs_gen/Pending/ + 创建初始 feedback
+//   QueryTaskStatus — 读 GenJobInfo_s (结果) + JobFeedBack_s (仅取 Percent)
+//   DownloadResult — HTTP GET 下载结果文件到本地
+// ============================================================================
+
 #include "Core/GenTaskAPI.h"
 #include "Core/BlockObject.h"
 #include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
 #include "Util/Settings.h"
+#include "Core/Types.h"            // JOB_FEEDBACK_USE_BIN / BINFILE_POSTFIX / JSONFILE_POSTFIX
 #include "Core/json.h"
-#include <QUuid>
+#include "Core/Logging.h"          // LOGE / LOGW
+#include <QUuid>                   // QUuid::createUuid (生成 task_uuid)
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
-#include <QHostInfo>
-#include <QDateTime>
+#include <QFile>                   // QFile (DownloadResult 写文件)
+#include <QHostInfo>               // QHostInfo::localHostName (engine_id)
+#include <QDateTime>               // QDateTime::currentDateTime (job_name 时间戳)
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -1628,11 +2435,13 @@ private:
 namespace AI3D {
 namespace CORE {
 
-// 回调存储
+// 回调静态存储 (GenTaskThread 完成后调用 TriggerXxx → 触发前端注册的回调)
 GenTaskAPI::TaskCompleteCallback GenTaskAPI::s_completeCallback = nullptr;
 GenTaskAPI::TaskFailedCallback   GenTaskAPI::s_failedCallback   = nullptr;
 
-// ========== 回调注册 (前端调用) ==========
+// ============================================================================
+// 回调注册 — 前端调用, 设置回调函数指针
+// ============================================================================
 
 void GenTaskAPI::SetTaskCompleteCallback(TaskCompleteCallback cb) {
     s_completeCallback = std::move(cb);
@@ -1641,7 +2450,10 @@ void GenTaskAPI::SetTaskFailedCallback(TaskFailedCallback cb) {
     s_failedCallback = std::move(cb);
 }
 
-// ========== 回调触发 (GenTaskThread 调用) ==========
+// ============================================================================
+// 回调触发 — GenTaskThread 调用 (MoldAINode.exe → MoldAIData.dll)
+// 检查回调是否已注册, 是则执行
+// ============================================================================
 
 void GenTaskAPI::TriggerTaskComplete(const std::string& task_uuid,
                                       const std::string& result_url) {
@@ -1656,7 +2468,16 @@ void GenTaskAPI::TriggerTaskFailed(const std::string& task_uuid,
     }
 }
 
-// ========== SubmitGenTask ==========
+// ============================================================================
+// SubmitGenTask — 前端提交生成式任务
+//
+// 流程:
+//   1. 校验 block_task_category == 1 (必须是生成式 Block)
+//   2. 构造 GenJobInfo_s (task_uuid = QUuid, job_name = BlockName + 时间戳)
+//   3. 创建结果目录 project/BlockName/job_name/
+//   4. 写 job JSON 到 jobs_gen/Pending/
+//   5. 创建初始 JobFeedBack_s
+// ============================================================================
 
 GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     const BlockObject::Task_Info& blockInfo,
@@ -1672,11 +2493,13 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
         return result;
     }
 
-    // 2. 构造 GenJobInfo
-    GenJobInfo job;
+    // 2. 构造 GenJobFullInfo_s (文件级结构体) + GenJobInfo_s (纯数据)
+    GenJobFullInfo_s fullInfo;
+    fullInfo.job_name = "J_" + blockInfo.blockName + "_"
+                      + QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+
+    GenJobInfo_s& job = fullInfo.job;
     job.task_uuid    = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-    job.job_name     = blockInfo.blockName + "_"
-                     + QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
     job.engine_id    = QHostInfo::localHostName().toStdString();
     job.user_account = user_account;
     job.project_path = blockInfo.projectfile_;
@@ -1689,7 +2512,7 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     // 3. 创建结果目录 (如果还不存在)
     QString resultDir = QString::fromStdString(blockInfo.projectfile_)
                       + "/" + QString::fromStdString(blockInfo.blockName)
-                      + "/" + QString::fromStdString(job.job_name);
+                      + "/" + QString::fromStdString(fullInfo.job_name);
     QDir().mkpath(resultDir);
 
     // 4. 获取 jobs_gen/Pending/ 路径
@@ -1697,18 +2520,21 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     QString pendingPath = genRoot + "/" + JOBPENDINGSTR + "/";
     QDir().mkpath(pendingPath);
 
-    // 5. 写入 job 文件
-    std::string jobFilePath = pendingPath.toStdString() + job.job_name + ".json";
-    if (!job.save(jobFilePath)) {
+    // 5. 写入 job 文件 (GenJobFullInfo_s::save_with_retry → BIN/JSON 自动分发)
+    std::string jobFilePath = pendingPath.toStdString() + fullInfo.job_name
+                            + (JOB_INFO_USE_BIN ? ".bin" : ".json");
+    if (!fullInfo.save_with_retry(jobFilePath)) {
         result.success   = false;
         result.error_msg = "Failed to write job file: " + jobFilePath;
         return result;
     }
 
-    // 6. 创建初始 feedback
-    std::string feedbackPath = blockInfo.projectfile_ + "/"
+    // 6. 创建初始 feedback (对标 CallEngine.cpp 中 MAKE_FEEDBAK_BIN/JSON_FILE 宏)
+    std::string feedbackBase = blockInfo.projectfile_ + "/"
                              + blockInfo.blockName + "/JF_"
-                             + job.job_name + ".json";
+                             + fullInfo.job_name;
+    std::string feedbackPath = feedbackBase
+                             + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
 
     JobFeedBack_s fb;
     fb.Status  = jobsta_e::STATUS_PENDDING;
@@ -1718,32 +2544,45 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     // 7. 返回
     result.success       = true;
     result.task_uuid     = job.task_uuid;
-    result.job_name      = job.job_name;
+    result.job_name      = fullInfo.job_name;
     result.feedback_path = feedbackPath;
     return result;
 }
 
-// ========== QueryTaskStatus ==========
+// ============================================================================
+// QueryTaskStatus — 前端查询任务状态
+// 1. 先读 JobFeedBack_s 获取状态和进度 (标准 feedback, 固定字段)
+// 2. 终态时 (COMPLETED/FAILED) 再读 GenJobInfo_s 获取结果详情
+// ============================================================================
 
 GenTaskAPI::TaskStatusResult GenTaskAPI::QueryTaskStatus(const std::string& task_uuid)
 {
     TaskStatusResult result;
 
-    std::string fbPath = FindFeedbackPath(task_uuid);
-    if (fbPath.empty()) {
+    // 1. 找到 GenJobFullInfo_s (用于构造 feedback 路径)
+    GenJobFullInfo_s info = FindGenJob(task_uuid);
+    GenJobInfo_s& job = info.job;
+    if (job.task_uuid.empty()) {
         result.status        = GenTaskStatus::IDLE;
-        result.error_message = "feedback not found for task_uuid: " + task_uuid;
+        result.error_message = "job not found for task_uuid: " + task_uuid;
         return result;
     }
 
+    // 2. 先读 feedback — 获取状态 + 进度 (标准字段, 不动 JobFeedBack_s)
+    std::string fbBase = job.project_path + "/" + job.block_item
+                       + "/JF_" + info.job_name;
+    std::string fbPath = fbBase
+                       + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
     JobFeedBack_s fb;
     if (!fb.load_with_retry(fbPath, false)) {
-        result.status        = GenTaskStatus::IDLE;
-        result.error_message = "failed to load feedback: " + fbPath;
+        result.status  = GenTaskStatus::IDLE;
+        result.progress = 0;
         return result;
     }
 
-    // 映射 jobsta_e → GenTaskStatus
+    result.progress = static_cast<int>(fb.Percent);
+
+    // 3. jobsta_e → GenTaskStatus 映射
     switch (fb.Status) {
     case jobsta_e::STATUS_PENDDING:   result.status = GenTaskStatus::PENDING;      break;
     case jobsta_e::STATUS_RUNNING:    result.status = GenTaskStatus::IN_PROGRESS;  break;
@@ -1753,16 +2592,24 @@ GenTaskAPI::TaskStatusResult GenTaskAPI::QueryTaskStatus(const std::string& task
     default:                          result.status = GenTaskStatus::IDLE;         break;
     }
 
-    result.progress      = static_cast<int>(fb.Percent);
-    result.result_url    = fb.result_url;
-    result.preview_url   = fb.preview_url;
-    result.error_message = fb.error_message;
-    result.cost_credits  = fb.cost_credits;
+    // 4. 仅在终态时读 GenJobInfo_s 获取结果详情
+    if (result.status == GenTaskStatus::COMPLETED) {
+        result.result_url    = job.result_url;
+        result.preview_url   = job.preview_url;
+        result.cost_credits  = job.cost_credits;
+        result.points_balance = job.points_balance;
+    } else if (result.status == GenTaskStatus::FAILED) {
+        result.error_message = job.error_message;
+    }
 
+    result.server_task_id = job.server_task_id;
     return result;
 }
 
-// ========== DownloadResult ==========
+// ============================================================================
+// DownloadResult — 下载任务结果文件
+// 先 QueryTaskStatus 获取 result_url, 然后 HTTP GET 下载到 save_path
+// ============================================================================
 
 bool GenTaskAPI::DownloadResult(const std::string& task_uuid,
                                  const std::string& save_path)
@@ -1815,49 +2662,25 @@ bool GenTaskAPI::DownloadResult(const std::string& task_uuid,
 
 // ========== 内部辅助 ==========
 
-std::string GenTaskAPI::FindFeedbackPath(const std::string& task_uuid)
-{
-    // 遍历 jobs_gen/ 下各状态目录, 通过 job_name 定位 feedback
-    // job 文件路径: jobs_gen/*/<job_name>.json
-    // feedback 路径: project_path/BlockName/JF_<job_name>.json
-
-    QString genRoot = Settings::getGenEngineJobQueue();
-    QStringList subDirs = {JOBPENDINGSTR, JOBRUNNINGSTR, JOBCOMPLETEDSTR,
-                           JOBFAILEDSTR, JOBCANCELLEDSTR};
-
-    for (const QString& sub : subDirs) {
-        QDirIterator it(genRoot + "/" + sub, {"*.json"}, QDir::Files);
-        while (it.hasNext()) {
-            it.next();
-            GenJobInfo job = GenJobInfo::load(it.filePath().toStdString());
-            if (job.task_uuid == task_uuid) {
-                return job.project_path + "/" + job.block_item
-                     + "/JF_" + job.job_name + ".json";
-            }
-        }
-    }
-
-    return "";
-}
-
-std::string GenTaskAPI::FindServerTaskId(const std::string& task_uuid)
+/// @brief 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 GenJobFullInfo_s
+static GenJobFullInfo_s FindGenJob(const std::string& task_uuid)
 {
     QString genRoot = Settings::getGenEngineJobQueue();
     QStringList subDirs = {JOBPENDINGSTR, JOBRUNNINGSTR, JOBCOMPLETEDSTR,
                            JOBFAILEDSTR, JOBCANCELLEDSTR};
 
     for (const QString& sub : subDirs) {
-        QDirIterator it(genRoot + "/" + sub, {"*.json"}, QDir::Files);
+        QDirIterator it(genRoot + "/" + sub, {"J_*"}, QDir::Files);
         while (it.hasNext()) {
             it.next();
-            GenJobInfo job = GenJobInfo::load(it.filePath().toStdString());
-            if (job.task_uuid == task_uuid) {
-                return job.server_task_id;
+            GenJobFullInfo_s info = GenJobFullInfo_s::load_with_retry(it.filePath().toStdString());
+            if (info.job.task_uuid == task_uuid) {
+                return info;
             }
         }
     }
 
-    return "";
+    return {};
 }
 
 }} // namespace AI3D::CORE
@@ -1884,16 +2707,11 @@ GenTaskAPI (Src/Core, MoldAIData.dll)
     │  SetTaskCompleteCallback(cb) 注册回调
 ```
 
-`CancelGenTask` 也需要 `GenHttpClient`，实现放在 `GenTaskThread` 中（或前期不实现，由前端直接操作文件取消）：
-
-```cpp
-// GenTaskThread 中额外提供:
-static bool CancelGenTask(const std::string& task_uuid);
-```
+`CancelGenTask` 实现在 `GenTaskThread` 中（详见 Phase 4.1），通过 HTTP cancel + 移文件到 Cancelled/ 完成取消。
 
 ### 5.4 线程安全
 
-回调在 `generateThread`（非 Qt 主线程）中执行。调用者如需更新 UI，自行处理：
+回调在 `GenTaskThread`（非 Qt 主线程）中执行。调用者如需更新 UI，自行处理：
 
 ```cpp
 GenTaskAPI::SetTaskCompleteCallback([](const std::string& task_uuid, const std::string& url) {
@@ -2004,7 +2822,7 @@ int main(int argc, char** argv)
 ```
 
 - [ ] **验证点**: 前端 `SubmitGenTask` → 文件出现在 `jobs_gen/Pending/`
-- [ ] **验证点**: generateThread 读取 → HTTP submit → 文件移到 `Running/`
+- [ ] **验证点**: GenTaskThread 读取 → HTTP submit → 文件移到 `Running/`
 - [ ] **验证点**: 轮询完成 → 文件移到 `Completed/` → feedback 更新为 COMPLETED
 - [ ] **验证点**: 前端通过 SDK 读取 feedback 并下载结果文件
 
@@ -2016,11 +2834,11 @@ int main(int argc, char** argv)
 //
 // Step 1: 提交一个任务, 拿到 task_uuid
 // Step 2: 观察 jobs_gen/Pending/ 确认 job 文件存在
-// Step 3: 等待 generateThread 的 HTTP submit 返回 (日志: "Submitted: xxx server_task_id=...")
+// Step 3: 等待 GenTaskThread 的 HTTP submit 返回 (日志: "Submitted: xxx server_task_id=...")
 // Step 4: 在 job 文件被移动到 Running 之前 (2s 窗口), 立即 kill Node 进程
 // Step 5: 检查 Pending 中的 job 文件内容 — server_task_id 应该已被回填 (非空)
 // Step 6: 重启 Node
-// Step 7: 观察 generateThread 日志:
+// Step 7: 观察 GenTaskThread 日志:
 //         "Crash recovery: xxx already submitted, moving to Running"
 // Step 8: 确认服务端没有收到重复的 submit 请求
 // Step 9: 确认任务最终正常完成
@@ -2031,7 +2849,7 @@ void SimulateCrashRecoveryTest()
     //
     // 1. GenTaskThread::ProcessPendingJobs() 中:
     //    if (!job.server_task_id.empty()) {  ← 崩溃恢复路径
-    //        MoveFile(filePathStr, genRunningJobPath);
+    //        MoveJobFile(filePathStr, genRunningJobPath);
     //        continue;  ← 跳过 HTTP submit
     //    }
     //
@@ -2054,7 +2872,7 @@ void SimulateCrashRecoveryTest()
 // 测试 A: submit 阶段超时
 // Step 1: 关闭 Mock Server 或断网
 // Step 2: 提交任务到 Pending
-// Step 3: 观察 generateThread 日志: "SubmitTask network timeout for: xxx"
+// Step 3: 观察 GenTaskThread 日志: "SubmitTask network timeout for: xxx"
 // Step 4: 确认 job 文件仍停留在 Pending/ (没有移到 Failed)
 // Step 5: 恢复网络 / 启动 Mock Server
 // Step 6: 下一轮轮询中, 任务被正常 submit 并移到 Running
@@ -2107,7 +2925,7 @@ void CompatibilityTest()
     //
     // Step 2: 确认两个线程各自工作:
     //   searchPendingJobThread2  → 只扫描 jobs/
-    //   generateThread            → 只扫描 jobs_gen/
+    //   GenTaskThread            → 只扫描 jobs_gen/
     //
     // Step 3: 分别检查 jobs/ 和 jobs_gen/ 的状态流转是否正常
     //
@@ -2231,6 +3049,8 @@ if __name__ == '__main__':
 [GenTask]
 ServerUrl=http://localhost:5000
 ApiPrefix=/api/v1
+; accessToken 从注册表读取 (登录后自动写入, 与现有 HttpClient 共用)
+; Mock Server 不需要鉴权 → 不登录即可 (accessToken 为空, 签名不含 token)
 Timeout=5000
 MaxRetries=3
 ```
@@ -2241,31 +3061,31 @@ MaxRetries=3
 
 ## 文件改动汇总
 
-### 新建（6 个，无需修改 CMakeLists 即可自动编译）
+### 新建（7 个，除 GenTaskProcess.h 外均被 GLOB 自动拾取）
 
 | 文件 | 位置 | CMake | 说明 |
 |------|------|-------|------|
-| `Include/Util/GenTaskProcess.h` | Util/ | 需显式添加 | 对标 TaskProcess.h，`GenJobInfo` + 枚举 + API 类型 |
+| `Include/Util/GenTaskProcess.h` | Util/ | 需显式添加 | 对标 TaskProcess.h，`GenJobInfo_s` + 枚举 + API 类型 |
 | `App/Engine/GenHttpClient.h` | Engine/ | GLOB 自动拾取 | 同步 HTTP 客户端 |
 | `App/Engine/GenHttpClient.cpp` | Engine/ | GLOB 自动拾取 | |
-| `App/Engine/GenTaskThread.h` | Engine/ | GLOB 自动拾取 | generateThread 调度线程 |
+| `App/Engine/GenTaskThread.h` | Engine/ | GLOB 自动拾取 | GenTaskThread 调度线程 |
 | `App/Engine/GenTaskThread.cpp` | Engine/ | GLOB 自动拾取 | |
 | `Include/Core/GenTaskAPI.h` | Core/ | GLOB 自动拾取 | 前端 SDK 接口 |
 | `Src/Core/GenTaskAPI.cpp` | Core/ | GLOB 自动拾取 | 编译进 MoldAIData.dll |
 
-### 修改（6 个）
+### 修改（8 个）
 
 | 文件 | Phase | 改动 |
 |------|-------|------|
+| `Include/Core/DataStruct.h` | P1 | 新增 `GenJobInfoData`/`GenJobFile`；`JobInfoData` 增加 `task_category`；`BLKBinFile` 增加 `block_task_category` |
 | `Include/Core/BlockObject.h` | P1 | `Task_Info` 增加 `block_task_category` |
-| `Include/Core/BlockObject.cpp` | P1 | 4 个序列化方法增加新字段 |
-| `Include/Core/BlockInfo.h` | P1 | `BlockFile` 增加 `block_task_category` (BIN 格式) |
-| `Include/Util/TaskProcess.h` | P1 | `JobInfo_s` + `JobFeedBack_s` 增加新字段; 更新 10+ 序列化方法 |
+| `Include/Core/BlockObject.cpp` | P1 | 4 个序列化方法增加 `block_task_category` |
+| `Include/Util/TaskProcess.h` | P1 | `JobInfo_s` 加 `task_category`；`JobFullInfo_s::WriteToBin/LoadFromBin` 加 `task_category` 拷贝 |
 | `Include/Util/Settings.h` | P2 | 增加 `getGenEngineJobQueue()` |
 | `Src/Util/Settings.cpp` | P2 | 实现 `getGenEngineJobQueue()` |
-| `App/Engine/CallEngine.cpp` | P2+P4 | MakePath 创建 jobs_gen/ 目录; main 启动 generateThread |
+| `App/Engine/CallEngine.cpp` | P2+P4 | MakePath 创建 `jobs_gen/` 目录; `doCleanupJobLockOnceWhileEngineStart` 清理 `jobs_gen/` 残留锁; main 启动 GenTaskThread |
 | `App/Engine/CMakeLists.txt` | P1 | HEADER_LIST 显式添加 `GenTaskProcess.h` (唯一需改的 CMakeLists) |
 
 ### 不动
 
-`TaskGraph_s`、`Task_s`、`ATTaskInfo`、`ExecTaskFileV2`、`GetPendingJob`、`Src/Core/CMakeLists.txt` — 全部不动。
+`JobFeedBack_s` 不扩展 — 生成式复用 Status/Percent/Msg/TaskRetVal 做进度反馈，结果数据存 GenJobInfo_s。`TaskGraph_s`、`Task_s`、`ATTaskInfo`、`ExecTaskFileV2`、`GetPendingJob`、`Src/Core/CMakeLists.txt` — 全部不动。
