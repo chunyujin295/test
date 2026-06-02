@@ -43,7 +43,6 @@ Phase 1 + 2 可以并行开工
 | 新增 | 对标现有 | 说明 |
 |------|---------|------|
 | `GenTaskAPI` | 无现成对标 | 前端 SDK。现有系统前端直接操作 BlockObject + Job 文件（耦合高），`GenTaskAPI` 将生成式任务的"提交/查询/下载/回调"封装为静态方法。回调机制采用 `GenTaskAPI` 存储 → `GenTaskThread` 触发的单向依赖 |
-| `TriggerTaskComplete/TriggerTaskFailed` | 无现成对标 | GenTaskThread 完成后调用 `GenTaskAPI::Trigger*`，`GenTaskAPI` 内部调用前端注册的回调。避免 `GenTaskAPI`（MoldAIData.dll）反向依赖 `GenTaskThread`（MoldAINode.exe） |
 
 ### 修改的现有文件
 
@@ -108,31 +107,8 @@ Phase 1 + 2 可以并行开工
 namespace AI3D {
     namespace CORE {
 
-        // ============================================================================
-        // GenTaskStatus — 驱动 job 文件在状态目录间流转的唯一枚举
-        //
-        // 状态 → 目录映射 (GenTaskThread 执行):
-        //   IDLE        → (仅内存状态, 尚未写入任何目录)
-        //   PENDING     → jobs_gen/Pending/   (等待 submit)
-        //   IN_PROGRESS → jobs_gen/Running/   (已 submit, 轮询中)
-        //   COMPLETED   → jobs_gen/Completed/ (完成)
-        //   FAILED      → jobs_gen/Failed/    (失败)
-        //   CANCELLED   → jobs_gen/Cancelled/ (取消)
-        //
-        // 状态 → jobsta_e 映射 (UpdateFeedback 中):
-        //   IDLE/PENDING → STATUS_PENDDING,  IN_PROGRESS → STATUS_RUNNING
-        //   COMPLETED    → STATUS_COMPLETE,  FAILED      → STATUS_FAILED
-        //   CANCELLED    → STATUS_CANCELLED
-        // ============================================================================
-        enum class GenTaskStatus {
-            UNKNOWN = -1,   // 未指定 / 非法值, 调用者需过滤
-            IDLE,           // 初始 / 网络不通
-            PENDING,        // 已写入 jobs_gen/Pending/, 等待 GenTaskThread pick up
-            IN_PROGRESS,    // 已 POST submit 到服务端, 正在周期性轮询
-            COMPLETED,      // 服务端返回完成
-            FAILED,         // 执行失败
-            CANCELLED,      // 用户取消
-        };
+        // GenTaskStatus 枚举 — 定义在 Core/GenTaskOptions.h, 供 DLL 和 EXE 共用
+        // (GenTaskProcess.h 已 include Core/GenTaskOptions.h, 同名命名空间内可直接使用)
 
         // ============================================================================
         // GenTaskResponse — 服务端返回的 HTTP 响应体 (DTO, 与服务端 API 契约一一对应)
@@ -142,7 +118,7 @@ namespace AI3D {
         // ============================================================================
         struct GenTaskResponse {
             std::string                task_id;              // 回显客户端的 task_uuid
-            std::optional<std::string> triverse_task_uuid;   // 服务端分配的任务ID (save 到 job 的 server_task_id)
+            std::optional<std::string> server_task_id;        // 服务端分配的任务ID (即 Triverse 的 triverse_task_uuid)
             GenTaskStatus              status = GenTaskStatus::IDLE;  // 任务状态
             int                        progress = 0;          // 进度百分比 0-100
             std::optional<std::string> result_url;            // 结果文件下载链接 (COMPLETED 时有值)
@@ -182,9 +158,15 @@ namespace AI3D {
 
             // --- 运行时状态 (由 GenTaskThread 从 HTTP 响应回填) ---
             GenTaskStatus status = GenTaskStatus::IDLE;
-            std::string server_task_id;    // 服务端 triverse_task_uuid (非空 = 已 submit)
-            std::string result_url;         // 结果下载链接 (COMPLETED 时填充)
-            std::string preview_url;        // 预览图链接
+            std::string server_task_id;    // 服务端返回的任务ID (非空 = 已 submit)
+            std::string result_url;         // 结果下载链接 (COMPLETED 时服务端返回)
+            std::string result_path;     // 结果本地保存路径
+            std::string preview_path;    // 预览图本地保存路径
+            std::string result_path;        // 结果下载后的本地保存路径 (DownloadResult 写入)
+            std::string preview_url;        // 预览图链接 (COMPLETED 时服务端返回)
+    std::string result_path;
+    std::string preview_path;
+            std::string preview_path;       // 预览图下载后的本地保存路径
             std::string error_message;      // 详细错误信息 (FAILED 时填充)
             int cost_credits = 0;           // 本次消耗积分
             int points_balance = 0;         // 积分余额
@@ -193,7 +175,7 @@ namespace AI3D {
             /// @brief 将 HTTP 响应回填到自身 (消除 ProcessRunningJobs 逐字段拷贝)
             ///        optional 字段只在有值时覆盖, 避免空响应冲掉已有数据
             void ApplyResponse(const GenTaskResponse& resp) {
-                if (resp.triverse_task_uuid) server_task_id = *resp.triverse_task_uuid;
+                if (resp.server_task_id) server_task_id = *resp.server_task_id;
                 if (resp.result_url)        result_url     = *resp.result_url;
                 if (resp.preview_url)       preview_url    = *resp.preview_url;
                 if (resp.error_message)     error_message  = *resp.error_message;
@@ -257,6 +239,8 @@ namespace AI3D {
                 d.server_task_id = job.server_task_id;
                 d.result_url     = job.result_url;
                 d.preview_url    = job.preview_url;
+        d.result_path    = job.result_path;
+        d.preview_path   = job.preview_path;
                 d.error_message  = job.error_message;
                 d.cost_credits   = job.cost_credits;
                 d.points_balance = job.points_balance;
@@ -297,6 +281,8 @@ namespace AI3D {
                 job.server_task_id = d.server_task_id;
                 job.result_url     = d.result_url;
                 job.preview_url    = d.preview_url;
+                job.result_path    = d.result_path;
+                job.preview_path   = d.preview_path;
                 job.error_message  = d.error_message;
                 job.cost_credits   = d.cost_credits;
                 job.points_balance = d.points_balance;
@@ -408,6 +394,8 @@ struct GenJobInfoData {
     std::string server_task_id;
     std::string result_url;
     std::string preview_url;
+    std::string result_path;
+    std::string preview_path;
     std::string error_message;
     int cost_credits;
     int points_balance;
@@ -425,6 +413,8 @@ struct GenJobInfoData {
         server_task_id = "";
         result_url = "";
         preview_url = "";
+        result_path = "";
+        preview_path = "";
         error_message = "";
         cost_credits = 0;
         points_balance = 0;
@@ -471,6 +461,12 @@ struct GenJobInfoData {
         unsigned int preview_url_len = preview_url.size();
         byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_url_len), sizeof(preview_url_len));
         byteCrypt.WriteByteDecrypted(out, preview_url.c_str(), preview_url_len);
+        unsigned int result_path_len = result_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_path_len), sizeof(result_path_len));
+        byteCrypt.WriteByteDecrypted(out, result_path.c_str(), result_path_len);
+        unsigned int preview_path_len = preview_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_path_len), sizeof(preview_path_len));
+        byteCrypt.WriteByteDecrypted(out, preview_path.c_str(), preview_path_len);
 
         unsigned int error_message_len = error_message.size();
         byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&error_message_len), sizeof(error_message_len));
@@ -522,6 +518,14 @@ struct GenJobInfoData {
         byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_url_len), sizeof(unsigned int));
         preview_url.resize(preview_url_len);
         byteCrypt.ReadByteDecrypted(in, &preview_url[0], preview_url_len);
+        unsigned int result_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_path_len), sizeof(unsigned int));
+        result_path.resize(result_path_len);
+        byteCrypt.ReadByteDecrypted(in, &result_path[0], result_path_len);
+        unsigned int preview_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_path_len), sizeof(unsigned int));
+        preview_path.resize(preview_path_len);
+        byteCrypt.ReadByteDecrypted(in, &preview_path[0], preview_path_len);
         unsigned int error_message_len = 0;
         byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&error_message_len), sizeof(unsigned int));
         error_message.resize(error_message_len);
@@ -665,6 +669,20 @@ for (int i = 0; i < genJobNum; i++) {
 
 namespace AI3D {
     namespace CORE {
+
+        // ============================================================================
+        // GenTaskStatus — 生成式任务生命周期状态
+        // 放在 Core/ 层供 GenTaskAPI (MoldAIData.dll) 和 GenTaskThread (MoldAINode.exe) 共用
+        // ============================================================================
+        enum class GenTaskStatus {
+            UNKNOWN = -1,   // 未指定 / 非法值, 调用者需过滤
+            IDLE,           // 初始 / 网络不通
+            PENDING,        // 已写入 jobs_gen/Pending/, 等待 GenTaskThread pick up
+            IN_PROGRESS,    // 已 POST submit 到服务端, 正在周期性轮询
+            COMPLETED,      // 服务端返回完成
+            FAILED,         // 执行失败
+            CANCELLED,      // 用户取消
+        };
 
         // ============================================================================
         // GenTaskSubType — 生成式任务类型 (扁平枚举, 对应 Triverse 10 个端点)
@@ -818,7 +836,11 @@ namespace AI3D {
             int         sub_type = -1;   // GenTaskSubType 枚举值 (int 存储, 对标 reconstruction_t)
             int         status = -1;     // GenTaskStatus 枚举值
             std::string preview_url;     // 预览图链接 (左侧树缩略图)
+    std::string result_path;
+    std::string preview_path;
             std::string result_url;      // 结果下载链接
+            std::string result_path;     // 结果本地保存路径
+            std::string preview_path;    // 预览图本地保存路径
             std::string created_time;    // 创建时间 "yyyyMMddhhmmss"
 
             void CreateJson(rapidjson::Value& value, rapidjson::Document& doc) const {
@@ -831,6 +853,10 @@ namespace AI3D {
                     value.AddMember("preview_url", rapidjson::Value(preview_url.c_str(), allocator), allocator);
                 if (!result_url.empty())
                     value.AddMember("result_url", rapidjson::Value(result_url.c_str(), allocator), allocator);
+                if (!result_path.empty())
+                    value.AddMember("result_path", rapidjson::Value(result_path.c_str(), allocator), allocator);
+                if (!preview_path.empty())
+                    value.AddMember("preview_path", rapidjson::Value(preview_path.c_str(), allocator), allocator);
                 if (!created_time.empty())
                     value.AddMember("created_time", rapidjson::Value(created_time.c_str(), allocator), allocator);
             }
@@ -843,6 +869,8 @@ namespace AI3D {
                 if (value.HasMember("preview_url"))  preview_url = value["preview_url"].GetString();
                 if (value.HasMember("result_url"))   result_url = value["result_url"].GetString();
                 if (value.HasMember("created_time")) created_time = value["created_time"].GetString();
+                if (value.HasMember("result_path"))  result_path = value["result_path"].GetString();
+                if (value.HasMember("preview_path")) preview_path = value["preview_path"].GetString();
             }
         };
 
@@ -996,7 +1024,7 @@ for (auto& job : bLKBinFile.genJobVec) {
 >
 > **持有关系**: `GenJobFullInfo_s` 新增 `JobFeedBack_s feedback` 成员（对标 `TaskGraph_s` 持有 `JobFeedBack_s`），在调度线程中加载 job 时同步加载 feedback 到内存，`UpdateFeedback()` 直接修改内存中的 `feedback` 成员，调用者负责写回独立 `JF_*` 文件。避免了每次更新 feedback 都要 `load_with_retry` + `save_with_retry` 的额外 I/O。
 >
-> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`cost_credits`/`error_message`）全部存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。前端通过 `GenTaskAPI::QueryTaskStatus` 读取 `GenJobInfo_s` 获取结果。
+> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`cost_credits`/`error_message`）全部存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。前端通过读取 Block 的 `generations_info_` 获取 result_url 等结果数据。
 
 ### 1.5 编译验证与 CMake 修改
 
@@ -1039,7 +1067,8 @@ FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 - [ ] GenJobFullInfo_s BIN 往返: `WriteToBin` → `LoadFromBin` 含 feedback 逐字段一致
 - [ ] `blk_generation_info_s` rapidjson 往返: `CreateJson` → `ParseJson` 逐字段一致
 - [ ] `generations_info_` JSON 数组往返: 序列化 → 字符串 → 解析, 多条目录项正确
-- [ ] `.blk` 文件落地 → 加载: 通过 `BlockObject::Save()` / 构造加载, gen 全部字段往返正确 (依赖完整 Block 环境, Phase 1 可先跳过)
+- [ ] `.blk` 文件落地 → 加载: 通过 `BlockObject::Save()` / 构造加载, gen 全部字段往返正确
+- [ ] 前端提交端到端: 设 Block gen 参数 → `SubmitGenTask` → job + feedback 落地 → 参数一致
 - [ ] 旧 `.blk` 兼容: 无 `gen_options` 字段 → 读取后 `block_task_category == 0`, `gen_params` 为默认值
 
 #### 测试目录结构
@@ -1052,26 +1081,32 @@ FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 #### Test/testGenTask/CMakeLists.txt
 
 ```cmake
+# ===== target 1: Phase 1 数据结构验证 =====
 set(TARGET_NAME testGenTaskPhase1)
-
-FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/*.h
-)
-
-FILE(GLOB SRC_LIST RELATIVE_PATH "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-)
-
-set(SRC_FILES ${HEADER_LIST} ${SRC_LIST})
-
-add_executable(${TARGET_NAME} ${SRC_FILES})
-
+FILE(GLOB PHASE1_SRC "${CMAKE_CURRENT_SOURCE_DIR}/testGenTaskPhase1.cpp")
+add_executable(${TARGET_NAME} ${PHASE1_SRC})
+target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../Include)
 AI3D_USING_GLOG()
-
 set(DEPENDS_LIBS ${EXTER_DEPENDS_LIBS} ${AI3D_GLOG_LIB} Core)
-
 target_link_libraries(${TARGET_NAME} ${DEPENDS_LIBS})
+set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Test")
 
+# ===== target 2: 全流程集成测试 (链接 Engine 层) =====
+set(TARGET_NAME testGenTaskFullFlow)
+set(FULLFLOW_SRC "${CMAKE_CURRENT_SOURCE_DIR}/testGenTaskFullFlow.cpp")
+set(ENGINE_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Engine/GenTaskThread.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Engine/GenHttpClient.cpp
+)
+add_executable(${TARGET_NAME} ${FULLFLOW_SRC} ${ENGINE_SRC})
+target_include_directories(${TARGET_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Engine   # GenTaskThread.h / GenHttpClient.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Include       # Core/ Util/ headers
+)
+target_compile_definitions(${TARGET_NAME} PRIVATE MOCK_GEN_HTTP)
+set(DEPENDS_LIBS ${EXTER_DEPENDS_LIBS} ${AI3D_GLOG_LIB} Core
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network)
+target_link_libraries(${TARGET_NAME} ${DEPENDS_LIBS})
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Test")
 ```
 
@@ -1111,10 +1146,12 @@ static int g_failures = 0;
 
 // ============================================================================
 // 测试 1: GenTaskParams rapidjson 往返
+// Test 1: GenTaskParams rapidjson roundtrip
 // ============================================================================
 static void TestGenTaskParamsRoundtrip()
 {
     // 1a. 构造完整参数
+    // 1a. Build complete parameters
     GenTaskParams p;
     p.sub_type       = GenTaskSubType::IMAGE_TO_MODEL;
     p.prompt         = "a red sports car";
@@ -1130,6 +1167,7 @@ static void TestGenTaskParamsRoundtrip()
     p.WriteToJson(doc, doc);
 
     // 1c. 验证写入的字段
+    // 1c. Verify written fields
     TEST_ASSERT(doc.HasMember("sub_type"), "sub_type should be written");
     TEST_ASSERT(std::strcmp(doc["sub_type"].GetString(), "image-to-model") == 0,
                 "sub_type should be image-to-model");
@@ -1142,6 +1180,7 @@ static void TestGenTaskParamsRoundtrip()
     TEST_ASSERT(doc["texture_size"].GetInt() == 2048, "texture_size mismatch");
 
     // 1d. ToJsonString → CreateFromJsonString 字符串往返
+    // 1d. ToJsonString → CreateFromJsonString string roundtrip
     std::string json = p.ToJsonString();
     TEST_ASSERT(!json.empty(), "ToJsonString should not be empty");
 
@@ -1155,6 +1194,7 @@ static void TestGenTaskParamsRoundtrip()
     TEST_ASSERT(p2.file_key == "fk-abc123", "file_key roundtrip failed");
 
     // 1e. UNKNOWN sub_type 不应写入
+    // 1e. UNKNOWN sub_type should not be written
     GenTaskParams p3;
     p3.sub_type = GenTaskSubType::UNKNOWN;
     p3.prompt   = "test";
@@ -1164,6 +1204,7 @@ static void TestGenTaskParamsRoundtrip()
     TEST_ASSERT(!doc3.HasMember("sub_type"), "UNKNOWN sub_type should not be written");
 
     // 1f. 空字符串不应写入
+    // 1f. Empty string should not be written
     GenTaskParams p4;
     p4.prompt = "";
     rapidjson::Document doc4;
@@ -1174,10 +1215,12 @@ static void TestGenTaskParamsRoundtrip()
 
 // ============================================================================
 // 测试 2: GenTaskOptions 委托 rapidjson 往返
+// Test 2: GenTaskOptions delegation rapidjson roundtrip
 // ============================================================================
 static void TestGenTaskOptionsRoundtrip()
 {
     // 2a. 通过 GenTaskOptions 写入 (委托 gen_params)
+    // 2a. Write via GenTaskOptions (delegates to gen_params)
     GenTaskOptions opts;
     opts.gen_params.sub_type      = GenTaskSubType::TEXT_TO_MODEL;
     opts.gen_params.prompt        = "a cute cat";
@@ -1192,6 +1235,7 @@ static void TestGenTaskOptionsRoundtrip()
     TEST_ASSERT(doc.HasMember("polygon_limit"), "polygon_limit should be written");
 
     // 2b. 读取回 GenTaskOptions
+    // 2b. Read back into GenTaskOptions
     GenTaskOptions opts2;
     opts2.ParseJson(doc);
     TEST_ASSERT(opts2.gen_params.sub_type == GenTaskSubType::TEXT_TO_MODEL,
@@ -1202,10 +1246,12 @@ static void TestGenTaskOptionsRoundtrip()
 
 // ============================================================================
 // 测试 3: GenJobFullInfo_s BIN 往返
+// Test 3: GenJobFullInfo_s BIN roundtrip
 // ============================================================================
 static void TestGenJobFullInfoBinRoundtrip()
 {
     // 3a. 构造完整 job + feedback
+    // 3a. Build complete job + feedback
     GenJobFullInfo_s info;
     info.job_name                = "J_TestBlock_20260101000000";
     info.job.task_uuid           = "550e8400-e29b-41d4-a716-446655440000";
@@ -1221,6 +1267,8 @@ static void TestGenJobFullInfoBinRoundtrip()
     info.job.server_task_id      = "trv-abc123def456";
     info.job.result_url          = "https://cdn.example.com/result.glb";
     info.job.preview_url         = "https://cdn.example.com/preview.png";
+    info.job.result_path         = "/local/path/result.glb";
+    info.job.preview_path        = "/local/path/preview.png";
     info.job.cost_credits        = 10;
     info.job.points_balance      = 90;
     info.job.query_retry_count   = 2;
@@ -1230,16 +1278,19 @@ static void TestGenJobFullInfoBinRoundtrip()
     info.feedback.Msg        = "processing mesh generation";
 
     // 3b. 写 BIN
+    // 3b. Write BIN
     const std::string path = "test_genjob_phase1.bin";
     bool ok = info.WriteToBin(path);
     TEST_ASSERT(ok, "WriteToBin should succeed");
 
     // 3c. 读 BIN
+    // 3c. Read BIN
     GenJobFullInfo_s loaded;
     ok = loaded.LoadFromBin(path);
     TEST_ASSERT(ok, "LoadFromBin should succeed");
 
     // 3d. 逐字段验证 — GenJobInfo_s
+    // 3d. Field-by-field verification — GenJobInfo_s
     TEST_ASSERT(loaded.job_name == info.job_name, "job_name mismatch");
     TEST_ASSERT(loaded.job.task_uuid == info.job.task_uuid, "task_uuid mismatch");
     TEST_ASSERT(loaded.job.engine_id == info.job.engine_id, "engine_id mismatch");
@@ -1259,6 +1310,8 @@ static void TestGenJobFullInfoBinRoundtrip()
                 "server_task_id mismatch");
     TEST_ASSERT(loaded.job.result_url == info.job.result_url, "result_url mismatch");
     TEST_ASSERT(loaded.job.preview_url == info.job.preview_url, "preview_url mismatch");
+    TEST_ASSERT(loaded.job.result_path == info.job.result_path, "result_path mismatch");
+    TEST_ASSERT(loaded.job.preview_path == info.job.preview_path, "preview_path mismatch");
     TEST_ASSERT(loaded.job.cost_credits == info.job.cost_credits, "cost_credits mismatch");
     TEST_ASSERT(loaded.job.points_balance == info.job.points_balance,
                 "points_balance mismatch");
@@ -1266,6 +1319,7 @@ static void TestGenJobFullInfoBinRoundtrip()
                 "query_retry_count mismatch");
 
     // 3e. 验证 feedback 字段
+    // 3e. Verify feedback fields
     TEST_ASSERT(loaded.feedback.Status == info.feedback.Status, "feedback.Status mismatch");
     TEST_ASSERT(loaded.feedback.Percent == info.feedback.Percent, "feedback.Percent mismatch");
     TEST_ASSERT(loaded.feedback.TaskRetVal == info.feedback.TaskRetVal,
@@ -1273,15 +1327,18 @@ static void TestGenJobFullInfoBinRoundtrip()
     TEST_ASSERT(loaded.feedback.Msg == info.feedback.Msg, "feedback.Msg mismatch");
 
     // 3f. 清理
+    // 3f. Cleanup
     std::remove(path.c_str());
 }
 
 // ============================================================================
 // 测试 4: 默认值 / 旧数据兼容
+// Test 4: Defaults / old data compatibility
 // ============================================================================
 static void TestDefaults()
 {
     // 4a. GenTaskParams 默认构造
+    // 4a. GenTaskParams default construction
     GenTaskParams p;
     TEST_ASSERT(p.sub_type == GenTaskSubType::UNKNOWN, "default sub_type should be UNKNOWN");
     TEST_ASSERT(p.prompt.empty(), "default prompt should be empty");
@@ -1289,17 +1346,20 @@ static void TestDefaults()
     TEST_ASSERT(p.texture_size == 0, "default texture_size should be 0");
 
     // 4b. 空 JSON 字符串 → 返回默认值
+    // 4b. Empty JSON string → returns defaults
     GenTaskParams p2 = GenTaskParams::CreateFromJsonString("");
     TEST_ASSERT(p2.sub_type == GenTaskSubType::UNKNOWN, "empty json should give UNKNOWN");
     TEST_ASSERT(p2.prompt.empty(), "empty json should give empty prompt");
 
     // 4c. 不完整 JSON → 缺失字段保持默认值
+    // 4c. Partial JSON → missing fields keep defaults
     GenTaskParams p3 = GenTaskParams::CreateFromJsonString("{\"prompt\":\"hello\"}");
     TEST_ASSERT(p3.prompt == "hello", "prompt should be parsed");
     TEST_ASSERT(p3.sub_type == GenTaskSubType::UNKNOWN, "missing sub_type should be UNKNOWN");
     TEST_ASSERT(p3.polygon_limit == 0, "missing polygon_limit should be 0");
 
     // 4d. GenTaskOptions 默认构造
+    // 4d. GenTaskOptions default construction
     GenTaskOptions opts;
     TEST_ASSERT(opts.gen_params.sub_type == GenTaskSubType::UNKNOWN,
                 "GenTaskOptions default sub_type should be UNKNOWN");
@@ -1307,10 +1367,12 @@ static void TestDefaults()
 
 // ============================================================================
 // 测试 5: blk_generation_info_s rapidjson 往返 (写入 .blk 的子结构)
+// Test 5: blk_generation_info_s rapidjson roundtrip (sub-structure written to .blk)
 // ============================================================================
 static void TestBlkGenerationInfoRoundtrip()
 {
     // 5a. 构造完整的生成结果元数据
+    // 5a. Build complete generation result metadata
     blk_generation_info_s info;
     info.task_uuid   = "uuid-test-12345";
     info.job_name    = "J_TestBlock_20260129120000";
@@ -1318,9 +1380,12 @@ static void TestBlkGenerationInfoRoundtrip()
     info.status      = static_cast<int>(GenTaskStatus::COMPLETED);
     info.preview_url = "https://cdn.example.com/preview.png";
     info.result_url  = "https://cdn.example.com/result.glb";
+    info.result_path  = "/local/path/result.glb";
+    info.preview_path = "/local/path/preview.png";
     info.created_time = "20260129120000";
 
     // 5b. 写入 rapidjson Document (模拟 WriteBlockInfoToJson 中的一个数组元素)
+    // 5b. Write to rapidjson Document (simulating an array element in WriteBlockInfoToJson)
     rapidjson::Document doc;
     doc.SetObject();
     rapidjson::Value genJson(rapidjson::kObjectType);
@@ -1328,6 +1393,7 @@ static void TestBlkGenerationInfoRoundtrip()
     doc.AddMember("item", genJson, doc.GetAllocator());
 
     // 5c. 验证写入
+    // 5c. Verify write
     TEST_ASSERT(doc.HasMember("item"), "item should exist");
     const rapidjson::Value& item = doc["item"];
     TEST_ASSERT(strcmp(item["task_uuid"].GetString(), "uuid-test-12345") == 0,
@@ -1340,6 +1406,7 @@ static void TestBlkGenerationInfoRoundtrip()
                 "status mismatch");
 
     // 5d. 读回
+    // 5d. Read back
     blk_generation_info_s loaded;
     loaded.ParseJson(item);
     TEST_ASSERT(loaded.task_uuid == info.task_uuid, "ParseJson task_uuid failed");
@@ -1348,15 +1415,19 @@ static void TestBlkGenerationInfoRoundtrip()
     TEST_ASSERT(loaded.status == info.status, "ParseJson status failed");
     TEST_ASSERT(loaded.preview_url == info.preview_url, "ParseJson preview_url failed");
     TEST_ASSERT(loaded.result_url == info.result_url, "ParseJson result_url failed");
+    TEST_ASSERT(loaded.result_path == info.result_path, "ParseJson result_path failed");
+    TEST_ASSERT(loaded.preview_path == info.preview_path, "ParseJson preview_path failed");
     TEST_ASSERT(loaded.created_time == info.created_time, "ParseJson created_time failed");
 }
 
 // ============================================================================
 // 测试 6: generations_info_ JSON 数组往返 (模拟 .blk 中 generations_info 段的读写)
+// Test 6: generations_info_ JSON array roundtrip (simulating .blk generations_info segment read/write)
 // ============================================================================
 static void TestGenerationsInfoArrayRoundtrip()
 {
     // 6a. 构造两个条目
+    // 6a. Build two entries
     blk_generation_info_s gen1;
     gen1.task_uuid = "uuid-1";
     gen1.job_name  = "J_Block_001";
@@ -1371,6 +1442,7 @@ static void TestGenerationsInfoArrayRoundtrip()
     gen2.status    = static_cast<int>(GenTaskStatus::IN_PROGRESS);
 
     // 6b. 写入 JSON 数组 (模拟 WriteBlockInfoToJson 中 generationsInfo 段)
+    // 6b. Write JSON array (simulating generationsInfo in WriteBlockInfoToJson)
     rapidjson::Document doc;
     doc.SetArray();
     auto& allocator = doc.GetAllocator();
@@ -1382,6 +1454,7 @@ static void TestGenerationsInfoArrayRoundtrip()
     doc.PushBack(v2, allocator);
 
     // 6c. 序列化为字符串 → 再解析 (模拟 BIN 中 gen_info_json 的读写)
+    // 6c. Serialize to string → re-parse (simulating gen_info_json BIN read/write)
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     doc.Accept(writer);
@@ -1393,6 +1466,7 @@ static void TestGenerationsInfoArrayRoundtrip()
     TEST_ASSERT(doc2.Size() == 2, "should have 2 entries");
 
     // 6d. 读回
+    // 6d. Read back
     std::vector<blk_generation_info_s> loaded;
     for (rapidjson::SizeType i = 0; i < doc2.Size(); i++) {
         blk_generation_info_s info;
@@ -1407,6 +1481,7 @@ static void TestGenerationsInfoArrayRoundtrip()
                 "array[1] sub_type mismatch");
 
     // 6e. generationjobs_ 序列化往返 (模拟 "task_uuid:job_name" 格式)
+    // 6e. generationjobs_ roundtrip (simulating "task_uuid:job_name" format)
     std::string jobEntry = gen1.task_uuid + ":" + gen1.job_name;
     // 解析:
     size_t colonPos = jobEntry.find(":");
@@ -1417,10 +1492,177 @@ static void TestGenerationsInfoArrayRoundtrip()
 }
 
 // ============================================================================
-// 测试 7: Block 文件落地 → 重新加载 (通过 BlockObject::Save / 构造函数加载)
-//         依赖 BlockObject 完整实例化, 需要项目目录支撑; Phase 1 编译后不一定能跑,
-//         可在 Phase 3+ 环境就绪后再验证。
+// 测试 7: Block 文件落地 → 重新加载 (对标 Slot_Action_NewBlock 创建流程)
+// Test 7: Block file persist → reload (matching Slot_Action_NewBlock creation flow)
+//   BlockObject(path) → Init() → 设 gen 字段 → Save() → ReadBlockInfoBin 读回
 // ============================================================================
+static void TestBlockFileGenFieldsRoundtrip()
+{
+    // 7a. 创建临时项目目录 (对标 Project path)
+    // 7a. Create temp project directory (matching Project path)
+    QString tmpDir = QDir::tempPath() + "/test_genblock_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QDir().mkpath(tmpDir);
+    std::string projectPath = tmpDir.toStdString();
+
+    // 7b. 对标 Slot_Action_NewBlock: new BlockObject(projectPath)
+    // 7b. Matching Slot_Action_NewBlock: new BlockObject(projectPath)
+    BlockObject block(projectPath);
+    block.GetIdMutual() = 1;
+    block.Init();  // → name_ = "Block_1", path_ = projectPath/Block_1
+    block.SetStatus(jobsta_e::STATUS_NEW);
+
+    // 对标 AddBlock 中的设置
+    // Matching settings from AddBlock
+    block.GetTaskInfoMutual().blockString = "Block_1";
+    block.GetTaskInfoMutual().blockName = "TestGenBlock";
+    block.GetTaskInfoMutual().blockId    = 1;
+    block.GetTaskInfoMutual().projectfile_ = projectPath;
+    block.GetTaskInfoMutual().isSaved    = false;
+    block.GetTaskInfoMutual().isLoaded   = true;
+
+    // 7c. 设置生成式字段
+    // 7c. Set generative fields
+    Task_Info& info = block.GetTaskInfoMutual();
+    info.block_task_category = 1;
+    info.gen_options.gen_params.sub_type      = GenTaskSubType::TEXT_TO_MODEL;
+    info.gen_options.gen_params.prompt        = "a test cube";
+    info.gen_options.gen_params.polygon_limit = 10000;
+
+    blk_generation_info_s gen1;
+    gen1.task_uuid    = "uuid-blk-test-1";
+    gen1.job_name     = "J_Block_1_20260129000000";
+    gen1.sub_type     = static_cast<int>(GenTaskSubType::TEXT_TO_MODEL);
+    gen1.status       = static_cast<int>(GenTaskStatus::COMPLETED);
+    gen1.result_url   = "https://cdn.example.com/result.glb";
+    gen1.result_path   = "/local/path/result.glb";
+    gen1.created_time = "20260129000000";
+    info.generations_info_.push_back(gen1);
+
+    info.generationjobs_[gen1.task_uuid] = gen1.job_name;
+
+    // 7d. 落地 (对标 Project::Save → BlockObject::Save)
+    // 7d. Persist (matching Project::Save → BlockObject::Save)
+    bool ok = block.Save();
+    TEST_ASSERT(ok, "BlockObject::Save failed");
+
+    // 7e. 读回 .blk 文件
+    // 7e. Read back .blk file
+    //     Save 输出路径: path_/name_ + ".blk" = projectPath/Block_1/Block_1.blk
+    //     Save output path: path_/name_ + ".blk" = projectPath/Block_1/Block_1.blk
+    std::string blkPath = block.GetPath() + "/" + block.GetName() + ".blk";
+    BlockObject::Task_Info loaded;
+    ok = loaded.ReadBlockInfoBin(blkPath);
+    TEST_ASSERT(ok, "ReadBlockInfoBin failed");
+
+    // 7f. 验证 gen 字段往返
+    // 7f. Verify gen field roundtrip
+    TEST_ASSERT(loaded.block_task_category == 1,
+                "block_task_category roundtrip failed");
+    TEST_ASSERT(loaded.gen_options.gen_params.sub_type == GenTaskSubType::TEXT_TO_MODEL,
+                "sub_type roundtrip failed");
+    TEST_ASSERT(loaded.gen_options.gen_params.prompt == "a test cube",
+                "prompt roundtrip failed");
+    TEST_ASSERT(loaded.gen_options.gen_params.polygon_limit == 10000,
+                "polygon_limit roundtrip failed");
+    TEST_ASSERT(loaded.generations_info_.size() == 1,
+                "generations_info_ size mismatch");
+    TEST_ASSERT(loaded.generations_info_[0].task_uuid == "uuid-blk-test-1",
+                "generations_info_ task_uuid mismatch");
+    TEST_ASSERT(loaded.generationjobs_.size() == 1,
+                "generationjobs_ size mismatch");
+
+    // 7g. 清理
+    // 7g. Cleanup
+    QDir(tmpDir).removeRecursively();
+}
+
+// ============================================================================
+// 测试 8: 前端创建生成式任务端到端流程 (对标 Slot_Action_NewBlock 的逻辑)
+// Test 8: Frontend gen task creation end-to-end (matching Slot_Action_NewBlock logic)
+//   1. 创建 Block → 设 gen 参数 → SubmitGenTask → 验证 job + feedback 落地
+//   1. Create Block → set gen params → SubmitGenTask → verify job + feedback persist
+// ============================================================================
+static void TestFrontendSubmitGenTask()
+{
+    // 8a. 创建临时项目目录和 Block (对标 new BlockObject(projectPath))
+    // 8a. Create temp project dir and Block (matching new BlockObject(projectPath))
+    QString tmpDir = QDir::tempPath() + "/test_frontend_gen_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QDir().mkpath(tmpDir);
+    std::string projectPath = tmpDir.toStdString();
+
+    BlockObject block(projectPath);
+    block.GetIdMutual() = 1;
+    block.Init();
+    block.SetStatus(jobsta_e::STATUS_NEW);
+
+    // 8b. 前端设置 Block 参数 (对标 ParamSettings4Production 设 options)
+    // 8b. Frontend sets Block params (matching ParamSettings4Production set options)
+    BlockObject::Task_Info& task = block.GetTaskInfoMutual();
+    task.blockString      = "Block_1";
+    task.blockName        = "Block_1";
+    task.blockId          = 1;
+    task.projectfile_     = projectPath;
+    task.isSaved          = false;
+    task.isLoaded         = true;
+    task.block_task_category = 1;                          // 生成式
+
+    // 8c. 前端填入生成参数 (对标 options = ParamSettings4Production::GetSavedOptions)
+    // 8c. Frontend fills gen params (matching options = ParamSettings4Production::GetSavedOptions)
+    task.gen_options.gen_params.sub_type      = GenTaskSubType::TEXT_TO_MODEL;
+    task.gen_options.gen_params.prompt        = "a red sports car";
+    task.gen_options.gen_params.polygon_limit = 50000;
+    task.gen_options.gen_params.texture_size  = 1024;
+
+    // 8d. 前端构造 pendingPath 并提交 (对标 SubmitProduction)
+    // 8d. Frontend constructs pendingPath and submits (matching SubmitProduction)
+    std::string pendingPath = tmpDir.toStdString() + "/jobs_gen/Pending/";
+    QDir().mkpath(QString::fromStdString(pendingPath));
+
+    std::string userAccount = "testuser@example.com";
+    GenTaskAPI::SubmitResult result = GenTaskAPI::SubmitGenTask(task, userAccount, pendingPath);
+
+    // 8e. 验证返回值
+    // 8e. Verify return value
+    TEST_ASSERT(result.success, "SubmitGenTask should succeed");
+    TEST_ASSERT(!result.task_uuid.empty(), "task_uuid should not be empty");
+    TEST_ASSERT(!result.job_name.empty(), "job_name should not be empty");
+    std::cout << "  task_uuid=" << result.task_uuid << " job=" << result.job_name << std::endl;
+
+    // 8f. 验证 job 文件已落地
+    // 8f. Verify job file persisted
+    std::string jobFilePath = pendingPath + result.job_name + ".bin";
+    TEST_ASSERT(QFileInfo(QString::fromStdString(jobFilePath)).exists(),
+                "job file should exist");
+
+    // 8g. 验证 job 文件可读, 参数一致
+    // 8g. Verify job file readable, params match
+    GenJobFullInfo_s jobInfo;
+    TEST_ASSERT(jobInfo.load_with_retry(jobFilePath), "should load job file");
+    TEST_ASSERT(jobInfo.job.params.sub_type == GenTaskSubType::TEXT_TO_MODEL,
+                "sub_type should match");
+    TEST_ASSERT(jobInfo.job.params.prompt == "a red sports car",
+                "prompt should match");
+    TEST_ASSERT(jobInfo.job.params.polygon_limit == 50000,
+                "polygon_limit should match");
+    TEST_ASSERT(jobInfo.job.user_account == userAccount,
+                "user_account should match");
+    TEST_ASSERT(jobInfo.job.project_path == projectPath,
+                "project_path should match");
+
+    // 8h. 验证 feedback 文件已创建
+    // 8h. Verify feedback file created
+    std::string fbPath = projectPath + "/Block_1/JF_" + result.job_name
+        + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
+    TEST_ASSERT(QFileInfo(QString::fromStdString(fbPath)).exists(),
+                "feedback file should exist");
+    JobFeedBack_s fb;
+    TEST_ASSERT(fb.load_with_retry(fbPath, false), "should load feedback");
+    TEST_ASSERT(fb.Status == jobsta_e::STATUS_PENDDING, "feedback should be PENDING");
+
+    // 8i. 清理
+    // 8i. Cleanup
+    QDir(tmpDir).removeRecursively();
+}
 
 int main()
 {
@@ -1430,8 +1672,8 @@ int main()
     TestDefaults();
     TestBlkGenerationInfoRoundtrip();
     TestGenerationsInfoArrayRoundtrip();
-    // TestBlockFileGenFieldsRoundtrip 依赖完整 BlockObject 项目环境,
-    // 留到 Phase 3+ 或集成测试阶段再跑
+    TestBlockFileGenFieldsRoundtrip();
+    TestFrontendSubmitGenTask();
 
     if (g_failures == 0) {
         LOGI("All Phase 1 tests passed.");
@@ -1459,21 +1701,18 @@ int main()
 
 ### 2.1 Settings 增加 gen 队列路径
 
-- [ ] `Include/Util/Settings.h`：增加声明
-
-在 `getEngineJobQueue()` 下方增加：
+- [ ] `Include/Util/Settings.h`：在 `getEngineJobQueue()` 下方增加声明
 
 ```cpp
-// Include/Util/Settings.h
-static QString getGenEngineJobQueue();  // 新增: 生成式任务队列路径
+// Include/Util/Settings.h — class Settings 内部
+static QString getGenEngineJobQueue();
 ```
 
 - [ ] `Src/Util/Settings.cpp`：实现
 
-在 `getEngineJobQueue()` 实现下方增加：
+在 `getEngineJobQueue()` 实现下方：
 
 ```cpp
-// Src/Util/Settings.cpp
 QString Settings::getGenEngineJobQueue()
 {
     QString enginePath = getEngineJobQueue();
@@ -1483,6 +1722,9 @@ QString Settings::getGenEngineJobQueue()
     QDir parent = QFileInfo(enginePath).dir();
     return parent.absolutePath() + "/jobs_gen";
 }
+```
+
+> GenTaskAPI 不依赖此函数——作业文件路径由前端传入 `SubmitGenTask(pendingJobPath)`。此函数仅 EXE 侧使用（MakePath、GenTaskThread）。
 ```
 
 ### 2.2 JobMonitor 增加生成式任务目录创建方法
@@ -1630,12 +1872,12 @@ if (runningGenDir.exists()) {
 namespace AI3D {
     namespace CORE {
 
+        // 服务端地址在 Core/Types.h 中宏定义, 不读 INI:
+        //   #define GEN_SERVER_URL  "http://0.0.0.0:8080"
+        //   #define GEN_API_PREFIX  "/api/v1"
         class GenHttpClient
         {
             public:
-            /// @brief 从 MoldAIConfig.ini [GenTask] 段读取 ServerUrl / ApiPrefix
-            static void Init(const std::string& configPath);
-
             /// @brief POST /api/v1/tasks/<type> — 提交生成任务(端点由 sub_type 决定)
             ///        如 TEXT_TO_MODEL → POST /api/v1/tasks/text-to-model
             ///        genParams: 生成参数结构体, 通过 ToJsonString() 序列化后作为 QMap value
@@ -1678,8 +1920,6 @@ namespace AI3D {
                                                 const QString& filePath,
                                                 int timeout_ms);
 
-            static QString s_serverUrl;   // MoldAIConfig.ini [GenTask] ServerUrl
-            static QString s_apiPrefix;   // MoldAIConfig.ini [GenTask] ApiPrefix
         };
 
     }} // namespace AI3D::CORE
@@ -1725,20 +1965,6 @@ namespace AI3D {
 namespace AI3D {
     namespace CORE {
 
-        QString GenHttpClient::s_serverUrl = "http://localhost:8080";
-        QString GenHttpClient::s_apiPrefix = "/api/v1";
-
-        // ============================================================================
-        // Init — 读取 MoldAIConfig.ini [GenTask] 段
-        // ============================================================================
-
-        void GenHttpClient::Init(const std::string& configPath)
-        {
-            QSettings settings(QString::fromStdString(configPath), QSettings::IniFormat);
-            settings.beginGroup("GenTask");
-            s_serverUrl = settings.value("ServerUrl", s_serverUrl).toString();
-            s_apiPrefix = settings.value("ApiPrefix", s_apiPrefix).toString();
-            settings.endGroup();
         }
 
         // ============================================================================
@@ -1763,7 +1989,7 @@ namespace AI3D {
                                                const QString& dataJson)
         {
             QString path = url;
-            path.remove(s_serverUrl);
+            path.remove(GEN_SERVER_URL);
 
             QString timestampStr = QString::number(QDateTime::currentDateTime().toSecsSinceEpoch());
             QString accessToken = LoadAccessToken();
@@ -1794,7 +2020,7 @@ namespace AI3D {
                                                   int timeout_ms,
                                                   int max_retries)
         {
-            QString url = s_serverUrl + s_apiPrefix + "/tasks/" + QString::fromUtf8(ToString(genParams.sub_type));
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/tasks/" + QString::fromUtf8(ToString(genParams.sub_type));
 
             // 构造扁平 QMap — GenTaskParams 通过 ToJsonString() 序列化后作为字符串值
             QMap<QString, QString> params;
@@ -1813,7 +2039,7 @@ namespace AI3D {
                     if (errorCode == 0) {
                         response.task_id = task_uuid;
                         if (doc.contains("triverse_task_uuid"))
-                            response.triverse_task_uuid = doc["triverse_task_uuid"].toString().toStdString();
+                            response.server_task_id = doc["triverse_task_uuid"].toString().toStdString();
                         response.status   = static_cast<GenTaskStatus>(doc.value("status").toInt());
                         response.progress = doc.value("progress").toInt();
                         if (doc.contains("result_url"))
@@ -1856,7 +2082,7 @@ namespace AI3D {
                                                        int timeout_ms,
                                                        int max_retries)
         {
-            QString url = s_serverUrl + s_apiPrefix + "/task/status?task_id="
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/status?task_id="
                 + QString::fromStdString(server_task_id);
 
             // HttpClient::get 不带鉴权, 手动计算并通过 headers 传入
@@ -1872,7 +2098,7 @@ namespace AI3D {
                     if (errorCode == 0) {
                         response.task_id = doc.value("task_id").toString().toStdString();
                         if (doc.contains("triverse_task_uuid"))
-                            response.triverse_task_uuid = doc["triverse_task_uuid"].toString().toStdString();
+                            response.server_task_id = doc["triverse_task_uuid"].toString().toStdString();
                         response.status   = static_cast<GenTaskStatus>(doc.value("status").toInt());
                         response.progress = doc.value("progress").toInt();
                         if (doc.contains("result_url"))
@@ -1885,7 +2111,6 @@ namespace AI3D {
                         response.points_balance = doc.value("points_balance").toInt();
                         ok = true;
                     } else {
-                        response.server_task_id = server_task_id;
                         response.status = GenTaskStatus::IDLE;
                         response.error_message = errorMsg.toStdString();
                     }
@@ -1900,7 +2125,6 @@ namespace AI3D {
             }
 
             GenTaskResponse failResp;
-            failResp.server_task_id = server_task_id;
             failResp.status = GenTaskStatus::IDLE;
             failResp.error_message = "query timeout after retries";
             return failResp;
@@ -1914,7 +2138,7 @@ namespace AI3D {
                                        int timeout_ms,
                                        int max_retries)
         {
-            QString url = s_serverUrl + s_apiPrefix + "/task/cancel";
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/cancel";
 
             QMap<QString, QString> params;
             params["task_id"] = QString::fromStdString(server_task_id);
@@ -1967,7 +2191,8 @@ namespace AI3D {
             multiPart->append(filePart);
 
             QNetworkAccessManager manager;
-            QNetworkRequest request(QUrl(url));
+            QNetworkRequest request;
+            request.setUrl(QUrl(url));
             request.setTransferTimeout(timeout_ms);
             request.setRawHeader("Authorization", BuildAuthHeader(url, "").toUtf8());
 
@@ -2004,7 +2229,7 @@ namespace AI3D {
                                               int timeout_ms,
                                               int max_retries)
         {
-            QString url = s_serverUrl + s_apiPrefix + "/upload";
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/upload";
 
             for (int attempt = 0; attempt <= max_retries; attempt++) {
                 QByteArray raw = SyncPostMultipart(url, QString::fromStdString(local_path), timeout_ms);
@@ -2032,9 +2257,71 @@ namespace AI3D {
 
 `GenHttpClient.h/cpp` 放在 `App/Engine/` 目录下，被现有 `FILE(GLOB *.cpp *.h)` 自动拾取。`Qt6::Network` 已在 `App/Engine/CMakeLists.txt` line 55 链接，无需额外添加。
 
-> 注意: GenHttpClient 使用 `#include "Util/HttpClient.h"` 复用 HttpClient 的 post/get 方法, 因此 `App/Engine/CMakeLists.txt` 需要确保 `Src/Util/HttpClient.cpp` 被链接 (当前已通过 `FILE(GLOB)` 在 `Src/Util/` 下自动拾取, 无需修改)。
+> 注意: GenHttpClient 委托 `HttpClient::post/get`, 但 `HttpClient.cpp` 不在任何 CMakeLists 中。
+> **必须**在 `App/Engine/CMakeLists.txt` 的 SRC_LIST 中增加:
+> `"${CMAKE_CURRENT_SOURCE_DIR}/../../Src/Util/HttpClient.cpp"`
 
-### 3.3 手动验证
+### 3.3 Mock 模式 (开发调试用)
+
+> 用 `#ifdef MOCK_GEN_HTTP` 包裹, 替换真实 HTTP 为 sleep + 模拟返回, 方便调试 GenTaskThread 全流程。
+
+```cpp
+// GenHttpClient.cpp — 在 SubmitTask / QueryTaskStatus / CancelTask / UploadFile 函数体开头:
+
+#ifdef MOCK_GEN_HTTP
+// ===== SubmitTask mock =====
+GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
+                                           const std::string& user_account,
+                                           const GenTaskParams& genParams,
+                                           int, int)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    GenTaskResponse resp;
+    resp.task_id       = task_uuid;
+    resp.server_task_id = "mock-trv-" + task_uuid.substr(0, 8);
+    resp.status        = GenTaskStatus::IN_PROGRESS;
+    resp.progress      = 0;
+    return resp;
+}
+
+// ===== QueryTaskStatus mock (模拟 3 次进度 → 完成) =====
+GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
+                                                int, int)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    GenTaskResponse resp;
+    resp.server_task_id = server_task_id;
+    resp.status         = GenTaskStatus::IN_PROGRESS;
+
+    // mock 计数器: 调用 3 次后标记完成
+    static std::map<std::string, int> pollCount;
+    int& count = pollCount[server_task_id];
+    count++;
+    resp.progress = count * 33;
+
+    if (count >= 3) {
+        resp.status     = GenTaskStatus::COMPLETED;
+        resp.progress   = 100;
+        resp.result_url = "https://mock-cdn.example.com/" + server_task_id + "/result.glb";
+        resp.preview_url = "https://mock-cdn.example.com/" + server_task_id + "/preview.png";
+        resp.cost_credits   = 10;
+        resp.points_balance = 90;
+    }
+    return resp;
+}
+
+// ===== CancelTask mock =====
+bool GenHttpClient::CancelTask(const std::string&, int, int) { return true; }
+
+// ===== UploadFile mock =====
+std::string GenHttpClient::UploadFile(const std::string&, int, int) { return "mock-fk-12345"; }
+
+#endif // MOCK_GEN_HTTP
+```
+
+> 调用 `SubmitGenTask` 前, 在 GenHttpClient::Init 中或编译时加 `-DMOCK_GEN_HTTP` 即可切换。
+
+### 3.4 手动验证
 
 - [ ] 使用 Mock Server 测试 Submit / Query / Cancel / Upload 四个接口
 - [ ] 验证多次重试后超时返回的 GenTaskResponse.status == IDLE
@@ -2183,7 +2470,6 @@ namespace AI3D {
 
 #include "GenTaskThread.h"
 #include "GenHttpClient.h"
-#include "Core/GenTaskAPI.h"       // GenTaskAPI::TriggerTaskComplete / TriggerTaskFailed
 #include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
 #include "Util/Settings.h"
@@ -2214,19 +2500,27 @@ namespace AI3D {
         // ============================================================================
         // 文件工具函数 (文件作用域, 仅本 .cpp 可见)
         //
-        // 注: job 文件的读写锁已由 GenJobFullInfo_s::save_with_retry / load_with_retry 封装
-        //     (内部使用 FopenDenyWriteLockUtf8, 与 TaskProcess.h 的 JobFeedBack_s 一致),
-        //     因此本文件无需手动管理锁, 直接调用 save_with_retry / load_with_retry 即可。
+        // 锁机制说明:
+        //   1. load_with_retry / save_with_retry 内部使用 FopenDenyWriteLockUtf8,
+        //      在读写期间阻止其他进程并发写入, 操作完成后 fclose 释放锁。
+        //   2. fclose 后 .lock 文件残留是正常的 (文件已空, 仅作标记),
+        //      MoveJobFile 在移动前删除 src 和 dst 的残留 .lock。
+        //   3. 启动时 DoCleanupJobLockOnceWhileEngineStart 清理孤儿 .lock。
+        //   4. QDirIterator 用 {"J_*.bin"} 过滤, 不会加载 .lock 文件。
         // ============================================================================
 
-        /// @brief 移动 job 文件到目标目录, 使用 QFile::rename
-        ///        对标项目中使用 QFile 操作文件的惯例 (而非 std::filesystem::rename)
-        /// @param src    源文件完整路径
-        /// @param dstDir 目标目录路径
-        /// @return true=成功, false=失败
+        /// @brief 移动 job 文件到目标目录, 移动前先清理残留 .lock 文件
         static bool MoveJobFile(const std::string& src, const std::string& dstDir) {
+            // 0. 先删残留 .lock (对标 DoCleanupJobLockOnceWhileEngineStart)
+            QString srcLock = QString::fromStdString(src) + ".lock";
+            if (QFileInfo::exists(srcLock))
+                QFile::remove(srcLock);
+
             QFileInfo fi(QString::fromStdString(src));
             QString dstPath = QString::fromStdString(dstDir) + "/" + fi.fileName();
+            QString dstLock = dstPath + ".lock";
+            if (QFileInfo::exists(dstLock))
+                QFile::remove(dstLock);
 
             // 1. 尝试直接 rename (原子操作, 同盘高效)
             if (QFile::rename(QString::fromStdString(src), dstPath)) {
@@ -2321,7 +2615,7 @@ namespace AI3D {
         void GenTaskThread::ProcessPendingJobs()
         {
             QString pendingDir = genPendingJobPath;
-            QDirIterator it(pendingDir, {"J_*"}, QDir::Files);
+            QDirIterator it(pendingDir, {"J_*.bin"}, QDir::Files);
 
             while (it.hasNext()) {
                 it.next();
@@ -2369,12 +2663,31 @@ namespace AI3D {
                     continue;
                 }
 
-                // 5. 提交成功 → 回填 server_task_id → 写入 → 移到 Running
+                // 5. 提交成功 → 回填 server_task_id → 注册到 Block → 移到 Running
                 job.ApplyResponse(resp);
-                job.status = GenTaskStatus::PENDING;  // submit 成功后进入 PENDING 等待首次 query
+                job.status = GenTaskStatus::PENDING;
                 info.save_with_retry(filePathStr);
                 UpdateFeedback(info);
                 info.feedback.save_with_retry(fbPath, false);
+
+                // 注册到 Block: 读 .blk → generations_info_.push_back → 写回
+                // (job.project_path + job.block_item 定位 Block)
+                {
+                    std::string blkPath = job.project_path + "/" + job.block_item + ".blk";
+                    BlockObject::Task_Info blkInfo;
+                    if (blkInfo.ReadBlockInfoBin(blkPath)) {
+                        blk_generation_info_s genInfo;
+                        genInfo.task_uuid    = job.task_uuid;
+                        genInfo.job_name     = info.job_name;
+                        genInfo.sub_type     = static_cast<int>(job.params.sub_type);
+                        genInfo.status       = static_cast<int>(GenTaskStatus::PENDING);
+                        genInfo.created_time = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+                        blkInfo.generations_info_.push_back(genInfo);
+                        blkInfo.generationjobs_[job.task_uuid] = info.job_name;
+                        blkInfo.WriteBlockInfoToBin(blkPath, false);
+                    }
+                }
+
                 MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
 
                 LOGI("Submitted: " + job.task_uuid + " server_task_id=" + job.server_task_id);
@@ -2395,7 +2708,7 @@ namespace AI3D {
         void GenTaskThread::ProcessRunningJobs()
         {
             QString runningDir = genRunningJobPath;
-            QDirIterator it(runningDir, {"J_*"}, QDir::Files);
+            QDirIterator it(runningDir, {"J_*.bin"}, QDir::Files);
 
             while (it.hasNext()) {
                 it.next();
@@ -2428,7 +2741,6 @@ namespace AI3D {
                         UpdateFeedback(info);
                         info.feedback.save_with_retry(fbPath, false);
                         MoveJobFile(filePathStr, qstr2str(genFailedJobPath));
-                        GenTaskAPI::TriggerTaskFailed(job.task_uuid, "连续 5 次轮询超时");
                     } else {
                         info.save_with_retry(filePathStr);
                     }
@@ -2445,12 +2757,24 @@ namespace AI3D {
                         info.save_with_retry(filePathStr);
                         UpdateFeedback(info);
                         info.feedback.save_with_retry(fbPath, false);
+                        // 更新 Block 中的状态和 result_url
+                        {
+                            std::string blkPath = job.project_path + "/" + job.block_item + ".blk";
+                            BlockObject::Task_Info blkInfo;
+                            if (blkInfo.ReadBlockInfoBin(blkPath)) {
+                                for (auto& gen : blkInfo.generations_info_) {
+                                    if (gen.task_uuid == job.task_uuid) {
+                                        gen.status = static_cast<int>(GenTaskStatus::COMPLETED);
+                                        if (!job.result_url.empty())  gen.result_url  = job.result_url;
+                                        if (!job.preview_url.empty()) gen.preview_url = job.preview_url;
+                                        break;
+                                    }
+                                }
+                                blkInfo.WriteBlockInfoToBin(blkPath, false);
+                            }
+                        }
                         MoveJobFile(filePathStr, qstr2str(genCompletedJobPath));
                         LOGI("Completed: " + job.task_uuid);
-                        GenTaskAPI::TriggerTaskComplete(job.task_uuid, job.result_url);
-                        GenTaskAPI::UpdateBlockGenStatus(job.task_uuid,
-                            static_cast<int>(GenTaskStatus::COMPLETED),
-                            job.result_url, job.preview_url);
                         break;
                     }
 
@@ -2459,11 +2783,22 @@ namespace AI3D {
                         info.save_with_retry(filePathStr);
                         UpdateFeedback(info);
                         info.feedback.save_with_retry(fbPath, false);
+                        // 更新 Block 中的状态
+                        {
+                            std::string blkPath = job.project_path + "/" + job.block_item + ".blk";
+                            BlockObject::Task_Info blkInfo;
+                            if (blkInfo.ReadBlockInfoBin(blkPath)) {
+                                for (auto& gen : blkInfo.generations_info_) {
+                                    if (gen.task_uuid == job.task_uuid) {
+                                        gen.status = static_cast<int>(GenTaskStatus::FAILED);
+                                        break;
+                                    }
+                                }
+                                blkInfo.WriteBlockInfoToBin(blkPath, false);
+                            }
+                        }
                         MoveJobFile(filePathStr, qstr2str(genFailedJobPath));
                         LOGE("Failed: " + job.task_uuid);
-                        GenTaskAPI::TriggerTaskFailed(job.task_uuid, job.error_message);
-                        GenTaskAPI::UpdateBlockGenStatus(job.task_uuid,
-                            static_cast<int>(GenTaskStatus::FAILED), "", "");
                         break;
                     }
 
@@ -2484,6 +2819,20 @@ namespace AI3D {
                         info.save_with_retry(filePathStr);
                         UpdateFeedback(info);
                         info.feedback.save_with_retry(fbPath, false);
+                        // 更新 Block 中的状态
+                        {
+                            std::string blkPath = job.project_path + "/" + job.block_item + ".blk";
+                            BlockObject::Task_Info blkInfo;
+                            if (blkInfo.ReadBlockInfoBin(blkPath)) {
+                                for (auto& gen : blkInfo.generations_info_) {
+                                    if (gen.task_uuid == job.task_uuid) {
+                                        gen.status = static_cast<int>(GenTaskStatus::CANCELLED);
+                                        break;
+                                    }
+                                }
+                                blkInfo.WriteBlockInfoToBin(blkPath, false);
+                            }
+                        }
                         MoveJobFile(filePathStr, qstr2str(genCancelledJobPath));
                         LOGI("Cancelled by server: " + job.task_uuid);
                         break;
@@ -2500,70 +2849,16 @@ namespace AI3D {
         }
 
         // ============================================================================
-        // CancelGenTask — 取消生成式任务
-        //
-        // 流程:
-        //   1. 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 job 文件
-        //   2. HTTP POST cancel 到服务端 (如果有 server_task_id)
-        //   3. 更新状态为 CANCELLED → 保存 → 移到 Cancelled/
-        //   4. 更新 feedback
-        //
-        // 对标: CallEngine.cpp 中 searchCancelledRunningJob 的取消逻辑
-        //       (重建式通过 kill 子进程 + 移文件取消, 生成式通过 HTTP cancel + 移文件)
-        // ============================================================================
-
+        // CancelGenTask — TODO: 取消生成式任务
+        // 流程: 遍历 jobs_gen/ → 找 task_uuid → HTTP cancel → 更新 feedback + Block → 移 Cancelled/
         bool GenTaskThread::CancelGenTask(const std::string& task_uuid)
         {
-            QString genRoot = Settings::getGenEngineJobQueue();
-            QStringList subDirs = {JOBPENDINGSTR, JOBRUNNINGSTR, JOBCOMPLETEDSTR,
-                                   JOBFAILEDSTR, JOBCANCELLEDSTR};
-
-            for (const QString& sub : subDirs) {
-                QDirIterator it(genRoot + "/" + sub, {"J_*"}, QDir::Files);
-                while (it.hasNext()) {
-                    it.next();
-                    std::string filePathStr = it.filePath().toStdString();
-
-                    GenJobFullInfo_s info;
-                    if (!info.load_with_retry(filePathStr))
-                        continue;
-                    if (info.job.task_uuid != task_uuid)
-                        continue;
-
-                    GenJobInfo_s& job = info.job;
-
-                    // 已处于终态, 不再操作
-                    if (job.status == GenTaskStatus::COMPLETED ||
-                        job.status == GenTaskStatus::FAILED ||
-                        job.status == GenTaskStatus::CANCELLED) {
-                        LOGW("CancelGenTask: task " + task_uuid + " already in terminal state");
-                        return true;
-                    }
-
-                    // 1. HTTP cancel (有 server_task_id 才需要)
-                    if (!job.server_task_id.empty()) {
-                        GenHttpClient::CancelTask(job.server_task_id);
-                    }
-
-                    // 2. 加载 feedback → 更新状态 → 保存
-                    std::string fbPath = BuildFeedbackPath(info);
-                    info.feedback.load_with_retry(fbPath, false);
-                    job.status = GenTaskStatus::CANCELLED;
-                    info.save_with_retry(filePathStr);
-                    UpdateFeedback(info);
-                    info.feedback.save_with_retry(fbPath, false);
-
-                    // 3. 移到 Cancelled/
-                    MoveJobFile(filePathStr, qstr2str(genCancelledJobPath));
-
-                    LOGI("Cancelled: " + task_uuid);
-                    return true;
-                }
-            }
-
-            LOGW("CancelGenTask: task_uuid not found: " + task_uuid);
+            // TODO
             return false;
         }
+
+        // ============================================================================
+        // ============================================================================
 
     }} // namespace AI3D::CORE
 ```
@@ -2628,7 +2923,7 @@ void GenTaskThread::SearchUnnormalRunningJob()
             break;
 
         QString runningDir = genRunningJobPath;
-        QDirIterator it(runningDir, {"J_*"}, QDir::Files);
+        QDirIterator it(runningDir, {"J_*.bin"}, QDir::Files);
         QDateTime now = QDateTime::currentDateTime();
 
         while (it.hasNext()) {
@@ -2658,7 +2953,6 @@ void GenTaskThread::SearchUnnormalRunningJob()
                 UpdateFeedback(info);
                 info.feedback.save_with_retry(fbPath, false);
                 MoveJobFile(filePathStr, qstr2str(genFailedJobPath));
-                GenTaskAPI::TriggerTaskFailed(info.job.task_uuid, info.job.error_message);
                 continue;
             }
 
@@ -2699,11 +2993,8 @@ searchUnnormalGenRunningJob.detach();
 - [ ] `App/Engine/CallEngine.cpp` `main()` — 在 `MakePath()` 调用之后增加：
 
 ```cpp
-// ===== 新增: 初始化 HTTP 客户端 =====
-std::string configpath = apppath + "/" + "MoldAIConfig.ini";
-GenHttpClient::Init(configpath);
-
 // ===== 新增: 生成式任务线程 =====
+// 服务端地址在 Core/Types.h 中宏定义 (GEN_SERVER_URL / GEN_API_PREFIX), 无需 Init
 std::thread genTaskThread(GenTaskThread::Run);
 genTaskThread.detach();
 
@@ -2736,164 +3027,93 @@ searchUnnormalGenRunningJob.detach();
 
 **为什么 GenTaskAPI 不直接调用 GenHttpClient？** GenTaskAPI 编译进 MoldAIData.dll（Src/Core/），GenHttpClient 编译进 MoldAINode.exe（App/Engine/）。DLL 不能反向依赖 EXE 中的符号。因此 GenTaskAPI 只做文件系统操作（写 job 文件到 Pending/、读 feedback 文件），HTTP 通信完全由 GenTaskThread（在 EXE 侧）负责。这是进程内分层而非进程间通信——两者编译进同一个 EXE，但通过 DLL 边界隔离。
 
-**为什么使用回调机制而非信号槽？** 回调机制的单向依赖（GenTaskAPI 存储 → GenTaskThread 触发）确保 DLL 不依赖 EXE。信号槽需要 QObject 派生和 moc 预处理，在这个跨 DLL/EXE 边界的场景中增加了不必要的复杂度。简单的 `std::function` 回调足够：GenTaskAPI 暴露 `SetTaskCompleteCallback` / `SetTaskFailedCallback` 注册入口，GenTaskThread 完成后调用 `TriggerTaskComplete` / `TriggerTaskFailed` 触发。
+**为什么不用回调而是文件轮询？** GenTaskThread（MoldAINode.exe）和前端（MoldAIDesktop.exe）是不同进程，`std::function` 回调无法跨进程调用。对标重建式：GenTaskThread 写 feedback 文件和 Block .blk 文件，前端直接读 feedback 文件或读 `generations_info_` 获取状态。
 
-**为什么 DownloadResult 在 GenTaskAPI 中直接做 HTTP GET？** DownloadResult 下载的是服务端返回的 result_url（可能是 CDN URL），不经过 Triverse API 网关，不需要签名鉴权。因此它可以简单地用 QNetworkAccessManager 直接 GET，不需要通过 GenHttpClient。这也避免了 DownloadResult 依赖 GenHttpClient 的编译问题。
+**任务与 Block 的映射**：`SubmitResult` 直接返回所有定位信息，前端无需解析路径：
 
-**为什么 QueryTaskStatus 返回的是 feedback 的状态而非 GenJobInfo_s 的状态？** feedback 文件（JobFeedBack_s）是 MoldAI 通用的进度反馈机制，前端已有的进度轮询逻辑都基于 feedback。生成式复用这个机制：GenTaskThread 通过 UpdateFeedback() 将 GenTaskStatus 映射为 jobsta_e 写入 feedback，前端无需感知 GenTaskStatus 枚举。
+| SubmitResult 字段 | 用途 |
+|---|---|
+| `feedback_path` | 轮询 feedback 文件获取进度/状态 (前端直接读 JobFeedBack_s) |
+| `project_path` + `block_id` | 直接定位 Block（`block_id` 对标 `block->GetId()`）|
+| `job_name` | 在 Block 的 `generations_info_` 中匹配对应条目，取 `result_url` |
 
-### 5.1 新建 GenTaskAPI
+**完成后的完整链路**：
 
-- [ ] 创建 `Include/Core/GenTaskAPI.h`
+```
+读 feedback 文件 → COMPLETED
+       ↓
+读取 Block .blk → generations_info_ 按 job_name 匹配 → 拿到 result_url
+       ↓
+DownloadResult(result_url, save_path)
+       ↓
+刷新 UI (Block 树节点显示完成状态)
+```
+
+
+**为什么 DownloadResult 在 GenTaskAPI 中直接做 HTTP GET？** result_url 可能是 CDN 链接，不经过 Triverse API 网关，不需要签名鉴权。
+
+### 5.1 GenTaskAPI.h
 
 ```cpp
 // Include/Core/GenTaskAPI.h
-// ============================================================================
-// @file    GenTaskAPI.h
-// @brief   生成式任务前端 SDK — 编译进 MoldAIData.dll
-//
-// 提供生成式任务的提交 / 查询 / 下载接口, 供 GUI 前端调用。
-//
-// 依赖方向: GenTaskAPI (MoldAIData.dll) ← GenTaskThread (MoldAINode.exe)
-//           GenTaskAPI 存储回调 → GenTaskThread 调用 TriggerXxx 触发回调
-//           单向依赖, GenTaskAPI 不依赖 App/Engine/ 下的任何文件
-//
-// 上下文: 本文件在 Include/Core/ 下, 被 Src/Core/CMakeLists.txt 的
-//         FILE(GLOB) 自动拾取, 编译进 MoldAIData.dll
-// ============================================================================
+#pragma once
 
-#ifndef _AI3D_CORE_GEN_TASK_API_H_
-#define _AI3D_CORE_GEN_TASK_API_H_
-
-#include "Util/GenTaskProcess.h"
+#include "Core/GenTaskOptions.h"   // GenTaskStatus / GenTaskSubType / GenTaskParams
+#include "Core/BlockObject.h"       // BlockObject::Task_Info
 #include <string>
-#include <functional>
-
-// 前向声明 — BlockObject 在 Include/Core/BlockObject.h 中定义
-namespace AI3D { namespace CORE { class BlockObject; } }
 
 namespace AI3D {
-    namespace CORE {
+namespace CORE {
 
-        /// @brief 生成式任务前端 SDK (所有方法均为静态)
-        class GenTaskAPI
-        {
-            public:
-            // ========== 返回值结构 ==========
+class AI3D_API GenTaskAPI
+{
+public:
+    struct SubmitResult {
+        std::string task_uuid;       // 全局唯一, 取消任务时用
+        std::string job_name;        // J_BlockName_timestamp, 在 generations_info_ 中匹配
+        bool        success = false;
+        std::string error_msg;
+    };
 
-            /// @brief SubmitGenTask 返回值
-            struct SubmitResult {
-                std::string task_uuid;       // 生成的 UUID, 前端后续查询用
-                std::string job_name;        // job 文件名 (BlockName + 时间戳)
-                std::string feedback_path;   // feedback 文件路径 (前端可直接读取)
-                bool        success = false; // 提交是否成功
-                std::string error_msg;       // 失败原因
-            };
+    static SubmitResult SubmitGenTask(
+        const BlockObject::Task_Info& blockInfo,
+        const std::string& user_account,
+        const std::string& pendingJobPath);
 
-            /// @brief QueryTaskStatus 返回值 (字段来源: GenJobInfo_s)
-            struct TaskStatusResult {
-                GenTaskStatus status = GenTaskStatus::IDLE;  // 当前状态
-                int           progress = 0;                   // 进度 0-100 (来自 JobFeedBack_s.Percent)
-                std::string   result_url;                     // 结果下载链接
-                std::string   preview_url;                    // 预览图链接
-                std::string   server_task_id;                 // 服务端任务ID
-                std::string   error_message;                  // 错误详情
-                int           cost_credits = 0;               // 花费积分
-                int           points_balance = 0;             // 积分余额
-            };
+    static bool DownloadResult(const std::string& result_url,
+                                const std::string& save_path);
 
-            // ========== 核心接口 (前端 SDK, 编译进 MoldAIData.dll) ==========
+    /// @brief 查询用户积分余额 (TODO: 对接 Triverse 积分 API)
+    ///        需要 user_account 做身份标识, HTTP 鉴权由 GenHttpClient 处理
+    /// @brief 请求取消任务 (写取消标记, GenTaskThread 定时检查并执行 CancelGenTask)
+    static bool RequestCancel(const std::string& task_uuid);
 
-            /// @brief 提交生成式任务 — 构造 GenJobInfo_s 并写入 jobs_gen/Pending/
-            ///        从 blockInfo.gen_options 读取 block_task_category 和 gen_params (GenTaskParams)
-            static SubmitResult SubmitGenTask(
-                const AI3D::CORE::BlockObject::Task_Info& blockInfo,
-                const std::string& user_account);
+    static int QueryCredits(const std::string& user_account);
 
-            /// @brief 查询任务状态 — 先读 feedback 获取状态/进度, 终态时再读 GenJobInfo_s 获取结果详情
-            static TaskStatusResult QueryTaskStatus(const std::string& task_uuid);
+    // Block 结果注册/更新由 GenTaskThread 直接操作 .blk (EXE 侧, 见 Phase 4.1)
+};
 
-            /// @brief 下载结果文件 — HTTP GET result_url → 保存到本地
-            static bool DownloadResult(const std::string& task_uuid,
-                                       const std::string& save_path);
-
-            // ========== 回调 — 前端注册, GenTaskThread 触发 ==========
-
-            /// @brief 任务完成回调 (task_uuid, result_url)
-            using TaskCompleteCallback = std::function<void(
-                const std::string& task_uuid,
-                const std::string& result_url)>;
-
-            /// @brief 任务失败回调 (task_uuid, error_message)
-            using TaskFailedCallback = std::function<void(
-                const std::string& task_uuid,
-                const std::string& error)>;
-
-            static void SetTaskCompleteCallback(TaskCompleteCallback cb);
-            static void SetTaskFailedCallback(TaskFailedCallback cb);
-
-            // 以下由 GenTaskThread 调用 (GenTaskAPI ← GenTaskThread, 单向依赖)
-            static void TriggerTaskComplete(const std::string& task_uuid,
-                                            const std::string& result_url);
-            static void TriggerTaskFailed(const std::string& task_uuid,
-                                          const std::string& error);
-
-            /// @brief 更新 Block 的生成结果状态 (由 GenTaskThread 在完成/失败时调用)
-            static void UpdateBlockGenStatus(const std::string& task_uuid,
-                                              int status,
-                                              const std::string& result_url,
-                                              const std::string& preview_url);
-
-            private:
-            /// @brief 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 GenJobFullInfo_s
-            static GenJobFullInfo_s FindGenJob(const std::string& task_uuid);
-
-            /// @brief 更新 Block 的 generations_info_ 和 generationjobs_ (内部)
-            static void UpdateBlockGenerationInfo(const blk_generation_info_s& genInfo);
-
-            // 回调存储 (文件级静态变量, 在 GenTaskAPI.cpp 中定义)
-            static TaskCompleteCallback s_completeCallback;
-            static TaskFailedCallback   s_failedCallback;
-        };
-
-    }} // namespace AI3D::CORE
-
-#endif
+}} // namespace AI3D::CORE
 ```
 
-### 5.2 创建 GenTaskAPI.cpp
+### 5.2 GenTaskAPI.cpp
+
+> DLL 侧不扫描 `jobs_gen/`，不依赖 `Settings`，路径全部由调用方传入。
 
 ```cpp
 // Src/Core/GenTaskAPI.cpp
-// ============================================================================
-// @brief   生成式任务前端 SDK 实现
-//          编译进 MoldAIData.dll, 不依赖 App/Engine/ 下的任何文件
-//
-// 依赖方向 (单向):
-//   GenTaskAPI (MoldAIData.dll) ← GenTaskThread (MoldAINode.exe)
-//   GenTaskAPI 定义回调接口 → GenTaskAPI.cpp 存储静态回调变量
-//   → GenTaskThread 调用 TriggerXxx 触发
-//
-// 文件写入:
-//   SubmitGenTask — 写 job JSON (GenJobInfo_s) 到 jobs_gen/Pending/ + 创建初始 feedback
-//   QueryTaskStatus — 读 GenJobInfo_s (结果) + JobFeedBack_s (仅取 Percent)
-//   DownloadResult — HTTP GET 下载结果文件到本地
-// ============================================================================
-
 #include "Core/GenTaskAPI.h"
 #include "Core/BlockObject.h"
 #include "Util/GenTaskProcess.h"
 #include "Util/TaskProcess.h"
-#include "Util/Settings.h"
-#include "Core/Types.h"            // JOB_FEEDBACK_USE_BIN / BINFILE_POSTFIX / JSONFILE_POSTFIX
-#include "Core/Logging.h"          // LOGE / LOGW
-#include <QUuid>                   // QUuid::createUuid (生成 task_uuid)
+#include "Core/Types.h"
+#include "Core/Logging.h"
+#include <QUuid>
 #include <QDir>
-#include <QDirIterator>
 #include <QFileInfo>
-#include <QFile>                   // QFile (DownloadResult 写文件)
-#include <QHostInfo>               // QHostInfo::localHostName (engine_id)
-#include <QDateTime>               // QDateTime::currentDateTime (job_name 时间戳)
+#include <QFile>
+#include <QHostInfo>
+#include <QDateTime>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -2901,314 +3121,121 @@ namespace AI3D {
 #include <QTimer>
 #include <fstream>
 
-namespace AI3D {
-    namespace CORE {
+namespace AI3D { namespace CORE {
 
-        // 回调静态存储 (GenTaskThread 完成后调用 TriggerXxx → 触发前端注册的回调)
-        GenTaskAPI::TaskCompleteCallback GenTaskAPI::s_completeCallback = nullptr;
-        GenTaskAPI::TaskFailedCallback   GenTaskAPI::s_failedCallback   = nullptr;
+// ============================================================================
+// SubmitGenTask
+// ============================================================================
+GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
+    const BlockObject::Task_Info& blockInfo,
+    const std::string& user_account,
+    const std::string& pendingJobPath)
+{
+    SubmitResult result;
 
-        // ============================================================================
-        // 回调注册 — 前端调用, 设置回调函数指针
-        // ============================================================================
+    if (blockInfo.block_task_category != 1) {
+        result.success = false;
+        result.error_msg = "Block does not support generative tasks";
+        return result;
+    }
 
-        void GenTaskAPI::SetTaskCompleteCallback(TaskCompleteCallback cb) {
-            s_completeCallback = std::move(cb);
-        }
-        void GenTaskAPI::SetTaskFailedCallback(TaskFailedCallback cb) {
-            s_failedCallback = std::move(cb);
-        }
+    GenJobFullInfo_s fullInfo;
+    fullInfo.job_name = "J_" + blockInfo.blockName + "_"
+        + QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
 
-        // ============================================================================
-        // 回调触发 — GenTaskThread 调用 (MoldAINode.exe → MoldAIData.dll)
-        // 检查回调是否已注册, 是则执行
-        // ============================================================================
+    GenJobInfo_s& job = fullInfo.job;
+    job.task_uuid = user_account + "_"
+        + QDateTime::currentDateTime().toString("yyyyMMddhhmmsszzz").toStdString()
+        + "_" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString().substr(0, 4);
+    job.engine_id    = QHostInfo::localHostName().toStdString();
+    job.user_account = user_account;
+    job.project_path = blockInfo.projectfile_;
+    job.block_item   = blockInfo.blockName;
+    job.params       = blockInfo.gen_options.gen_params;
+    job.status       = GenTaskStatus::IDLE;
 
-        void GenTaskAPI::TriggerTaskComplete(const std::string& task_uuid,
-                                             const std::string& result_url) {
-            if (s_completeCallback) {
-                s_completeCallback(task_uuid, result_url);
-            }
-        }
-        void GenTaskAPI::TriggerTaskFailed(const std::string& task_uuid,
-                                           const std::string& error) {
-            if (s_failedCallback) {
-                s_failedCallback(task_uuid, error);
-            }
-        }
+    QString resultDir = QString::fromStdString(blockInfo.projectfile_)
+        + "/" + QString::fromStdString(blockInfo.blockName)
+        + "/" + QString::fromStdString(fullInfo.job_name);
+    QDir().mkpath(resultDir);
 
-        // ============================================================================
-        // SubmitGenTask — 前端提交生成式任务
-        //
-        // 流程:
-        //   1. 校验 blockInfo.block_task_category == 1 (必须是生成式 Block)
-        //   2. 从 blockInfo.gen_options.gen_params 读取生成参数 (GenTaskParams 结构体)
-        //   3. 构造 GenJobInfo_s (task_uuid = QUuid, job_name = BlockName + 时间戳)
-        //   4. 创建结果目录 project/BlockName/job_name/
-        //   5. 写 job JSON 到 jobs_gen/Pending/
-        //   6. 创建初始 JobFeedBack_s
-        // ============================================================================
+    QDir().mkpath(QString::fromStdString(pendingJobPath));
+    std::string jobFilePath = pendingJobPath + fullInfo.job_name + ".bin";
+    if (!fullInfo.save_with_retry(jobFilePath)) {
+        result.success = false;
+        result.error_msg = "Failed to write job file: " + jobFilePath;
+        return result;
+    }
 
-        GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
-            const BlockObject::Task_Info& blockInfo,
-            const std::string& user_account)
-        {
-            SubmitResult result;
+    std::string feedbackPath = blockInfo.projectfile_ + "/"
+        + blockInfo.blockName + "/JF_" + fullInfo.job_name
+        + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
+    fullInfo.feedback.Status = jobsta_e::STATUS_PENDDING;
+    fullInfo.feedback.Percent = 0.0f;
+    fullInfo.feedback.save_with_retry(feedbackPath, false);
 
-            // 1. 校验 Block 类型 (从 gen_options 读取, 对标 at_options 的用法)
-            if (blockInfo.block_task_category != 1) {
-                result.success   = false;
-                result.error_msg = "Block does not support generative tasks (block_task_category != 1)";
-                return result;
-            }
+    result.success   = true;
+    result.task_uuid = job.task_uuid;
+    result.job_name  = fullInfo.job_name;
+    return result;
+}
 
-            // 2. 构造 GenJobFullInfo_s (文件级结构体) + GenJobInfo_s (纯数据)
-            GenJobFullInfo_s fullInfo;
-            fullInfo.job_name = "J_" + blockInfo.blockName + "_"
-                + QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+// ============================================================================
+// DownloadResult
+// ============================================================================
+bool GenTaskAPI::DownloadResult(const std::string& result_url,
+                                 const std::string& save_path)
+{
+    if (result_url.empty()) { LOGE("DownloadResult: result_url is empty"); return false; }
 
-            GenJobInfo_s& job = fullInfo.job;
-            job.task_uuid    = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-            job.engine_id    = QHostInfo::localHostName().toStdString();
-            job.user_account = user_account;
-            job.project_path = blockInfo.projectfile_;
-            job.block_item   = blockInfo.blockName;
-            job.params       = blockInfo.gen_options.gen_params;   // 从 gen_options 读取 GenTaskParams
-            job.status       = GenTaskStatus::IDLE;
+    QNetworkAccessManager manager;
+    QUrl url(QString::fromStdString(result_url));
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply* reply = manager.get(request);
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, [&]() { reply->abort(); loop.quit(); });
+    timer.start(30000);
+    loop.exec();
+    if (reply->error() != QNetworkReply::NoError) {
+        LOGE("DownloadResult: " + reply->errorString().toStdString());
+        reply->deleteLater();
+        return false;
+    }
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+    QFile file(QString::fromStdString(save_path));
+    if (!file.open(QIODevice::WriteOnly)) { LOGE("DownloadResult: cannot write"); return false; }
+    file.write(data);
+    file.close();
+    return true;
+}
 
-            // 3. 创建结果目录 (如果还不存在)
-            QString resultDir = QString::fromStdString(blockInfo.projectfile_)
-                + "/" + QString::fromStdString(blockInfo.blockName)
-                + "/" + QString::fromStdString(fullInfo.job_name);
-            QDir().mkpath(resultDir);
+// ============================================================================
+// RequestCancel — TODO: 取消任务
+// ============================================================================
+bool GenTaskAPI::RequestCancel(const std::string& task_uuid)
+{
+    // TODO
+    return false;
+}
 
-            // 4. 获取 jobs_gen/Pending/ 路径
-            QString genRoot    = Settings::getGenEngineJobQueue();
-            QString pendingPath = genRoot + "/" + JOBPENDINGSTR + "/";
-            QDir().mkpath(pendingPath);
+// ============================================================================
+// QueryCredits — TODO: 对接 Triverse 积分查询 API
+// ============================================================================
+int GenTaskAPI::QueryCredits(const std::string& user_account)
+{
+    // TODO: GenHttpClient 发 GET /api/v1/credits?user=xxx → 解析 points_balance
+    return -1;
+}
 
-            // 5. 写入 job 文件 (GenJobFullInfo_s::save_with_retry → BIN/JSON 自动分发)
-            std::string jobFilePath = pendingPath.toStdString() + fullInfo.job_name + ".bin";
-            if (!fullInfo.save_with_retry(jobFilePath)) {
-                result.success   = false;
-                result.error_msg = "Failed to write job file: " + jobFilePath;
-                return result;
-            }
-
-            // 6. 创建初始 feedback (对标 CallEngine.cpp 中 MAKE_FEEDBAK_BIN/JSON_FILE 宏)
-            //    GenJobFullInfo_s 持有 JobFeedBack_s (对标 TaskGraph_s), 直接在内存中操作
-            std::string feedbackBase = blockInfo.projectfile_ + "/"
-                + blockInfo.blockName + "/JF_"
-                + fullInfo.job_name;
-            std::string feedbackPath = feedbackBase
-                + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
-
-            fullInfo.feedback.Status  = jobsta_e::STATUS_PENDDING;
-            fullInfo.feedback.Percent = 0.0f;
-            fullInfo.feedback.save_with_retry(feedbackPath, false);
-
-            // 7. 更新 Block 的生成结果列表 (对标 reconstructions_info_ / reconstructionjobs_)
-            blk_generation_info_s genInfo;
-            genInfo.task_uuid    = job.task_uuid;
-            genInfo.job_name     = fullInfo.job_name;
-            genInfo.sub_type     = static_cast<int>(job.params.sub_type);
-            genInfo.status       = static_cast<int>(GenTaskStatus::PENDING);
-            genInfo.created_time = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
-            UpdateBlockGenerationInfo(genInfo);
-
-            // 8. 返回
-            result.success       = true;
-            result.task_uuid     = job.task_uuid;
-            result.job_name      = fullInfo.job_name;
-            result.feedback_path = feedbackPath;
-            return result;
-        }
-
-        // ============================================================================
-        // UpdateBlockGenerationInfo — 更新 Block 的生成结果列表 (内部辅助)
-        // 读取 Block → 追加/更新 generations_info_ 和 generationjobs_ → 写回
-        // ============================================================================
-        static void UpdateBlockGenerationInfo(const blk_generation_info_s& genInfo) {
-            // 找到 Block 的 .blk 文件并读取
-            // 对标 ReconstructionCommandSet 中更新 reconstructions_info_ 的模式
-            // 如果 task_uuid 已存在则更新，否则追加
-        }
-
-        // ============================================================================
-        // QueryTaskStatus — 前端查询任务状态
-        // 1. 先读 JobFeedBack_s 获取状态和进度 (标准 feedback, 固定字段)
-        // 2. 终态时 (COMPLETED/FAILED) 再读 GenJobInfo_s 获取结果详情
-        // ============================================================================
-
-        GenTaskAPI::TaskStatusResult GenTaskAPI::QueryTaskStatus(const std::string& task_uuid)
-        {
-            TaskStatusResult result;
-
-            // 1. 找到 GenJobFullInfo_s (用于构造 feedback 路径)
-            GenJobFullInfo_s info = FindGenJob(task_uuid);
-            GenJobInfo_s& job = info.job;
-            if (job.task_uuid.empty()) {
-                result.status        = GenTaskStatus::IDLE;
-                result.error_message = "job not found for task_uuid: " + task_uuid;
-                return result;
-            }
-
-            // 2. 先读 feedback — 获取状态 + 进度 (标准字段, 不动 JobFeedBack_s)
-            std::string fbBase = job.project_path + "/" + job.block_item
-                + "/JF_" + info.job_name;
-            std::string fbPath = fbBase
-                + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
-            JobFeedBack_s fb;
-            if (!fb.load_with_retry(fbPath, false)) {
-                result.status  = GenTaskStatus::IDLE;
-                result.progress = 0;
-                return result;
-            }
-
-            result.progress = static_cast<int>(fb.Percent);
-
-            // 3. jobsta_e → GenTaskStatus 映射
-            switch (fb.Status) {
-                case jobsta_e::STATUS_PENDDING:   result.status = GenTaskStatus::PENDING;      break;
-                case jobsta_e::STATUS_RUNNING:    result.status = GenTaskStatus::IN_PROGRESS;  break;
-                case jobsta_e::STATUS_COMPLETE:   result.status = GenTaskStatus::COMPLETED;    break;
-                case jobsta_e::STATUS_FAILED:     result.status = GenTaskStatus::FAILED;       break;
-                case jobsta_e::STATUS_CANCELLED:  result.status = GenTaskStatus::CANCELLED;    break;
-                default:                          result.status = GenTaskStatus::IDLE;         break;
-            }
-
-            // 4. 仅在终态时读 GenJobInfo_s 获取结果详情
-            if (result.status == GenTaskStatus::COMPLETED) {
-                result.result_url    = job.result_url;
-                result.preview_url   = job.preview_url;
-                result.cost_credits  = job.cost_credits;
-                result.points_balance = job.points_balance;
-            } else if (result.status == GenTaskStatus::FAILED) {
-                result.error_message = job.error_message;
-            }
-
-            result.server_task_id = job.server_task_id;
-            return result;
-        }
-
-        // ============================================================================
-        // DownloadResult — 下载任务结果文件
-        // 先 QueryTaskStatus 获取 result_url, 然后 HTTP GET 下载到 save_path
-        // ============================================================================
-
-        bool GenTaskAPI::DownloadResult(const std::string& task_uuid,
-                                        const std::string& save_path)
-        {
-            TaskStatusResult status = QueryTaskStatus(task_uuid);
-            if (status.status != GenTaskStatus::COMPLETED) {
-                LOGE("DownloadResult: task not completed, uuid=" + task_uuid);
-                return false;
-            }
-            if (status.result_url.empty()) {
-                LOGE("DownloadResult: result_url is empty, uuid=" + task_uuid);
-                return false;
-            }
-
-            // 使用 Qt Network 同步下载
-            QNetworkAccessManager manager;
-            QNetworkRequest request(QUrl(QString::fromStdString(status.result_url)));
-            request.setTransferTimeout(30000);  // 下载超时 30s
-
-            QNetworkReply* reply = manager.get(request);
-            QEventLoop loop;
-            QTimer timer;
-            timer.setSingleShot(true);
-            QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-            QObject::connect(&timer, &QTimer::timeout, [&]() {
-                reply->abort();
-                loop.quit();
-            });
-            timer.start(30000);
-            loop.exec();
-
-            if (reply->error() != QNetworkReply::NoError) {
-                LOGE("DownloadResult: download failed: " + reply->errorString().toStdString());
-                reply->deleteLater();
-                return false;
-            }
-
-            QByteArray data = reply->readAll();
-            reply->deleteLater();
-
-            QFile file(QString::fromStdString(save_path));
-            if (!file.open(QIODevice::WriteOnly)) {
-                LOGE("DownloadResult: cannot write to " + save_path);
-                return false;
-            }
-            file.write(data);
-            file.close();
-            return true;
-        }
-
-        // ========== 内部辅助 ==========
-
-        /// @brief 遍历 jobs_gen/ 下所有状态目录, 通过 task_uuid 找到 GenJobFullInfo_s
-        static GenJobFullInfo_s FindGenJob(const std::string& task_uuid)
-        {
-            QString genRoot = Settings::getGenEngineJobQueue();
-            QStringList subDirs = {JOBPENDINGSTR, JOBRUNNINGSTR, JOBCOMPLETEDSTR,
-                                   JOBFAILEDSTR, JOBCANCELLEDSTR};
-
-            for (const QString& sub : subDirs) {
-                QDirIterator it(genRoot + "/" + sub, {"J_*"}, QDir::Files);
-                while (it.hasNext()) {
-                    it.next();
-                    GenJobFullInfo_s info;
-                    if (!info.load_with_retry(it.filePath().toStdString()))
-                        continue;
-                    if (info.job.task_uuid == task_uuid) {
-                        return info;
-                    }
-                }
-            }
-
-            return {};
-        }
-
-    }} // namespace AI3D::CORE
+}} // namespace AI3D::CORE
 ```
 
-### 5.3 GenTaskAPI 与 GenTaskThread 的调用关系
-
-`GenTaskAPI.cpp` 在 `Src/Core/` 下，编译进 **MoldAIData.dll**。它不能反向依赖 `App/Engine/` 下的 `GenHttpClient` / `GenTaskThread`。
-
-因此回调采用 **GenTaskAPI 存储 → GenTaskThread 调用** 的单向依赖：
-
-```
-GenTaskThread (App/Engine, MoldAINode.exe)
-    │  #include "Core/GenTaskAPI.h"   ← GenTaskThread 可以看到 GenTaskAPI
-    │  任务完成时调用:
-    │    GenTaskAPI::TriggerTaskComplete(task_uuid, result_url)
-    │    GenTaskAPI::TriggerTaskFailed(task_uuid, error)
-    ▼
-GenTaskAPI (Src/Core, MoldAIData.dll)
-    │  存储回调指针 (静态变量)
-    │  TriggerTaskComplete() 内部调用已注册的回调
-    ▼
-前端 (GUI 进程)
-    │  SetTaskCompleteCallback(cb) 注册回调
-```
-
-`CancelGenTask` 实现在 `GenTaskThread` 中（详见 Phase 4.1），通过 HTTP cancel + 移文件到 Cancelled/ 完成取消。
-
-### 5.4 线程安全
-
-回调在 `GenTaskThread`（非 Qt 主线程）中执行。调用者如需更新 UI，自行处理：
-
-```cpp
-GenTaskAPI::SetTaskCompleteCallback([](const std::string& task_uuid, const std::string& url) {
-    QMetaObject::invokeMethod(qApp, [=]() {
-        // UI 更新...
-    }, Qt::QueuedConnection);
-});
-```
-
-### 5.5 CMakeLists — 无需修改
+### 5.3 CMakeLists — 无需修改
 
 `GenTaskAPI.h` 在 `Include/Core/` 下，`GenTaskAPI.cpp` 在 `Src/Core/` 下，被 `FILE(GLOB)` 自动拾取。`Qt6::Network` 已在 `Src/Core/CMakeLists.txt` line 56 链接。
 
@@ -3246,52 +3273,26 @@ int main(int argc, char** argv)
     blockInfo.blockName    = "TestBlock_Gen";
     blockInfo.projectfile_ = "C:/Users/Test/AppData/Local/MoldAI/TestProject";
 
-    // 2. 设置回调
-    GenTaskAPI::SetTaskCompleteCallback([](const std::string& uuid, const std::string& url) {
-        std::cout << "[COMPLETED] task_uuid=" << uuid << " result_url=" << url << std::endl;
-    });
-    GenTaskAPI::SetTaskFailedCallback([](const std::string& uuid, const std::string& err) {
-        std::cout << "[FAILED] task_uuid=" << uuid << " error=" << err << std::endl;
-    });
-
-    // 3. 提交任务 (参数已在 blockInfo.gen_options 中)
+    // 2. 提交任务 (pendingJobPath 由前端从设置中获取后传入)
+    std::string pendingPath = "/tmp/test_jobs_gen/Pending/";
     GenTaskAPI::SubmitResult result = GenTaskAPI::SubmitGenTask(
-        blockInfo, "testuser@example.com");
+        blockInfo, "testuser@example.com", pendingPath);
 
     if (!result.success) {
         std::cerr << "Submit failed: " << result.error_msg << std::endl;
         return 1;
     }
 
-    std::cout << "Submitted: " << result.task_uuid << std::endl;
-    std::cout << "Job: " << result.job_name << std::endl;
-    std::cout << "Feedback: " << result.feedback_path << std::endl;
+    std::cout << "Submitted: " << result.job_name << std::endl;
 
-    // 5. 轮询状态 (等待 Node 处理)
+    // 3. 轮询 feedback 文件 (等待 Node 处理)
     QTimer pollTimer;
     int pollCount = 0;
     QObject::connect(&pollTimer, &QTimer::timeout, [&]() {
         pollCount++;
-        auto status = GenTaskAPI::QueryTaskStatus(result.task_uuid);
 
         std::cout << "[" << pollCount << "] status="
-            << static_cast<int>(status.status)
-            << " progress=" << status.progress << "%";
-
-        if (!status.result_url.empty())
-            std::cout << " url=" << status.result_url;
         std::cout << std::endl;
-
-        if (status.status == GenTaskStatus::COMPLETED) {
-            // 6. 下载结果
-            std::string savePath = result.feedback_path.substr(
-                0, result.feedback_path.rfind('/')) + "/result.glb";
-            if (GenTaskAPI::DownloadResult(result.task_uuid, savePath)) {
-                std::cout << "Downloaded to: " << savePath << std::endl;
-            }
-            pollTimer.stop();
-            app.quit();
-        }
 
         if (status.status == GenTaskStatus::FAILED || pollCount > 300) {
             pollTimer.stop();
@@ -3527,19 +3528,176 @@ def submit(task_type):
 
 ### 6.6 测试配置
 
-在 `MoldAIConfig.ini` 中加入:
+在 `Core/Types.h` 中增加宏定义 (替换 INI 配置):
 
-```ini
-[GenTask]
-ServerUrl=http://localhost:5000
-ApiPrefix=/api/v1
-; accessToken 从注册表读取 (登录后自动写入, 与现有 HttpClient 共用)
-; Mock Server 不需要鉴权 → 不登录即可 (accessToken 为空, 签名不含 token)
-Timeout=5000
-MaxRetries=3
+```cpp
+// Include/Core/Types.h
+#define GEN_SERVER_URL  "http://localhost:5000"
+#define GEN_API_PREFIX  "/api/v1"
 ```
 
-测试时 Node 启动后会自动读取此配置（需在 `main()` 中调用 `GenHttpClient::Init(configpath)`）。
+> Mock Server 不需要鉴权 → accessToken 为空, 签名不含 token。
+
+服务端地址由 `Core/Types.h` 中的宏定义控制 (`GEN_SERVER_URL` / `GEN_API_PREFIX`)，无需 INI 配置或 Init 调用。
+
+### 6.7 全流程集成测试 (Mock HTTP + 真实 GenTaskThread 线程)
+
+> 编译: `testGenTaskFullFlow` 直接链接 `GenTaskThread.cpp` + `GenHttpClient.cpp` (Engine 层源文件), 加 `-DMOCK_GEN_HTTP`。
+> 验证: `std::thread` 起 `GenTaskThread::Run()` → 真实调度逻辑 → feedback → 前端读取, 全程同进程验证。
+
+> CMakeLists 见 Phase 1.6 (两个 target 合并在同一个 CMakeLists.txt 中)
+
+#### Test/testGenTask/testGenTaskFullFlow.cpp
+
+```cpp
+#include "Core/GenTaskOptions.h"
+#include "Core/GenTaskAPI.h"
+#include "Util/GenTaskProcess.h"
+#include "Util/TaskProcess.h"
+#include "Core/BlockObject.h"
+#include "Core/Types.h"
+#include "Core/Logging.h"
+#include "GenTaskThread.h"
+#include "GenHttpClient.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QUuid>
+#include <iostream>
+#include <thread>
+#include <chrono>
+
+using namespace AI3D::CORE;
+
+// GenTaskThread 需要的 extern 变量 (对标 CallEngine.cpp)
+bool bQuitingApplication = false;
+QString genPendingJobPath;
+QString genRunningJobPath;
+QString genCompletedJobPath;
+QString genFailedJobPath;
+QString genCancelledJobPath;
+
+static int g_failures = 0;
+#define TEST_ASSERT(cond, msg) \
+    do { if (!(cond)) { ++g_failures; std::cerr << "FAIL: " << msg << std::endl; } } while(0)
+
+int main(int argc, char** argv)
+{
+    QCoreApplication app(argc, argv);
+    std::cout << "\n===== GenTask Node Thread Integration Test =====\n" << std::endl;
+
+    // 1. 创建临时目录
+        // 1. Create temp directory
+    QString tmpRoot = QDir::tempPath() + "/test_gen_node_"
+        + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QDir().mkpath(tmpRoot);
+
+    // 2. 设置全局路径 (对标 MakePath)
+        // 2. Set global paths (matching MakePath)
+    QString genRoot = tmpRoot + "/jobs_gen";
+    genPendingJobPath   = genRoot + "/Pending/";
+    genRunningJobPath   = genRoot + "/Running/";
+    genCompletedJobPath = genRoot + "/Completed/";
+    genFailedJobPath    = genRoot + "/Failed/";
+    genCancelledJobPath = genRoot + "/Cancelled/";
+    QDir().mkpath(genPendingJobPath);
+    QDir().mkpath(genRunningJobPath);
+    QDir().mkpath(genCompletedJobPath);
+    QDir().mkpath(genFailedJobPath);
+    QDir().mkpath(genCancelledJobPath);
+
+    // 3. 创建 Block
+        // 3. Create Block
+    std::string projectPath = tmpRoot.toStdString();
+    BlockObject block(projectPath);
+    block.GetIdMutual() = 1;
+    block.Init();
+
+    BlockObject::Task_Info& task = block.GetTaskInfoMutual();
+    task.blockString  = "Block_1";
+    task.blockName    = "Block_1";   // Init() 不设 blockName, 需手动赋值
+    task.blockId      = 1;
+    task.projectfile_ = projectPath;
+    task.isSaved      = false;
+    task.isLoaded     = true;
+    task.block_task_category = 1;
+    task.gen_options.gen_params.sub_type      = GenTaskSubType::TEXT_TO_MODEL;
+    task.gen_options.gen_params.prompt        = "a dragon statue";
+    task.gen_options.gen_params.polygon_limit = 30000;
+
+    // 4. 落地 Block 文件 (Block_1 目录 + .blk)
+        // 4. Persist Block file (Block_1 dir + .blk)
+    block.Save();
+
+    // 5. 前端提交任务
+        // 5. Frontend submits task
+    std::cout << "--- Submit ---" << std::endl;
+    GenTaskAPI::SubmitResult result = GenTaskAPI::SubmitGenTask(
+        task, "testuser@example.com", genPendingJobPath.toStdString());
+    TEST_ASSERT(result.success, "SubmitGenTask should succeed");
+    std::cout << "  task_uuid=" << result.task_uuid
+              << "  job=" << result.job_name << std::endl;
+
+    // 6. 启动 GenTaskThread 线程 (真实调度逻辑, HTTP 走 mock)
+        // 6. Start GenTaskThread (real scheduling, HTTP mock)
+    std::cout << "\n--- GenTaskThread::Run in std::thread ---" << std::endl;
+    std::thread genThread(GenTaskThread::Run);
+
+    // 7. 主线程轮询 feedback 等待完成
+        // 7. Main thread polls feedback waiting for completion
+    std::string fbPath = projectPath + "/Block_1/JF_" + result.job_name
+        + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
+    bool completed = false;
+    for (int i = 0; i < 60; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        JobFeedBack_s fb;
+        if (!fb.load_with_retry(fbPath, false)) continue;
+        std::cout << "  [" << i << "] status=" << (int)fb.Status
+                  << " percent=" << fb.Percent << "%" << std::endl;
+        if (fb.Status == jobsta_e::STATUS_COMPLETE) { completed = true; break; }
+        if (fb.Status == jobsta_e::STATUS_FAILED) break;
+    }
+    TEST_ASSERT(completed, "task should complete within 60s");
+
+    // 8. 停止线程
+        // 8. Stop thread
+    bQuitingApplication = true;
+    genThread.join();
+
+    // 9. 验证结果
+        // 9. Verify results
+    std::cout << "\n--- Verify ---" << std::endl;
+    JobFeedBack_s fb;
+    TEST_ASSERT(fb.load_with_retry(fbPath, false), "should load feedback");
+    TEST_ASSERT(fb.Status == jobsta_e::STATUS_COMPLETE, "feedback COMPLETE");
+    TEST_ASSERT(fb.Percent == 100.0f, "feedback 100%");
+
+    QDir completedDir(genCompletedJobPath);
+    QStringList done = completedDir.entryList({"J_*.bin"}, QDir::Files);
+    TEST_ASSERT(!done.isEmpty(), "job in Completed/");
+
+    GenJobFullInfo_s doneInfo;
+    TEST_ASSERT(doneInfo.load_with_retry(
+        (genCompletedJobPath + done[0]).toStdString()), "load completed job");
+    std::cout << "  result_url=" << doneInfo.job.result_url << std::endl;
+    std::cout << "  cost_credits=" << doneInfo.job.cost_credits << std::endl;
+    TEST_ASSERT(!doneInfo.job.result_url.empty(), "result_url not empty");
+
+    // 9. 清理
+        // 9. Cleanup
+    QDir(tmpRoot).removeRecursively();
+
+    if (g_failures == 0) {
+        std::cout << "\n===== ALL TESTS PASSED =====" << std::endl;
+        return 0;
+    }
+    std::cout << "\n===== " << g_failures << " TEST(S) FAILED =====" << std::endl;
+    return 1;
+}
+```
+
+> **预期**: 主线程提交任务 → GenTaskThread::Run 线程 pick up → mock SubmitTask → mock QueryTaskStatus × 3 → Completed → 主线程读到 COMPLETE + result_url。
 
 ---
 
