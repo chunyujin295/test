@@ -60,6 +60,7 @@ int resultCode = -1;
 bool isChinese = false;
 
 
+
 void GetLanguageVersion()
 {
 	AI3D::CORE::Application::Getinstance().ParseConfig();
@@ -415,7 +416,7 @@ void cbMsg(std::string msg)
 	
 	
 	
-	lastMsg = AI3D::CORE::String::LocaleToUtf8(msg);
+	lastMsg = msg;
 }
 
 static ReconstructCallBack cb([](int finish) {std::cout << "[FINISH]" << std::endl; },
@@ -460,7 +461,11 @@ int execCancelCommandOnly(std::string fileName) {
 		{
 			return resultCode;
 		}
-		atparam.load(fileName);
+		if (!atparam.load(fileName))
+		{
+			std::cout << "load task file failed: " << fileName << std::endl;
+			return resultCode;
+		}
 
 		std::string function = atparam.task_.fun_name_;
 		std::ifstream ifs = AI3D::CORE::File::OpenIfstreamUtf8(fileName, std::ios::in);
@@ -579,7 +584,11 @@ int execTaskFile2Only(std::string fileName)
 
 			return resultCode;
 		}
-		atparam.load(fileName);
+		if (!atparam.load(fileName))
+		{
+			qDebug() << "load task file failed:" << str2qstr(fileName);
+			return resultCode;
+		}
 
 		std::string function = atparam.task_.fun_name_;
 		std::string strall = "";
@@ -639,11 +648,8 @@ int execTaskFile2Only(std::string fileName)
 
 
 		int type = atparam.task_.type_;
-		if (type == 0)
-		{
-			qDebug() << "type is 0 ";
+		if (type == ATCOMPLETETYPE)
 			return -1;
-		}
 	
 		{
 
@@ -693,7 +699,7 @@ int execTaskFile2Only(std::string fileName)
 			qDebug() << "inside MoldAITask,end testing sleep before actual algorithm function.";
 	#endif
 
-			qDebug() << "before algorithm function:" << QString::fromStdString(function) << " " << QString::fromStdString(fileName);
+			qDebug() << "before algorithm function:" << str2qstr(function) << " " << str2qstr(fileName);
 
 			 if (function == "RunGenTasks" || function == "GenTasks")
 			{
@@ -851,76 +857,59 @@ int execTaskFile2Only(std::string fileName)
 	}
 }
 
+namespace {
+
+bool IsTaskDefBaseName(const QString& fileName)
+{
+	const QString postFix = TASK_USE_BIN ? QStringLiteral(BINFILE_POSTFIX)
+		: QStringLiteral(JSONFILE_POSTFIX);
+	return fileName.startsWith(QLatin1String(TASK_DEF_BIN_PREFIX), Qt::CaseInsensitive)
+		&& fileName.endsWith(postFix, Qt::CaseInsensitive);
+}
+
+/** Validate task path and run; taskPath is full path from QCoreApplication::arguments() (UTF-16). */
+int RunTaskDefPath(const QString& taskPath)
+{
+	const std::string taskPathUtf8 = qstr2str(taskPath);
+	const QString baseName = QFileInfo(taskPath).fileName();
+
+	if (!AI3D::CORE::File::ExistsFile(taskPathUtf8))
+		return -1;
+	if (AI3D::CORE::File::GetFileSize(taskPathUtf8) == 0)
+		return -1;
+	if (!IsTaskDefBaseName(baseName))
+		return -1;
+
+	return execTaskFile2Only(taskPathUtf8);
+}
+
+} // namespace
+
 	int doTaskInProcess(int argc, char** argv)
 	{
-		if (argc == 2) {
+		Q_UNUSED(argc);
+		Q_UNUSED(argv);
 
-			QString taskJsonName = QString::fromUtf8(argv[1]);
+		// Do not use char** argv for paths on Windows: QProcess passes Unicode on the
+		// command line; CRT argv is often system ACP (GBK). Qt has already decoded it.
+		const QStringList args = QCoreApplication::arguments();
 
-			QFileInfo finfo(taskJsonName);
-			QString fileName = finfo.fileName();
-
-			if (!finfo.exists() || finfo.size() <= 0)
-			{
-				return -1;
-			}
-
-			QString postFix = "";
-			if (TASK_USE_BIN) {
-				postFix = BINFILE_POSTFIX;
-			}
-			else {
-				postFix = JSONFILE_POSTFIX;
-			}
-			if (!fileName.startsWith(TASK_DEF_BIN_PREFIX, Qt::CaseInsensitive) ||
-				!fileName.endsWith(postFix, Qt::CaseInsensitive))
-			{
-				return -1;
-			}
-
-			return execTaskFile2Only(argv[1]);
-		}
-		else if (argc == 3) {
-
-			std::string commandType = argv[1];
-			if (commandType == "cancel") {
-				
-				QString taskJsonName = QString::fromUtf8(argv[2]);
-
-				QFileInfo finfo(taskJsonName);
-				QString fileName = finfo.fileName();
-
-				if (!finfo.exists() || finfo.size() <= 0)
-				{
-					return -1;
-				}
-
-				QString postFix = "";
-				if (TASK_USE_BIN) {
-					postFix = BINFILE_POSTFIX;
-				}
-				else {
-					postFix = JSONFILE_POSTFIX;
-				}
-				if (!fileName.startsWith(TASK_DEF_BIN_PREFIX, Qt::CaseInsensitive) ||
-					!fileName.endsWith(postFix, Qt::CaseInsensitive))
-				{
-					return -1;
-				}
-				return execCancelCommandOnly(argv[2]);
-			}
-			else {
-				return -1;
-			}
-		}
-		else
+		if (args.size() == 2)
 		{
-
-			return -1;
+			return RunTaskDefPath(args.at(1));
 		}
-		
+		if (args.size() == 3 && args.at(1) == QLatin1String("cancel"))
+		{
+			const QString taskPath = args.at(2);
+			const std::string taskPathUtf8 = qstr2str(taskPath);
+			if (!AI3D::CORE::File::ExistsFile(taskPathUtf8)
+				|| !IsTaskDefBaseName(QFileInfo(taskPath).fileName()))
+				return -1;
+			return execCancelCommandOnly(taskPathUtf8);
+		}
 
-}
+		return -1;
+	}
 
 
 std::string GetAPPPath()
@@ -994,17 +983,5 @@ int main(int argc, char** argv)
 	putenv(strEnv.c_str());
 	GetLanguageVersion();
 
-	qDebug() << "task process start.";
-
-	int rtn = doTaskInProcess(argc, argv);
-	if (rtn == -1)
-	{
-		qDebug() << "task process failed:return -1";
-	}
-	else
-	{
-		qDebug() << "task process return:" << QString::number(rtn);
-	}
-
-	return rtn;
+	return doTaskInProcess(argc, argv);
 }

@@ -55,7 +55,8 @@ namespace AI3D
             void SetCompleted();
             bool IsCompleted();
 
-            
+            ReconstructionObject* GetReconstructionObject() const { return reconstruction_object_; }
+
         private:           
             EIGEN_STL_UMAP(std::string, production_tileinfo_s) tiles_;
             production_t id_;

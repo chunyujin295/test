@@ -1216,9 +1216,14 @@ namespace AI3D
         {
             try
             {
+                const std::string sourceDir = EnsureTrailingSlash(EnsureUnifySlash(strSourceDir));
+                const std::string destDir = EnsureTrailingSlash(EnsureUnifySlash(strDestDir));
+                const std::filesystem::path sourceRoot = File::BoostPathFromUtf8(sourceDir);
+                const std::filesystem::path destRoot = File::BoostPathFromUtf8(destDir);
+
                 std::filesystem::recursive_directory_iterator end; 
                 std::error_code ec;
-                for (std::filesystem::recursive_directory_iterator pos(File::BoostPathFromUtf8(strSourceDir)); pos != end; ++pos)
+                for (std::filesystem::recursive_directory_iterator pos(sourceRoot); pos != end; ++pos)
                 {
                     
                     if (std::filesystem::is_directory(pos->path()))
@@ -1228,11 +1233,13 @@ namespace AI3D
                         if (pos->path().extension() == std::filesystem::path(BLOCKFILE) || pos->path().extension() == std::filesystem::path(BLOCKBINFILE))
                             continue;
                     }
-                    std::string strAppPath = File::BoostPathToUtf8String(pos->path());
-                    std::string strRestorePath;
-                    
-                    boost::replace_first_copy(std::back_inserter(strRestorePath), strAppPath, strSourceDir, strDestDir);
-                    const std::filesystem::path dstPath = File::BoostPathFromUtf8(strRestorePath);
+                    const std::filesystem::path relativePath = std::filesystem::relative(pos->path(), sourceRoot, ec);
+                    if (ec || relativePath.empty())
+                    {
+                        continue;
+                    }
+                    const std::filesystem::path dstPath = destRoot / relativePath;
+                    const std::string strAppPath = File::BoostPathToUtf8String(pos->path());
                     if (!std::filesystem::exists(dstPath.parent_path()))
                     {
                         std::filesystem::create_directories(dstPath.parent_path(), ec);
@@ -1282,6 +1289,24 @@ namespace AI3D
             return true;
         }
 
+        bool File::WriteBinaryUtf8(const std::string& utf8Path, const unsigned char* data, size_t size)
+        {
+            if (data == nullptr || size == 0) {
+                return false;
+            }
+            std::ofstream ofs = OpenOfstreamUtf8(utf8Path, std::ios::binary | std::ios::trunc);
+            if (!ofs) {
+                return false;
+            }
+            ofs.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+            return static_cast<bool>(ofs);
+        }
+
+        bool File::WriteBinaryUtf8(const std::string& utf8Path, const std::vector<unsigned char>& data)
+        {
+            return WriteBinaryUtf8(utf8Path, data.data(), data.size());
+        }
+
         std::ifstream File::OpenIfstreamUtf8(const std::string& utf8Path, std::ios::openmode mode)
         {
             const std::filesystem::path p = std::filesystem::u8path(utf8Path);
@@ -1292,6 +1317,41 @@ namespace AI3D
         {
             const std::filesystem::path p = std::filesystem::u8path(utf8Path);
             return std::ofstream(p, mode);
+        }
+
+        namespace {
+
+        std::wstring NarrowModeToWide(const char* mode)
+        {
+            std::wstring wmode;
+            if (!mode) {
+                return wmode;
+            }
+            while (*mode) {
+                wmode.push_back(static_cast<wchar_t>(static_cast<unsigned char>(*mode++)));
+            }
+            return wmode;
+        }
+
+        } // namespace
+
+        FILE* File::FopenUtf8(const std::string& utf8Path, const char* mode)
+        {
+#if defined(_WIN32) && (defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__))
+            try {
+                const std::wstring wpath = std::filesystem::u8path(utf8Path).wstring();
+                const std::wstring wmode = NarrowModeToWide(mode);
+                return _wfopen(wpath.c_str(), wmode.c_str());
+            }
+            catch (const std::filesystem::filesystem_error&) {
+                return nullptr;
+            }
+            catch (const std::bad_alloc&) {
+                return nullptr;
+            }
+#else
+            return std::fopen(std::filesystem::u8path(utf8Path).u8string().c_str(), mode);
+#endif
         }
 
         FILE* File::FopenDenyWriteLockUtf8(const std::string& utf8LockPath)
@@ -1308,7 +1368,7 @@ namespace AI3D
                 return nullptr;
             }
 #else
-            return std::fopen(utf8LockPath.c_str(), "wt");
+            return FopenUtf8(utf8LockPath, "wt");
 #endif
         }
         

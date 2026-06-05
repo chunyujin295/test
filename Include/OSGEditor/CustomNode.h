@@ -5,7 +5,7 @@
 
 class ThreadManager;
 
-class DLL_API CustomNode : public osg::MatrixTransform
+class OSGEDITOR_INTERNAL_CLASS CustomNode : public osg::MatrixTransform
 {
 public:
     CustomNode(const bool& bThread = true);

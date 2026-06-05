@@ -71,7 +71,7 @@ struct dereference_clear
 };
 
 
-class  DLL_API TMesh
+class OSGEDITOR_INTERNAL_CLASS TMesh
 {
 public:
 	struct Triangle;

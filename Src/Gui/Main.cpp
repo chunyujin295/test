@@ -441,8 +441,8 @@ void execTest6Thread()
 int main(int argc, char* argv[])
 {
 	
-	//SetConsoleOutputCP(CP_UTF8);
-	SetConsoleOutputCP(936);
+	SetConsoleOutputCP(CP_UTF8);
+	SetConsoleCP(CP_UTF8);
 
 	/// std::cout << "enter MoldAI.exe..." << std::endl;
 #ifdef _MSC_VER

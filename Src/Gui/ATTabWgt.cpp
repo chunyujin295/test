@@ -1968,7 +1968,7 @@ namespace AI3D
                 LOGI(String::StringPrintf("%s SubmitAT", block_data_->GetName().c_str()));
                 /*at_options = m_possigma.GetATOptions();*/
                 QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-                at_options.at_name = m_possigma.getName().toStdString();
+                at_options.at_name = qstr2str(m_possigma.getName());
                 
                 //提交空三，加载Tiepoints
                 block_data_->LoadTiepoints();

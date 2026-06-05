@@ -193,12 +193,8 @@ public:
 	std::string& GetMachineCodeMutual();
 	std::string GetMachineCode()const;
 	std::vector<APPUseInfo>& GetAPPUseInfosMutual();
-
-
-
 	bool ParseConfig(const std::string& ConfigPath, std::string& versionName,std::string&versionCode);
 	bool ParseConfig(const std::string& ConfigPath, std::string& versionName, std::string& versionCode,std::string &language);
-
 	std::string& GetEngineJsonPathMutual();
 	std::string GetEngineJsonPath()const;
 

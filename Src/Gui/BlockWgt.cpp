@@ -16,6 +16,7 @@
 #include "Core/CoordinateSystem.h"
 #include "Gui/ProjectManager.h"
 #include "Core/Timer.h"
+#include "Core/ReconPerfLog.h"
 #include "Gui/ImportPosDia.h"
 //#include "Gui/Network.h"
 #include "Core/Types.h"
@@ -82,7 +83,6 @@
 #include "Core/File.h"
 #include "OSGEditor/OsgEngine.h"
 #include "OSGEditor/EventManager.h"
-#include "OSGEditor/LodTreeProcessor.h"
 #include "Gui/message_box.h"
 
 //#include "Gui/OTA.h"
@@ -3037,7 +3037,7 @@ namespace AI3D
                 for (auto& t : recons_object_->GetConstraintCustom())
                 {
                 /// std::cout << "inside " << __FILE__ << " " << __LINE__ << " recons_object_:" << t.name_ <<  std::endl;
-                    InsertGeometryContraintsItem(QString::fromStdString(t.name_), "kml", "");
+                    InsertGeometryContraintsItem(str2qstr(t.name_), "kml", "");
                 }
             }
             else
@@ -5580,7 +5580,7 @@ namespace AI3D
             {
                 std::string fileName = File::GetFileNameWithoutExtension(f);
 
-                InsertGeometryContraintsItem(QString::fromStdString(fileName), "kml", "");
+                InsertGeometryContraintsItem(str2qstr(fileName), "kml", "");
             }
 
             bool beditable = this->recons_object_->GetConstraintCustom().empty() && this->recons_object_->GetProductions().empty();
@@ -6611,7 +6611,8 @@ namespace AI3D
                 int jobStatus = -1;
                 std::string fullPathJobName;
                 std::string tile_name =iter.second.name_;
-                std::string tile_jobstr = iter.second.jobstr_;
+                std::string tile_jobstr = ReconstructionCommandSet::ResolveProductionTileJobStr(
+                    block, recons_object, cpo, tile_name, true);
 //              std::string feedback_file_ = cpo->GetFeedbackFiles().at(i);
                 std::string feedback_file_;
                 //临时
@@ -7911,6 +7912,12 @@ namespace AI3D
             vecProductionItemInfo.clear();
             mapProductionItemInfo.clear();
 
+            if (block_data_ && recons_object_ && production_object_)
+            {
+                ReconstructionCommandSet::SyncProductionTileJobStrs(
+                    block_data_, recons_object_, production_object_);
+            }
+
             bProductionItemInfoNeedRendering = false;
 
             int nPendingNum = 0;
@@ -7926,7 +7933,8 @@ namespace AI3D
 
                 auto& tile = production_object_->GetTilesMutual().at(tile_);
                 productionItemInfo.name_ = tile.name_;
-                productionItemInfo.jobFileName_ = tile.jobstr_;
+                productionItemInfo.jobFileName_ = ReconstructionCommandSet::ResolveProductionTileJobStr(
+                    this->block_data_, this->recons_object_, this->production_object_, tile_, true);
 
                 productionItemInfo.initJobStat_ = tile.status_;
                 productionItemInfo.lastJobStat_ = tile.status_;
@@ -11233,7 +11241,7 @@ namespace AI3D
             {
                 std::string path = AI3D::CORE::File::GetParentDir(filename);
                 
-                LodTreeProcessor::GetTileDirCoarseLevelTrees(path, result);
+                OsgEngine::GetTileDirCoarseLevelTrees(path, result);
                 for (std::vector<std::string>::iterator it = result.begin();
                     it != result.end();/*it++*/)
                 {
@@ -11385,71 +11393,54 @@ namespace AI3D
                 return;
 
             try
-            {   
+            {
+                AI3D::CORE::ReconPerfStage perf_total("RenderReconstruction", "total");
+                {
+                    AI3D::CORE::ReconPerfStage perf_remove("RenderReconstruction", "RemoveScene");
+                    pOsgEngine->RemoveScene();
+                }
 
-                LOGI("Before Removeall");
-                //pOsgEngine->RemoveAll();                
-                std::cout << " empty " << pOsgEngine->IsATEmpty() << std::endl;
-                pOsgEngine->RemoveScene();
-                std::cout << " empty1 " << pOsgEngine->IsATEmpty() << std::endl;
-                LOGI("END Removeall");
-
-                ReconstructionObject* temp = new ReconstructionObject(*data);
-                auto id = data->GetId();
-                temp->SetId(id);
+                const reconstruction_t id = data->GetId();
                 pReconstData = data;
                 pReconstData->SetId(id);
-                //modify by zhaobf
-                if (pTilingCallbackEvent->GetReconstructObject() != nullptr)
-                {
-                    ReconstructionObject* tmpObject = pTilingCallbackEvent->GetReconstructObject();
-                    delete tmpObject;
+
+                // Share block-owned reconstruction with ROI callback (no heap copy).
+                if (ReconstructionObject* old_cb = pTilingCallbackEvent->GetReconstructObject()) {
+                    if (old_cb != data) {
+                        delete old_cb;
+                    }
                 }
-                //end
-                pTilingCallbackEvent->SetReconstruct(temp);
+                pTilingCallbackEvent->SetReconstruct(data);
 
                 {
-                    LOGI("before interface.init");
-                    AI3D::VIEWER::Tile3DViewInterface interface_(temp, pOsgEngine);
-                    //int imagesize = temp->GetATData().GetImages().size();
-                    //int pointssize = temp->GetATData().GetPoints3D().size();
-                    //int tilessize = temp->GetTilesCustomMutual().size();
-                    //std::string msg = std::to_string(imagesize) + "_" + std::to_string(pointssize) + "_" + std::to_string(tilessize);
-                    //LOGI(msg);
-                    LOGI("before interface.init1");
-                    //interface_.Init(bSelectTiles);
+                    AI3D::CORE::ReconPerfStage perf_init("RenderReconstruction", "Tile3DViewInterface_Init");
+                    AI3D::VIEWER::Tile3DViewInterface interface_(data, pOsgEngine);
                     interface_.InitWithOutATScene(bSelectTiles);
-                    /*std::cout << " empty2 " << pOsgEngine->IsATEmpty() << std::endl;
-                    LOGI("end interface.init1");
-                    msg = std::to_string(imagesize)+"_"+std::to_string(pointssize) + "_" + std::to_string(tilessize) ;
-                    LOGI(msg);*/
-                    LOGI("end interface.init");
                 }
-                
 
                 auto loadedModel = pOsgEngine->GetRootNode();
                 if (loadedModel)
                 {
-                   
-                    osgUtil::Optimizer optimizer;
-                    optimizer.optimize(loadedModel.get());
-                    LOGI("update  model");
-                    viewerWindow->updateTraversal();
-                    LOGI("update  model end");
-                    viewerWindow->setSceneData(loadedModel.get());
-                    LOGI("set scene");
-                    LOGI("now look at model");
-                    pOsgEngine->LookAtModel(loadedModel, ModelViewType::MODEL_UP);
-                    LOGI("end look at model");
+                    {
+                        AI3D::CORE::ReconPerfStage perf_opt("RenderReconstruction", "OsgOptimizer");
+                        osgUtil::Optimizer optimizer;
+                        optimizer.optimize(loadedModel.get());
+                    }
+                    {
+                        AI3D::CORE::ReconPerfStage perf_viewer("RenderReconstruction", "ViewerSetSceneAndLookAt");
+                        viewerWindow->updateTraversal();
+                        viewerWindow->setSceneData(loadedModel.get());
+                        pOsgEngine->LookAtModel(loadedModel, ModelViewType::MODEL_UP);
+                    }
                 }
                 else
                 {
-                    LOGI("loaded model null");
+                    ReconPerfLog("[ReconPerf] RenderReconstruction | ViewerSetSceneAndLookAt | skipped (root null)");
                 }
             }
             catch (std::exception& ex)
             {
-                std::cout << "inside "  << " " << __FUNCTION__ << " " << __LINE__ << ",exception occured:" << ex.what() << std::endl;
+                ReconPerfLog(std::string("[ReconPerf] RenderReconstruction | exception | ") + ex.what());
             }
 
             setSceneData();
@@ -11717,14 +11708,11 @@ namespace AI3D
 
             if (pOsgEngine != nullptr)
             {
-                std::vector<osg::ref_ptr<CustomNode>>* pickedNodes = pOsgEngine->GetPickedNode();
-                if (pickedNodes != nullptr)
+                std::vector<int> ids;
+                pOsgEngine->GetPickedElementIds(ids);
+                for (int id : ids)
                 {
-                    for (int i = 0; i < pickedNodes->size(); i++)
-                    {
-                        osg::ref_ptr<CustomNode> customNode = pickedNodes->at(i);
-                        pickedNodeId.push_back(customNode->m_iID);
-                    }
+                    pickedNodeId.push_back(static_cast<point3D_t>(id));
                 }
             }
 
@@ -11743,11 +11731,7 @@ namespace AI3D
                 //  " " << this << std::dec << std::endl;
 
                 std::vector<int> tmpID;
-                if (pOsgEngine->GetPickedNode()->size() > 0)
-                {
-                    PhotosNodeManager* pPhoto = dynamic_cast<PhotosNodeManager*>(pOsgEngine->GetPickedNode()->at(0).get());
-                    pPhoto->GetPickedPhotosID(&tmpID);
-                }
+                pOsgEngine->GetPickedPhotoIds(tmpID);
 
 #if 0
                 std::vector<osg::ref_ptr<CustomNode>>* pickedNodes = pOsgEngine->GetPickedNode();
@@ -11797,14 +11781,9 @@ namespace AI3D
             if (pOsgEngine != nullptr)
             {
                 std::vector<int> tmpID;
-                if (pOsgEngine->GetPickedNode()->size() > 0)
+                if (!pOsgEngine->GetPickedPhotoIds(tmpID))
                 {
-                    PhotosNodeManager* pPhoto = dynamic_cast<PhotosNodeManager*>(pOsgEngine->GetPickedNode()->at(0).get());
-                    if (pPhoto == nullptr) //modify by zhaobf
-                    {
-                        return false;
-                    }
-                    pPhoto->GetPickedPhotosID(&tmpID);
+                    return false;
                 }
 
 #if 0
@@ -11839,19 +11818,11 @@ namespace AI3D
 
             if (pOsgEngine != nullptr)
             {
-                std::vector<osg::ref_ptr<CustomNode>>* pickedNodes = pOsgEngine->GetPickedNode();
-                if (pickedNodes != nullptr)
+                std::vector<int> tileIds;
+                pOsgEngine->GetPickedTileIds(tileIds);
+                for (int id : tileIds)
                 {
-                    for (auto t : *pickedNodes)
-                    {
-                        if (t->GetElementType() == ELEMENT_LAYER_TYPE::ELEMENT_TILE)
-                        {
-                            if (t->m_iID > 0)
-                            {
-                                pickedPhotoNodeId.push_back(t->m_iID);
-                            }
-                        }
-                    }
+                    pickedPhotoNodeId.push_back(static_cast<image_t>(id));
                 }
             }
 
@@ -11860,23 +11831,19 @@ namespace AI3D
 
         bool MWindow::getPickedTileNodeId2(std::vector<image_t>& pickedTileNodeId)
         {
-            if (pOsgEngine != nullptr)
+            if (pOsgEngine == nullptr)
             {
-                std::vector<osg::ref_ptr<CustomNode>>* pickedNodes = pOsgEngine->GetPickedNode();
-                if (pickedNodes != nullptr)
-                {
-                    for (auto t : *pickedNodes)
-                    {
-                        if (t->GetElementType() == ELEMENT_LAYER_TYPE::ELEMENT_TILE)
-                        {
-                            pickedTileNodeId.push_back(t->m_iID);
-                        }
-                    }
-                }
-            }
-            else
                 return false;
-
+            }
+            std::vector<int> tileIds;
+            if (!pOsgEngine->GetPickedTileIds(tileIds))
+            {
+                return false;
+            }
+            for (int id : tileIds)
+            {
+                pickedTileNodeId.push_back(static_cast<image_t>(id));
+            }
             return true;
         }
 

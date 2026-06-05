@@ -1,6 +1,8 @@
 
 #include "Core/ReconstructionCommandSet.h"
 #include <Core/Logging.h>
+#include "Core/ReconPerfLog.h"
+#include "Core/Timer.h"
 #include "Core/File.h"
 #include "Core/Tiling.h"
 #include "Core/TaskCommandSet.h"
@@ -8,6 +10,7 @@
 #include "Util/TaskProcess.h"
 #include "Core/KML.h"        
 #include "Core/VectorFile.h"
+#include <utility>
 #ifdef USE_AI3D_PROJ
 #include "Core/Proj/CoordinateReferenceSystem.h"
 #endif
@@ -16,17 +19,124 @@ namespace AI3D
 {
     namespace CORE
     {
+        namespace
+        {
+            // SubmitReconstruction: memory is source of truth. Caller flushes with ExportBlockATData
+            // so disk matches memory before reconstruct. Only read disk when a field is missing
+            // in memory — never force ReloadCurrentATFromPersistedFilesForExportOrReconstruction.
+            bool EnsureATReadyForReconstruction(BlockObject* block)
+            {
+                if (block == nullptr || block->GetCurrentAT() == nullptr)
+                {
+                    return false;
+                }
+
+                std::shared_ptr<ATData> at = block->GetCurrentATMutual();
+                const bool has_registered_images =
+                    at->HasRegImages() || !at->GetRegImageIds().empty();
+                const bool tiepoints_in_memory =
+                    block->GetTiepointStatus() && at->HasTiepoints();
+
+                if (has_registered_images && tiepoints_in_memory)
+                {
+                    ReconPerfLog("[ReconPerf] SubmitReconstruction | EnsureATReady | path=in_memory (no disk read)");
+                    return true;
+                }
+
+                if (!block->GetTiepointFullStatus())
+                {
+                    LOGE("SubmitReconstruction: block has no tiepoints on disk");
+                    return false;
+                }
+
+                if (has_registered_images)
+                {
+                    ReconPerfStage perf_load_tp("SubmitReconstruction", "EnsureATReady_LoadTiepoints");
+                    block->LoadTiepoints();
+                    return block->GetCurrentAT() != nullptr && block->GetCurrentAT()->HasTiepoints();
+                }
+
+                ReconPerfStage perf_load_block("SubmitReconstruction", "EnsureATReady_LoadBlockATData");
+                BlockObject::BlockImportOptions opts;
+                opts.load_images_ = true;
+                opts.load_tiepoint_ = true;
+                opts.force_reload_tiepoints_from_disk_ = false;
+                opts.suppress_update_complete_at_file_on_reload_ = true;
+                if (!block->LoadBlockATData(at, opts))
+                {
+                    return false;
+                }
+                if (at->HasTiepoints())
+                {
+                    block->SetTiepointStatus(true);
+                }
+                return at->HasRegImages() && at->HasTiepoints();
+            }
+        }
+
         ReconstructionCommandSet::ReconstructionCommandSet()
         {
 
         };
 
+        int ReconstructionCommandSet::ExportReconstructionViewBin(
+            BlockObject* block, ReconstructionObject* reconstruction)
+        {
+            if (block == nullptr || reconstruction == nullptr)
+            {
+                return AI3D_FAILURE;
+            }
 
+            ReconPerfStage perf_total("ExportReconstructionViewBin", "total");
 
+            std::string srsdef = reconstruction->GetATData().GetLocalSrs();
+            srs_s srs = CoordinateDescriptor::GetSRSFromDefinition(srsdef);
+
+            std::string outpath = File::EnsureTrailingSlash(
+                File::EnsureUnifySlash(std::string(reconstruction->GetPath())));
+            std::string srsFile = SRS_USE_BIN ? SRSBIN : SRSJSON;
+            std::string localsrsfile = outpath + srsFile;
+
+            {
+                ReconPerfStage perf_srs("ExportReconstructionViewBin", "WriteLocalSrs");
+                if (SRS_USE_BIN) {
+                    block->GetTaskInfoMutual().WriteLocalBin(srs, localsrsfile);
+                }
+                else {
+                    block->GetTaskInfoMutual().WriteLocalJson(srs, localsrsfile);
+                }
+            }
+
+            BlockObject blocktemp(outpath);
+            blocktemp.SetId(block->GetId());
+
+            {
+                ReconPerfStage perf_make_block("ExportReconstructionViewBin", "MakeBlockFromATData");
+                blocktemp.MakeBlockFromATData(reconstruction->GetATData());
+            }
+
+            BlockObject::BlockExportOptions opt;
+            opt.export_tiepoint_ = true;
+            opt.export_not_registered_ = true;
+            opt.export_controlpoint_ = true;
+            {
+                ReconPerfStage perf_export_bin("ExportReconstructionViewBin", "ExportATBinary");
+                if (!blocktemp.ExportATBinary(outpath + PRODUCTIONVIEWIDSBIN))
+                {
+                    LOGE("ExportReconstructionViewBin: ExportATBinary failed");
+                    return AI3D_FAILURE;
+                }
+            }
+
+            ReconPerfLog(String::StringPrintf(
+                "[ReconPerf] ExportReconstructionViewBin | done | path=%s",
+                (outpath + PRODUCTIONVIEWIDSBIN).c_str()));
+            return AI3D_SUCCESS;
+        }
 
         int ReconstructionCommandSet::SubmitReconstruction(BlockObject* block, reconstruction_t& rid, const struct processing_settings_s& options)
         {
-            std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+            ReconPerfStage perf_total("SubmitReconstruction", "total");
             if (block->GetCurrentAT() == nullptr)
             {
                 return AI3D_FAILURE;
@@ -38,50 +148,59 @@ namespace AI3D
             {
                 return AI3D_FAILURE;
             }
-            
-            if (!block->ReloadCurrentATFromPersistedFilesForExportOrReconstruction()) {
-                LOGE("SubmitReconstruction: ReloadCurrentATFromPersistedFilesForExportOrReconstruction failed");
-                return AI3D_FAILURE;
+
+            {
+                const std::shared_ptr<ATData> at_stats = block->GetCurrentATMutual();
+                ReconPerfLog(String::StringPrintf(
+                    "[ReconPerf] SubmitReconstruction | dataset | block=%s reg_images=%zu images=%zu tiepoints=%zu",
+                    block->GetIdString().c_str(),
+                    at_stats ? at_stats->GetRegImageIds().size() : 0u,
+                    at_stats ? static_cast<size_t>(at_stats->GetNumImages()) : 0u,
+                    at_stats ? at_stats->GetPoint3DIds().size() : 0u));
             }
-            
+
+            {
+                ReconPerfStage perf_ready("SubmitReconstruction", "EnsureATReady");
+                if (!EnsureATReadyForReconstruction(block)) {
+                    LOGE("SubmitReconstruction: EnsureATReadyForReconstruction failed");
+                    return AI3D_FAILURE;
+                }
+            }
+
+            // Flush current in-memory AT to block folder so disk matches memory before reconstruct.
             {
                 std::shared_ptr<ATData> at_flush = block->GetCurrentATMutual();
                 if (at_flush && at_flush->HasConstraints()) {
+                    ReconPerfStage perf_constraint("SubmitReconstruction", "SaveConstraint");
                     const std::string constraint_path =
                         File::EnsureUnifySlash(block->GetPath() + PATH_SEPARATOR_STR + CONSTRAINTFILE);
                     if (!at_flush->SaveConstraint(constraint_path)) {
-                        LOGE("SubmitReconstruction: SaveConstraint failed (disk may stay stale for constraints)");
+                        LOGE("SubmitReconstruction: SaveConstraint failed");
+                        return AI3D_FAILURE;
                     }
                 }
-                
-                if (!block->ExportBlockATData()) {
-                    LOGE("SubmitReconstruction: ExportBlockATData failed — block folder not updated before reconstruct");
-                    return AI3D_FAILURE;
+
+                {
+                    ReconPerfStage perf_export_block("SubmitReconstruction", "ExportBlockATData");
+                    if (!block->ExportBlockATData()) {
+                        LOGE("SubmitReconstruction: ExportBlockATData failed — could not sync AT to disk");
+                        return AI3D_FAILURE;
+                    }
                 }
                 if (block->GetTiepointStatus()) {
                     block->GetTaskInfoMutual().statisticinfo_.tiepointnum =
                         static_cast<int>(block->GetCurrentAT()->GetPoint3DIds().size());
                 }
             }
-            clock_t t1, t2, t3;
-            t1 = clock();
-            block->LoadTiepoints();
-            t2 = clock();
-            t3 = t2 - t1;
-            std::cout << "Reconstruct load tiepoints " << t3 * 0.001 << std::endl;
-            std::string msg = std::to_string(block->GetId()) + __FUNCTION__ + " ******** ";
-           
-            msg += std::to_string(block->GetTaskInfoMutual().statisticinfo_.tiepointnum);
-            LOGI(msg);
-            
-
-            
-            
 
             rid = -1;
 
-            const ATData atdata = *block->GetCurrentAT().get();
-            ATData atdata_reconst = atdata;
+            // Single working copy: block AT stays unchanged; reconstruction mutates its own ATData.
+            ATData atdata_reconst;
+            {
+                ReconPerfStage perf_copy("SubmitReconstruction", "CopyBlockAT");
+                atdata_reconst = *block->GetCurrentAT();
+            }
            
            
            
@@ -107,129 +226,72 @@ namespace AI3D
 
             
 
-            srs_s atlocalenu = atdata_reconst.GetDefaultEnuSRS();
+            srs_s atlocalenu;
+            {
+                ReconPerfStage perf_enu("SubmitReconstruction", "GetDefaultEnuSRS");
+                atlocalenu = atdata_reconst.GetDefaultEnuSRS();
+            }
 
 #ifdef USE_AI3D_PROJ
-            srs_s newsrs = AI3D::PROJ::CoordinateReferenceSystem::AddCrs(atlocalenu.definition);
-
-#endif 
-            t1 = clock();
-            atdata_reconst.TransFormATData(atlocalenu.definition);
-            t2 = clock();
-            t3 = t2 - t1;
-            std::cout << "Reconstruct TransFormATData " << t3 * 0.001 << std::endl;
-            t1 = clock();
-            atdata_reconst.ComputeDepths();
-            t2 = clock();
-            t3 = t2 - t1;
-            std::cout << "Reconstruct ComputeDepths " << t3 * 0.001 << std::endl;
-            t1 = clock();
-          
-           
-            t2 = clock();
-            t3 = t2 - t1;
-            std::cout << "Reconstruct GeneratePointViews " << t3 * 0.001 << std::endl;
-           
-          
-            
+            {
+                ReconPerfStage perf_crs("SubmitReconstruction", "AddCrs");
+                srs_s newsrs = AI3D::PROJ::CoordinateReferenceSystem::AddCrs(atlocalenu.definition);
+                (void)newsrs;
+            }
+#endif
+            {
+                ReconPerfStage perf_transform("SubmitReconstruction", "TransFormATData");
+                atdata_reconst.TransFormATData(atlocalenu.definition);
+            }
+            {
+                ReconPerfStage perf_depths("SubmitReconstruction", "ComputeDepths");
+                atdata_reconst.ComputeDepths();
+            }
 
             std::string cbfile = block->GetPath() + "/" + COLORBIN;
             cbfile = File::EnsureUnifySlash(cbfile);
-           
 
-            
-         
-
-            ReconstructionObject* reconstruction = new ReconstructionObject(atdata_reconst, block->GetId());
-
-
-
-            block->AddReconstruction(reconstruction);
-
-            
-            File::CreateDirIfNotExists(reconstruction->GetPath(), true);
-            if (File::ExistsFile(cbfile))
+            if (!File::ExistsFile(cbfile) && !atdata_reconst.ShouldCB())
             {
-                std::vector<std::string> files(1,cbfile);
-                File::CopyFiles(files, reconstruction->GetPath(), false);
+                ReconPerfStage perf_cb("SubmitReconstruction", "SaveCBBin");
+                atdata_reconst.SaveCBBin(cbfile);
             }
-            else
+
+            ReconstructionObject* reconstruction = nullptr;
             {
-                if (!atdata_reconst.ShouldCB())
+                ReconPerfStage perf_new_recon("SubmitReconstruction", "NewReconstructionObject");
+                reconstruction = new ReconstructionObject(std::move(atdata_reconst), block->GetId());
+            }
+
+            {
+                ReconPerfStage perf_add("SubmitReconstruction", "AddReconstruction");
+                block->AddReconstruction(reconstruction);
+            }
+
+            {
+                ReconPerfStage perf_files("SubmitReconstruction", "CreateReconDirAndCopyCB");
+                File::CreateDirIfNotExists(reconstruction->GetPath(), true);
+                if (File::ExistsFile(cbfile))
                 {
-                    
-                    atdata_reconst.SaveCBBin(cbfile);
-
+                    std::vector<std::string> files(1, cbfile);
+                    File::CopyFiles(files, reconstruction->GetPath(), false);
                 }
             }
-            
-            {
-                std::string srsdef = reconstruction->GetATData().GetLocalSrs();
-                srs_s srs = CoordinateDescriptor::GetSRSFromDefinition(srsdef);
 
-                std::string outpath = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(reconstruction->GetPath())));
-                std::string srsFile = "";
-                if (SRS_USE_BIN) {
-                    srsFile = SRSBIN;
-                }
-                else {
-                    srsFile = SRSJSON;
-                }
-                std::string localsrsfile = outpath + srsFile;
+            // RB.bin + reconstruction SRS: deferred to first SubmitProduction (ExportReconstructionViewBin).
 
-                if (SRS_USE_BIN) {
-                    block->GetTaskInfoMutual().WriteLocalBin(srs, localsrsfile);
-                }
-                else {
-                    block->GetTaskInfoMutual().WriteLocalJson(srs, localsrsfile);
-                }
-                
-                {
-
-                    AI3D::CORE::BlockObject blocktemp(outpath);
-                    blocktemp.SetId(block->GetId());
-
-                    if (BlockObject::supportTempLogs())
-                    {
-                        std::ostringstream oss;
-                        oss << "create bo:" << std::hex << std::showbase << &blocktemp << std::dec;
-                    
-                    }
-                    clock_t t1, t2, t3;
-                    t1 = clock();
-                    blocktemp.MakeBlockFromATData(atdata_reconst);
-                    t2 = clock();
-                    t3 = t2 - t1;
-                    std::cout <<  "reconstruct make block from at data " << t3 * 0.001 << std::endl;
-
-                    AI3D::CORE::BlockObject::BlockExportOptions opt;
-                    opt.export_tiepoint_ = true;
-                  
-                    opt.export_not_registered_ = true;
-                    opt.export_controlpoint_ = true;
-                    t1 = clock();
-                    
-                    blocktemp.ExportATBinary(outpath + PRODUCTIONVIEWIDSBIN);
-                    t2 = clock();
-                    t3 = t2 - t1;
-                    std::cout << "reconstruct Export ATXML " << t3 * 0.001 << std::endl;
-                   
-                }
-
-            }
             rid = reconstruction->GetId();
 
-            
-            auto& taskinfo = block->GetTaskInfoMutual();
-            blk_recontruction_info_s info;
-            reconstruction->ToTaskInfo(info);
+            {
+                ReconPerfStage perf_taskinfo("SubmitReconstruction", "UpdateBlockTaskInfo");
+                auto& taskinfo = block->GetTaskInfoMutual();
+                blk_recontruction_info_s info;
+                reconstruction->ToTaskInfo(info);
+                taskinfo.reconstructions_info_.push_back(info);
+                taskinfo.isSaved = false;
+            }
 
-            taskinfo.reconstructions_info_.push_back(info);
-            taskinfo.isSaved = false;
-            
-            
-            std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
-
+            ReconPerfLog(String::StringPrintf("[ReconPerf] SubmitReconstruction | done | reconstruction_id=%d", rid));
             return AI3D_SUCCESS;
         }
 
@@ -1065,10 +1127,78 @@ namespace AI3D
             return AI3D_SUCCESS;
         }
 
+        std::string ReconstructionCommandSet::MakeProductionTileJobKey(block_t block_id, reconstruction_t reconstruction_id,
+            production_t production_id, const std::string& tile_name)
+        {
+            return "B" + std::to_string(block_id) + "R" + std::to_string(reconstruction_id)
+                + "P" + std::to_string(production_id) + tile_name;
+        }
+
+        std::string ReconstructionCommandSet::ResolveProductionTileJobStr(BlockObject* block,
+            ReconstructionObject* reconstruction, ProductionObject* production,
+            const std::string& tile_name, bool update_tile)
+        {
+            if (!production || tile_name.empty() || !production->GetTilesMutual().count(tile_name))
+            {
+                return "";
+            }
+
+            production_tileinfo_s& tile = production->GetTilesMutual().at(tile_name);
+            if (!tile.jobstr_.empty())
+            {
+                return tile.jobstr_;
+            }
+
+            if (!block || !reconstruction)
+            {
+                return "";
+            }
+
+            const std::string key = MakeProductionTileJobKey(
+                block->GetId(), reconstruction->GetId(), production->GetId(), tile_name);
+            auto& jobs = block->GetTaskInfoMutual().reconstructionjobs_;
+            if (!jobs.count(key))
+            {
+                return "";
+            }
+
+            if (update_tile)
+            {
+                tile.jobstr_ = jobs.at(key);
+            }
+            return jobs.at(key);
+        }
+
+        void ReconstructionCommandSet::SyncProductionTileJobStrs(BlockObject* block,
+            ReconstructionObject* reconstruction, ProductionObject* production)
+        {
+            if (!block || !reconstruction || !production)
+            {
+                return;
+            }
+            for (auto& entry : production->GetTilesMutual())
+            {
+                ResolveProductionTileJobStr(block, reconstruction, production, entry.first, true);
+            }
+        }
+
         std::string ReconstructionCommandSet::GenerateTileFeedbackFile(BlockObject* block_object,ProductionObject* production_object,std::string&tile,std::string &job)
         {
-            if ( !production_object || tile.empty() || job.empty())
+            if (!production_object || tile.empty())
+            {
                 return "";
+            }
+
+            if (job.empty() && block_object)
+            {
+                ReconstructionObject* reconstruction = production_object->GetReconstructionObject();
+                job = ResolveProductionTileJobStr(block_object, reconstruction, production_object, tile, true);
+            }
+
+            if (job.empty())
+            {
+                return "";
+            }
 
             if (production_object->GetTiles().count(tile) <= 0)
                 return "";
@@ -1410,7 +1540,7 @@ if (0)
                 numoftileupdate++;
                 
                 TaskCommandSet::CreateJobAndFeedbackFiles(jobpath, projectpath, blockitem,
-                    hostname, datetime, productiontile_dir, job);
+                    hostname, datetime, productiontile_dir, job, true);
 
 #ifdef USE_OPENMP
 #pragma omp critical
@@ -1986,8 +2116,24 @@ if (0)
             }
           
             ReconstructionObject* reconstruction = block->GetReconstructionsMutual().at(reconstruction_id);
-            
-        
+
+            {
+                const std::string rb_path = File::EnsureUnifySlash(
+                    reconstruction->GetPath() + "/" + PRODUCTIONVIEWIDSBIN);
+                const bool first_production = !reconstruction->HasProductions();
+                if (first_production || !File::ExistsFile(rb_path))
+                {
+                    ReconPerfLog(String::StringPrintf(
+                        "[ReconPerf] SubmitProduction | ExportReconstructionViewBin | first=%d exists=%d",
+                        first_production ? 1 : 0, File::ExistsFile(rb_path) ? 1 : 0));
+                    if (ExportReconstructionViewBin(block, reconstruction) != AI3D_SUCCESS)
+                    {
+                        LOGE("SubmitProduction: ExportReconstructionViewBin failed");
+                        return AI3D_FAILURE;
+                    }
+                }
+            }
+
             ProductionObject *production = new ProductionObject(options,reconstruction);
             
             

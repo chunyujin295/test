@@ -59,7 +59,7 @@ struct mergeoptions_s
 	}
 };
 
-class DLL_API LodTreeProcessor
+class OSGEDITOR_INTERNAL_CLASS LodTreeProcessor
 {
 	
 public:

@@ -1,7 +1,4 @@
 if (WIN32)
- # MSVC UTF-8 (source + execution): use root /utf-8; former per-config flags were:
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/source-charset:utf-8>")
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/execution-charset:gbk>")
  add_definitions(-D_UNICODE -DUNICODE)
 endif()
 
@@ -34,14 +31,13 @@ FILE(GLOB SRC_LIST RELATIVE_PATH	"${CMAKE_CURRENT_SOURCE_DIR}"
 								)
 								
 
-ADD_DEFINITIONS("-DAI3D_MAKE_DLL")
-
 set(SRC_FILES ${SRC_LIST} ${HEADER_LIST})
 
 set(DEPENDS_LIBS ${DEPENDS_LIBS} ${AI3D_CERES_LIB} ${AI3D_GEOS_LIB} MoldAIData ${AI3D_OSG_LIB_375} )
 
 add_library(${TARGET_NAME} SHARED ${SRC_FILES} )
 
+target_compile_definitions(${TARGET_NAME} PRIVATE AI3D_MAKE_DLL MoldAIOSGEditor_EXPORTS)
 
 target_link_libraries(${TARGET_NAME} 
 				 ${DEPENDS_LIBS}

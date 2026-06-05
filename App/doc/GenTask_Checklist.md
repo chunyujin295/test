@@ -1,4 +1,4 @@
-# 生成式任务系统 — 执行清单
+﻿# 生成式任务系统 — 执行清单
 
 按依赖关系排列，完成一项勾一项。
 
@@ -12,46 +12,46 @@ Phase 2 (路径配置) ───────────────────
 Phase 1 + 2 可以并行开工
 ```
 
-## 新增文件与现有系统的对应关系
+> **积分系统集成**: 生成式和重建式共用同一套积分 API（freeze/settle/outline/estimate）。积分子系统独立于 6 个 Phase，设计方案详见 **[积分接口集成方案.md](积分接口集成方案.md)**。Phase 3 (GenHttpClient) 和 Phase 4 (GenTaskThread) 直接引用积分方案中的接口和逻辑。
 
 每项列出"新增了什么、对标现有哪个组件、为什么需要它"。
 
 ### 数据结构层
 
-| 新增 | 对标现有 | 说明 |
-|------|---------|------|
-| `GenTaskProcess.h` | `Util/TaskProcess.h` | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo_s` + 枚举 + API 类型） |
-| `DataStruct.h` (修改) | `JobListFile` / `FeedBackFile` / `BLKBinFile` | 新增 `GenJobInfoData`/`GenJobFile`（对标 `JobInfoData`/`JobListFile` 的 BIN 模式, `GenJobFile` 含 `FeedBackData feedBackData`）；`BLKBinFile` 增加 `GenTaskOptions` 序列化字段 |
-| `GenJobInfo_s` | `JobInfo_s` | 纯数据结构体 — `JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo_s` 存 `task_uuid/GenTaskParams/server_task_id/result_url`。I/O 由 GenJobFullInfo_s 负责 (BIN 加密, params 序列化为 JSON 字符串存储) |
-| `GenJobFullInfo_s` | `JobFullInfo_s` | 文件级结构体 — 持有 `job_name` + `GenJobInfo_s job` + `JobFeedBack_s feedback`（对标 TaskGraph_s 持有 JobFeedBack_s），提供 `save`/`load` (BIN 加密) + `WriteToBin`/`LoadFromBin`。feedback 序列化到 BIN (对标 JobListFile::feedBackData) |
-| `GenTaskResponse` | 无现成对标 | HTTP 响应体。服务端返回的 task status/progress/result_url |
-| `GenTaskStatus` | `jobsta_e`（局部类似） | 生成式任务的状态枚举。`jobsta_e` 是重建式 job 状态（PENDING/RUNNING/COMPLETE...），`GenTaskStatus` 多了 IDLE + 服务端状态 |
-| `GenTaskOptions.h` | `ATOptions.h` | 生成式任务参数结构体，对标 `ATOptions`。包含 `GenTaskParams` (生成参数, 含 JSON 方法) + `GenTaskOptions` (仅 gen_params)，嵌入 `Task_Info`。`block_task_category` 为 `Task_Info` 一级字段 |
-| `JobFeedBack_s` — **不修改** | 自身 | 生成式任务复用 `Status`/`Percent`/`Msg`/`TaskRetVal` 做进度反馈。结果数据（`result_url` 等）存在 `GenJobInfo_s` 中，不扩展 feedback 字段 |
+| 新增                         | 对标现有                                      | 说明                                                         |
+| ---------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| `GenTaskProcess.h`           | `Util/TaskProcess.h`                          | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo_s` + 枚举 + API 类型） |
+| `DataStruct.h` (修改)        | `JobListFile` / `FeedBackFile` / `BLKBinFile` | 新增 `GenJobInfoData`/`GenJobFile`（精简指针字段, 对标 `JobInfoData`/`JobListFile`）；完整任务数据由 `GenJobFullInfo_s::WriteToBin` 直接序列化 |
+| `GenJobInfo_s`               | `JobInfo_s`                                   | 纯数据结构体 — `JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo_s` 存 `task_uuid/GenTaskParams/server_task_id/result_url`。I/O 由 GenJobFullInfo_s 负责 (BIN 加密, params 序列化为 JSON 字符串存储) |
+| `GenJobFullInfo_s`           | `JobFullInfo_s`                               | 文件级结构体 — 持有 `job_name` + `GenJobInfo_s job` + `JobFeedBack_s feedback`（对标 TaskGraph_s 持有 JobFeedBack_s），提供 `save`/`load` (BIN 加密) + `WriteToBin`/`LoadFromBin`。feedback 序列化到 BIN (对标 JobListFile::feedBackData) |
+| `GenTaskResponse`            | 无现成对标                                    | HTTP 响应体。服务端返回的 task status/progress/result_url    |
+| `GenTaskStatus`              | `jobsta_e`（局部类似）                        | 生成式任务的状态枚举。`jobsta_e` 是重建式 job 状态（PENDING/RUNNING/COMPLETE...），`GenTaskStatus` 多了 IDLE + 服务端状态 |
+| `GenTaskOptions.h`           | `ATOptions.h`                                 | 生成式任务参数结构体，对标 `ATOptions`。包含 `GenTaskParams` (生成参数, 含 JSON 方法) + `GenTaskOptions` (仅 gen_params)，嵌入 `Task_Info`。`block_task_category` 为 `Task_Info` 一级字段 |
+| `JobFeedBack_s` — **不修改** | 自身                                          | 生成式任务复用 `Status`/`Percent`/`Msg`/`TaskRetVal` 做进度反馈。结果数据（`result_url` 等）存在 `GenJobInfo_s` 中，不扩展 feedback 字段 |
 
 ### 调度与通信层
 
-| 新增 | 对标现有 | 说明 |
-|------|---------|------|
-| `GenTaskThread` | `searchPendingJobThread2` (CallEngine.cpp) | 调度线程。`searchPendingJobThread2` 遍历 `jobs/` 调度重建式任务，`GenTaskThread::Run()` 遍历 `jobs_gen/` 调度生成式任务。两者独立运行，互不干扰 |
-| `GenHttpClient` | `spawn Task.exe` 子进程 | 任务执行方式。重建式通过文件 IPC + spawn `MoldAITask.exe` 子进程执行，生成式通过 HttpClient::post/get (薄封装) 提交和轮询远程服务端。GenHttpClient 是 HttpClient 的适配层，不复刻传输逻辑 |
-| `jobs_gen/` 目录 | `jobs/` 目录 | 文件系统 IPC 的工作目录。`jobs/` 存重建式 Job 文件（`J_*`），`jobs_gen/` 存生成式 Job 文件（同样 `J_*` 前缀，始终 BIN 加密）。启动时需同样清理残留 `.lock` 文件 |
-| `getGenEngineJobQueue()` | `getEngineJobQueue()` | 获取队列根路径。`getEngineJobQueue()` 读注册表 `engine` key，`getGenEngineJobQueue()` 取其父目录 + `/jobs_gen`，无需新注册表项 |
+| 新增                     | 对标现有                                   | 说明                                                         |
+| ------------------------ | ------------------------------------------ | ------------------------------------------------------------ |
+| `GenTaskThread`          | `searchPendingJobThread2` (CallEngine.cpp) | 调度线程。`searchPendingJobThread2` 遍历 `jobs/` 调度重建式任务，`GenTaskThread::Run()` 遍历 `jobs_gen/` 调度生成式任务。两者独立运行，互不干扰 |
+| `GenHttpClient`          | `spawn Task.exe` 子进程                    | 任务执行方式。重建式通过文件 IPC + spawn `MoldAITask.exe` 子进程执行，生成式通过 HttpClient::post/get (薄封装) 提交和轮询远程服务端。GenHttpClient 是 HttpClient 的适配层，不复刻传输逻辑 |
+| `jobs_gen/` 目录         | `jobs/` 目录                               | 文件系统 IPC 的工作目录。`jobs/` 存重建式 Job 文件（`J_*`），`jobs_gen/` 存生成式 Job 文件（同样 `J_*` 前缀，始终 BIN 加密）。启动时需同样清理残留 `.lock` 文件 |
+| `getGenEngineJobQueue()` | `getEngineJobQueue()`                      | 获取队列根路径。`getEngineJobQueue()` 读注册表 `engine` key，`getGenEngineJobQueue()` 取其父目录 + `/jobs_gen`，无需新注册表项 |
 
 ### SDK 与接口层
 
-| 新增 | 对标现有 | 说明 |
-|------|---------|------|
+| 新增         | 对标现有   | 说明                                                         |
+| ------------ | ---------- | ------------------------------------------------------------ |
 | `GenTaskAPI` | 无现成对标 | 前端 SDK。现有系统前端直接操作 BlockObject + Job 文件（耦合高），`GenTaskAPI` 将生成式任务的"提交/查询/下载/回调"封装为静态方法。回调机制采用 `GenTaskAPI` 存储 → `GenTaskThread` 触发的单向依赖 |
 
 ### 修改的现有文件
 
-| 文件 | 对标什么 | 说明 |
-|------|---------|------|
-| `BlockObject.h/cpp` | 自身 | `Task_Info` 加 `GenTaskOptions gen_options`（对标 `ATOptions at_options`） |
-| `Settings.h/cpp` | 自身 | 新增 `getGenEngineJobQueue()` |
-| `CallEngine.cpp` | 自身 | MakePath 创建 `jobs_gen/` 目录；main 启动 `GenTaskThread` |
-| `App/Engine/CMakeLists.txt` | 自身 | HEADER_LIST 添加 `GenTaskProcess.h`（唯一需改的 CMakeLists） |
+| 文件                        | 对标什么 | 说明                                                         |
+| --------------------------- | -------- | ------------------------------------------------------------ |
+| `BlockObject.h/cpp`         | 自身     | `Task_Info` 加 `GenTaskOptions gen_options`（对标 `ATOptions at_options`） |
+| `Settings.h/cpp`            | 自身     | 新增 `getGenEngineJobQueue()`                                |
+| `CallEngine.cpp`            | 自身     | MakePath 创建 `jobs_gen/` 目录；main 启动 `GenTaskThread`    |
+| `App/Engine/CMakeLists.txt` | 自身     | HEADER_LIST 添加 `GenTaskProcess.h`（唯一需改的 CMakeLists） |
 
 ---
 
@@ -124,8 +124,8 @@ namespace AI3D {
             std::optional<std::string> result_url;            // 结果文件下载链接 (COMPLETED 时有值)
             std::optional<std::string> preview_url;           // 预览图链接
             std::optional<std::string> error_message;         // 错误详情 (FAILED 时有值)
-            int                        cost_credits = 0;      // 本次消耗积分
-            int                        points_balance = 0;    // 积分余额
+            // 注: cost_credits / points_balance 已删除,
+            //     积分数据统一由 PointInfoBase 管理 (详见 积分接口集成方案.md)
         };
 
         // ============================================================================
@@ -139,7 +139,7 @@ namespace AI3D {
         // 序列化策略: 文件 I/O 始终走 BIN 加密, 不需要 JSON 序列化.
         //   GenJobInfo_s     — 纯数据 (对标 JobInfo_s), 无序列化方法
         //   GenJobFullInfo_s — 文件级结构体 (对标 JobFullInfo_s), save/load → WriteToBin/LoadFromBin
-        //   GenJobInfoData/GenJobFile — DataStruct.h BIN 线格式 (对标 JobInfoData/JobListFile)
+        //   GenJobFile(GenJobInfoData + GenJobTaskData + FeedBackData) — DataStruct.h BIN 序列化 (对标 JobListFile)
         // ============================================================================
 
         /// @brief 单个生成式任务的纯数据结构 (对标 JobInfo_s)
@@ -151,37 +151,37 @@ namespace AI3D {
 
             // --- Block 关联 (定位 feedback 文件用) ---
             std::string project_path;  // 所属项目目录
-            std::string block_item;    // 所属 Block 名称 (feedback 路径 = project/block_item/JF_job_name)
+            std::string block_item;    // 所属 Block 名称 (feedback 路径 = result_dir/JF_job_name)
 
             // --- 生成参数 (前端填入 → WriteToJson()/ToJsonString() → HTTP/文件) ---
             GenTaskParams params;       // 生成参数结构体, 自带 JSON 序列化方法
 
             // --- 运行时状态 (由 GenTaskThread 从 HTTP 响应回填) ---
+            int generation_id = 0;           // Generation_<id>, SubmitGenTask 推算并写入
             GenTaskStatus status = GenTaskStatus::IDLE;
             std::string server_task_id;    // 服务端返回的任务ID (非空 = 已 submit)
             std::string result_url;         // 结果下载链接 (COMPLETED 时服务端返回)
-            std::string result_path;     // 结果本地保存路径
-            std::string preview_path;    // 预览图本地保存路径
-            std::string result_path;        // 结果下载后的本地保存路径 (DownloadResult 写入)
             std::string preview_url;        // 预览图链接 (COMPLETED 时服务端返回)
-    std::string result_path;
-    std::string preview_path;
-            std::string preview_path;       // 预览图下载后的本地保存路径
+            std::string result_path;        // 结果本地保存路径 (下载后)
+            std::string preview_path;       // 预览图本地保存路径 (下载后)
+            std::string result_dir;         // 结果目录: Generations/Generation_<id>/
             std::string error_message;      // 详细错误信息 (FAILED 时填充)
-            int cost_credits = 0;           // 本次消耗积分
-            int points_balance = 0;         // 积分余额
             int query_retry_count = 0;      // 连续轮询失败次数 (>= 5 则标记失败)
+            int progress = 0;               // 进度百分比 0-100 (IN_PROGRESS 时由 resp.progress 回填)
+
+            // --- 积分相关 (详见 App/doc/积分接口集成方案.md) ---
+            PointInfoBase point_info;       // 替代旧 cost_credits/points_balance, 统一管理所有积分数据
 
             /// @brief 将 HTTP 响应回填到自身 (消除 ProcessRunningJobs 逐字段拷贝)
             ///        optional 字段只在有值时覆盖, 避免空响应冲掉已有数据
+            ///        注: 积分字段不通过 ApplyResponse 回填, 由 FreezePoints/SettlePoints 单独处理
             void ApplyResponse(const GenTaskResponse& resp) {
                 if (resp.server_task_id) server_task_id = *resp.server_task_id;
                 if (resp.result_url)        result_url     = *resp.result_url;
                 if (resp.preview_url)       preview_url    = *resp.preview_url;
                 if (resp.error_message)     error_message  = *resp.error_message;
                 status         = resp.status;
-                cost_credits   = resp.cost_credits;
-                points_balance = resp.points_balance;
+                progress       = resp.progress;
             }
         };
 
@@ -214,7 +214,7 @@ namespace AI3D {
             }
 
             // ========================================================================
-            // WriteToBin / LoadFromBin — XOR 0xAB 加密 BIN
+            // WriteToBin / LoadFromBin — 通过 GenJobFile 序列化
             // 对标 JobFullInfo_s::WriteToBin / LoadFromBin
             // ========================================================================
 
@@ -225,33 +225,47 @@ namespace AI3D {
                     return false;
                 }
 
-                GenJobFile genJobFile;
-                genJobFile.jobName = job_name;
-                // GenJobInfo_s → GenJobInfoData (手动拷贝, 对标 JobFullInfo_s::WriteToBin)
-                GenJobInfoData& d = genJobFile.genJobInfoData;
-                d.task_uuid      = job.task_uuid;
-                d.engine_id      = job.engine_id;
-                d.user_account   = job.user_account;
-                d.project_path   = job.project_path;
-                d.block_item     = job.block_item;
-                d.params_json    = job.params.ToJsonString();
-                d.status         = static_cast<int>(job.status);
-                d.server_task_id = job.server_task_id;
-                d.result_url     = job.result_url;
-                d.preview_url    = job.preview_url;
-        d.result_path    = job.result_path;
-        d.preview_path   = job.preview_path;
-                d.error_message  = job.error_message;
-                d.cost_credits   = job.cost_credits;
-                d.points_balance = job.points_balance;
-                d.query_retry_count = job.query_retry_count;
-                // Feedback (对标 JobListFile::feedBackData, 存在 GenJobFile 层面)
-                genJobFile.feedBackData.status     = static_cast<int>(feedback.Status);
-                genJobFile.feedBackData.percent    = feedback.Percent;
-                genJobFile.feedBackData.taskRetVal = feedback.TaskRetVal;
-                genJobFile.feedBackData.msg        = feedback.Msg;
+                GenJobFile f;
+                f.jobName = job_name;
 
-                genJobFile.Serialize(out);
+                // 指针节
+                f.genJobInfoData.project_path = job.project_path;
+                f.genJobInfoData.block_item   = job.block_item;
+
+                // 任务数据节
+                GenJobTaskData& t = f.genJobTaskData;
+                t.generation_id  = job.generation_id;
+                t.task_uuid      = job.task_uuid;
+                t.engine_id      = job.engine_id;
+                t.user_account   = job.user_account;
+                t.params_json    = job.params.ToJsonString();
+                t.status         = static_cast<int>(job.status);
+                t.server_task_id = job.server_task_id;
+                t.result_url     = job.result_url;
+                t.preview_url    = job.preview_url;
+                t.result_path    = job.result_path;
+                t.preview_path   = job.preview_path;
+                t.result_dir     = job.result_dir;
+                t.error_message  = job.error_message;
+                t.query_retry_count = job.query_retry_count;
+                t.progress       = job.progress;
+
+                // 积分 (PointInfoBase → GenJobTaskData 平铺)
+                t.freeze_no        = job.point_info.freeze_no;
+                t.frozen_points    = job.point_info.frozen_points;
+                t.consumed         = job.point_info.consumed;
+                t.refunded         = job.point_info.refunded;
+                t.total_balance    = job.point_info.total_balance;
+                t.available_points = job.point_info.available_points;
+                t.points_settled   = job.point_info.points_settled;
+
+                // 反馈节
+                f.feedBackData.status     = static_cast<int>(feedback.Status);
+                f.feedBackData.percent    = feedback.Percent;
+                f.feedBackData.taskRetVal = feedback.TaskRetVal;
+                f.feedBackData.msg        = feedback.Msg;
+
+                f.Serialize(out);
                 out.close();
                 return true;
             }
@@ -261,37 +275,49 @@ namespace AI3D {
                 if (!in.is_open())
                     return false;
 
-                GenJobFile genJobFile;
-                if (!genJobFile.Deserialize(in)) {
+                GenJobFile f;
+                if (!f.Deserialize(in)) {
                     in.close();
                     return false;
                 }
                 in.close();
 
-                job_name = genJobFile.jobName;
-                // GenJobInfoData → GenJobInfo_s (手动拷贝, 对标 JobFullInfo_s::LoadFromBin)
-                GenJobInfoData& d = genJobFile.genJobInfoData;
-                job.task_uuid      = d.task_uuid;
-                job.engine_id      = d.engine_id;
-                job.user_account   = d.user_account;
-                job.project_path   = d.project_path;
-                job.block_item     = d.block_item;
-                job.params         = GenTaskParams::CreateFromJsonString(d.params_json);
-                job.status         = static_cast<GenTaskStatus>(d.status);
-                job.server_task_id = d.server_task_id;
-                job.result_url     = d.result_url;
-                job.preview_url    = d.preview_url;
-                job.result_path    = d.result_path;
-                job.preview_path   = d.preview_path;
-                job.error_message  = d.error_message;
-                job.cost_credits   = d.cost_credits;
-                job.points_balance = d.points_balance;
-                job.query_retry_count = d.query_retry_count;
-                // Feedback (对标 JobListFile::feedBackData, 存在 GenJobFile 层面)
-                feedback.Status     = static_cast<jobsta_e>(genJobFile.feedBackData.status);
-                feedback.Percent    = genJobFile.feedBackData.percent;
-                feedback.TaskRetVal = genJobFile.feedBackData.taskRetVal;
-                feedback.Msg        = genJobFile.feedBackData.msg;
+                job_name = f.jobName;
+
+                // 任务数据节
+                GenJobTaskData& t = f.genJobTaskData;
+                job.generation_id  = t.generation_id;
+                job.task_uuid      = t.task_uuid;
+                job.engine_id      = t.engine_id;
+                job.user_account   = t.user_account;
+                job.project_path   = f.genJobInfoData.project_path;
+                job.block_item     = f.genJobInfoData.block_item;
+                job.params         = GenTaskParams::CreateFromJsonString(t.params_json);
+                job.status         = static_cast<GenTaskStatus>(t.status);
+                job.server_task_id = t.server_task_id;
+                job.result_url     = t.result_url;
+                job.preview_url    = t.preview_url;
+                job.result_path    = t.result_path;
+                job.preview_path   = t.preview_path;
+                job.result_dir     = t.result_dir;
+                job.error_message  = t.error_message;
+                job.query_retry_count = t.query_retry_count;
+                job.progress       = t.progress;
+
+                // 积分
+                job.point_info.freeze_no        = t.freeze_no;
+                job.point_info.frozen_points    = t.frozen_points;
+                job.point_info.consumed         = t.consumed;
+                job.point_info.refunded         = t.refunded;
+                job.point_info.total_balance    = t.total_balance;
+                job.point_info.available_points = t.available_points;
+                job.point_info.points_settled   = t.points_settled;
+
+                // 反馈
+                feedback.Status     = static_cast<jobsta_e>(f.feedBackData.status);
+                feedback.Percent    = f.feedBackData.percent;
+                feedback.TaskRetVal = f.feedBackData.taskRetVal;
+                feedback.Msg        = f.feedBackData.msg;
 
                 return true;
             }
@@ -367,216 +393,201 @@ namespace AI3D {
 
 ### 1.2 修改 DataStruct.h — 增加 GenJobInfoData/GenJobFile + JobInfoData/BLKBinFile 扩展
 
-> `GenJobFullInfo_s::WriteToBin/LoadFromBin` 引用了 `GenJobInfoData`/`GenJobFile`，两者定义在 DataStruct.h 中，对标 `JobInfoData`/`JobListFile` + `FeedBackData`/`FeedBackFile` 的 BIN 序列化模式。`BLKBinFile` 增加 `GenTaskOptions` 序列化字段。
+> **架构说明**: 以下采用 `GenJobInfoData`(指针) + `GenJobTaskData`(任务全量数据) 的分节设计，对标重建式 `JobInfoData` + `RunInfoData+TaskItemData`。积分字段 (PointInfoBase) 落在 `GenJobTaskData` 中，序列化/反序列化详见本节代码。`BLKBinFile` 增加 `GenTaskOptions` 序列化字段。
+>
+> **积分系统详细设计**见 **[积分接口集成方案.md](积分接口集成方案.md)**（第二章：数据结构、第四章：PointManager、第五章：生成式集成、第六章：重建式集成）。
 
 - [ ] `Include/Core/DataStruct.h`：在 `FeedBackFile` 之后、`JobInfoData` 之前增加 `GenJobInfoData` + `GenJobFile`
 - [ ] `Include/Core/DataStruct.h`：`GenJobFile` 增加 `FeedBackData feedBackData` (对标 `JobListFile::feedBackData`)
 - [ ] `Include/Core/DataStruct.h`：`BLKBinFile` 增加 `gen_block_task_category` + `gen_params_json` + 更新 Serialize/Deserialize
 
-#### GenJobInfoData / GenJobFile — 生成式任务 BIN 序列化 (XOR 0xAB 加密)
+#### GenJobInfoData / GenJobTaskData / GenJobFile — 生成式 BIN 序列化
 
-> 对标 `FeedBackData`/`FeedBackFile` + `JobInfoData`/`JobListFile`。`params_json` 为 opaque JSON 字符串，前端的完整生成参数原样存入，BIN 格式无需感知参数结构。
+> 对标重建式 `JobInfoData` + `RunInfoData` + `TaskItemData` / `JobListFile`。
+> - `GenJobInfoData` — 精简指针（对标 `JobInfoData`）
+> - `GenJobTaskData` — 任务全部数据（对标 `RunInfoData` + `TaskItemData` 的合集）
+> - `GenJobFile` — 顶层容器（对标 `JobListFile`），序列化时将各节顺序写入
 
 ```cpp
 // ============================================================================
-// GenJobInfoData / GenJobFile — 生成式任务 BIN 序列化 (XOR 0xAB 加密)
-// 对标 FeedBackData/FeedBackFile, 供 GenJobFullInfo_s::WriteToBin/LoadFromBin 使用
+// GenJobFile / GenJobInfoData / GenJobTaskData
+//   对标 JobListFile / JobInfoData / RunInfoData+TaskItemData
 // ============================================================================
 
 struct GenJobInfoData {
+    std::string project_path;   // 项目路径
+    std::string block_item;     // Block 名称
+    ByteCrypt byteCrypt;
+
+    GenJobInfoData() {
+        project_path = "";
+        block_item = "";
+    }
+
+    bool Serialize(std::ofstream& out) const {
+        unsigned int project_path_len = project_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&project_path_len),
+                                     sizeof(project_path_len));
+        byteCrypt.WriteByteDecrypted(out, project_path.c_str(), project_path_len);
+
+        unsigned int block_item_len = block_item.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&block_item_len),
+                                     sizeof(block_item_len));
+        byteCrypt.WriteByteDecrypted(out, block_item.c_str(), block_item_len);
+        return true;
+    }
+
+    bool Deserialize(std::ifstream& in) {
+        unsigned int project_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&project_path_len),
+                                    sizeof(unsigned int));
+        project_path.resize(project_path_len);
+        byteCrypt.ReadByteDecrypted(in, &project_path[0], project_path_len);
+
+        unsigned int block_item_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&block_item_len),
+                                    sizeof(unsigned int));
+        block_item.resize(block_item_len);
+        byteCrypt.ReadByteDecrypted(in, &block_item[0], block_item_len);
+        return true;
+    }
+};
+
+// ---- 指针节 (对标 JobInfoData) ----
+
+// GenJobInfoData — 同上, 仅 project_path + block_item
+
+// ---- 任务数据节 (对标 RunInfoData + TaskItemData 的合集) ----
+
+struct GenJobTaskData {
+    // GenJobInfo_s 字段
+    int generation_id;
     std::string task_uuid;
     std::string engine_id;
     std::string user_account;
-    std::string project_path;
-    std::string block_item;
-    std::string params_json;       // opaque JSON 字符串, 前端填入 -> 引擎透传 -> 服务端解析
+    std::string params_json;
     int status;
     std::string server_task_id;
     std::string result_url;
     std::string preview_url;
     std::string result_path;
     std::string preview_path;
+    std::string result_dir;          // 结果目录: Generations/Generation_<id>/
     std::string error_message;
-    int cost_credits;
-    int points_balance;
     int query_retry_count;
+    int progress;
+
+    // PointInfoBase 字段
+    std::string freeze_no;
+    int frozen_points;
+    int consumed;
+    int refunded;
+    int total_balance;
+    int available_points;
+    bool points_settled;
+
     ByteCrypt byteCrypt;
 
-    GenJobInfoData() {
-        task_uuid = "";
-        engine_id = "";
-        user_account = "";
-        project_path = "";
-        block_item = "";
-        params_json = "";
-        status = 0;
-        server_task_id = "";
-        result_url = "";
-        preview_url = "";
-        result_path = "";
-        preview_path = "";
-        error_message = "";
-        cost_credits = 0;
-        points_balance = 0;
-        query_retry_count = 0;
+    GenJobTaskData() {
+        generation_id = 0;
+        task_uuid = ""; engine_id = ""; user_account = "";
+        params_json = ""; status = 0;
+        server_task_id = ""; result_url = ""; preview_url = "";
+        result_path = ""; preview_path = ""; result_dir = ""; error_message = "";
+        query_retry_count = 0; progress = 0;
+        freeze_no = ""; frozen_points = 0; consumed = 0; refunded = 0;
+        total_balance = 0; available_points = 0; points_settled = false;
     }
 
     bool Serialize(std::ofstream& out) const {
-        unsigned int task_uuid_len = task_uuid.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&task_uuid_len), sizeof(task_uuid_len));
-        byteCrypt.WriteByteDecrypted(out, task_uuid.c_str(), task_uuid_len);
+        auto ws = [&](const std::string& s) {
+            unsigned int len = s.size();
+            byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&len), sizeof(len));
+            byteCrypt.WriteByteDecrypted(out, s.c_str(), len);
+        };
+        auto wi = [&](int v) {
+            byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&v), sizeof(int));
+        };
 
+        wi(generation_id);
+        ws(task_uuid); ws(engine_id); ws(user_account);
+        ws(params_json); wi(status);
+        ws(server_task_id); ws(result_url); ws(preview_url);
+        ws(result_path); ws(preview_path); ws(result_dir); ws(error_message);
+        wi(query_retry_count); wi(progress);
 
+        ws(freeze_no); wi(frozen_points); wi(consumed); wi(refunded);
+        wi(total_balance); wi(available_points); wi(points_settled ? 1 : 0);
 
-        unsigned int engine_id_len = engine_id.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&engine_id_len), sizeof(engine_id_len));
-        byteCrypt.WriteByteDecrypted(out, engine_id.c_str(), engine_id_len);
-
-        unsigned int user_account_len = user_account.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&user_account_len), sizeof(user_account_len));
-        byteCrypt.WriteByteDecrypted(out, user_account.c_str(), user_account_len);
-
-        unsigned int project_path_len = project_path.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&project_path_len), sizeof(project_path_len));
-        byteCrypt.WriteByteDecrypted(out, project_path.c_str(), project_path_len);
-
-        unsigned int block_item_len = block_item.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&block_item_len), sizeof(block_item_len));
-        byteCrypt.WriteByteDecrypted(out, block_item.c_str(), block_item_len);
-
-        unsigned int params_json_len = params_json.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&params_json_len), sizeof(params_json_len));
-        byteCrypt.WriteByteDecrypted(out, params_json.c_str(), params_json_len);
-
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&status), sizeof(int));
-
-        unsigned int server_task_id_len = server_task_id.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&server_task_id_len), sizeof(server_task_id_len));
-        byteCrypt.WriteByteDecrypted(out, server_task_id.c_str(), server_task_id_len);
-
-        unsigned int result_url_len = result_url.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_url_len), sizeof(result_url_len));
-        byteCrypt.WriteByteDecrypted(out, result_url.c_str(), result_url_len);
-
-        unsigned int preview_url_len = preview_url.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_url_len), sizeof(preview_url_len));
-        byteCrypt.WriteByteDecrypted(out, preview_url.c_str(), preview_url_len);
-        unsigned int result_path_len = result_path.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_path_len), sizeof(result_path_len));
-        byteCrypt.WriteByteDecrypted(out, result_path.c_str(), result_path_len);
-        unsigned int preview_path_len = preview_path.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_path_len), sizeof(preview_path_len));
-        byteCrypt.WriteByteDecrypted(out, preview_path.c_str(), preview_path_len);
-
-        unsigned int error_message_len = error_message.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&error_message_len), sizeof(error_message_len));
-        byteCrypt.WriteByteDecrypted(out, error_message.c_str(), error_message_len);
-
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&cost_credits), sizeof(int));
-
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&points_balance), sizeof(int));
-
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&query_retry_count), sizeof(int));
         return true;
-    };
+    }
 
     bool Deserialize(std::ifstream& in) {
-        unsigned int task_uuid_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&task_uuid_len), sizeof(unsigned int));
-        task_uuid.resize(task_uuid_len);
-        byteCrypt.ReadByteDecrypted(in, &task_uuid[0], task_uuid_len);
-        unsigned int engine_id_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&engine_id_len), sizeof(unsigned int));
-        engine_id.resize(engine_id_len);
-        byteCrypt.ReadByteDecrypted(in, &engine_id[0], engine_id_len);
-        unsigned int user_account_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&user_account_len), sizeof(unsigned int));
-        user_account.resize(user_account_len);
-        byteCrypt.ReadByteDecrypted(in, &user_account[0], user_account_len);
-        unsigned int project_path_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&project_path_len), sizeof(unsigned int));
-        project_path.resize(project_path_len);
-        byteCrypt.ReadByteDecrypted(in, &project_path[0], project_path_len);
-        unsigned int block_item_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&block_item_len), sizeof(unsigned int));
-        block_item.resize(block_item_len);
-        byteCrypt.ReadByteDecrypted(in, &block_item[0], block_item_len);
-        unsigned int params_json_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&params_json_len), sizeof(unsigned int));
-        params_json.resize(params_json_len);
-        byteCrypt.ReadByteDecrypted(in, &params_json[0], params_json_len);
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&status), sizeof(int));
-        unsigned int server_task_id_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&server_task_id_len), sizeof(unsigned int));
-        server_task_id.resize(server_task_id_len);
-        byteCrypt.ReadByteDecrypted(in, &server_task_id[0], server_task_id_len);
-        unsigned int result_url_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_url_len), sizeof(unsigned int));
-        result_url.resize(result_url_len);
-        byteCrypt.ReadByteDecrypted(in, &result_url[0], result_url_len);
-        unsigned int preview_url_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_url_len), sizeof(unsigned int));
-        preview_url.resize(preview_url_len);
-        byteCrypt.ReadByteDecrypted(in, &preview_url[0], preview_url_len);
-        unsigned int result_path_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_path_len), sizeof(unsigned int));
-        result_path.resize(result_path_len);
-        byteCrypt.ReadByteDecrypted(in, &result_path[0], result_path_len);
-        unsigned int preview_path_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_path_len), sizeof(unsigned int));
-        preview_path.resize(preview_path_len);
-        byteCrypt.ReadByteDecrypted(in, &preview_path[0], preview_path_len);
-        unsigned int error_message_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&error_message_len), sizeof(unsigned int));
-        error_message.resize(error_message_len);
-        byteCrypt.ReadByteDecrypted(in, &error_message[0], error_message_len);
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&cost_credits), sizeof(int));
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&points_balance), sizeof(int));
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&query_retry_count), sizeof(int));
+        auto rs = [&](std::string& s) {
+            unsigned int len = 0;
+            byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&len), sizeof(unsigned int));
+            s.resize(len);
+            byteCrypt.ReadByteDecrypted(in, &s[0], len);
+        };
+        auto ri = [&](int& v) {
+            byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&v), sizeof(int));
+        };
+
+        ri(generation_id);
+        rs(task_uuid); rs(engine_id); rs(user_account);
+        rs(params_json); ri(status);
+        rs(server_task_id); rs(result_url); rs(preview_url);
+        rs(result_path); rs(preview_path); rs(result_dir); rs(error_message);
+        ri(query_retry_count); ri(progress);
+
+        rs(freeze_no); ri(frozen_points); ri(consumed); ri(refunded);
+        ri(total_balance); ri(available_points);
+        int settledInt = 0; ri(settledInt); points_settled = (settledInt != 0);
+
         return true;
-    };
+    }
 };
 
-struct GenJobFile {
-    std::string jobName;       // 文件名 (对标 JobListFile::jobName)
-    GenJobInfoData genJobInfoData;
-    FeedBackData feedBackData;  // 对标 JobListFile::feedBackData
-    ByteCrypt byteCrypt;
+// ---- 顶层容器 (对标 JobListFile) ----
 
+struct GenJobFile {
+    std::string jobName;            // 对标 JobListFile::jobName
+    GenJobInfoData genJobInfoData;  // 精简指针节
+    GenJobTaskData genJobTaskData;  // 任务数据节
+    FeedBackData feedBackData;      // 反馈节
+
+    ByteCrypt byteCrypt;
     GenJobFile() {}
 
     bool Serialize(std::ofstream& out) const {
-        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
-        std::string header(SOURCE_HEADER_LABEL, 15);
-        byteCrypt.WriteByteDecrypted(out, header.c_str(), 15);
+        const char HEADER[] = "GENJOB-FILE-3MO";
+        byteCrypt.WriteByteDecrypted(out, HEADER, 15);
 
-        unsigned int jobName_len = jobName.size();
-        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&jobName_len), sizeof(jobName_len));
-        byteCrypt.WriteByteDecrypted(out, jobName.c_str(), jobName_len);
+        unsigned int len = jobName.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&len), sizeof(len));
+        byteCrypt.WriteByteDecrypted(out, jobName.c_str(), len);
 
-        genJobInfoData.Serialize(out);
-        feedBackData.Serialize(out);
+        genJobInfoData.Serialize(out);   // 1. 指针节
+        genJobTaskData.Serialize(out);   // 2. 任务数据节 (含积分)
+        feedBackData.Serialize(out);     // 3. 反馈节
         return true;
-    };
+    }
 
     bool Deserialize(std::ifstream& in) {
         char header[15];
         byteCrypt.ReadByteDecrypted(in, header, sizeof(header));
-        std::string decrypted_header(header, 15);
-        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
-        if (decrypted_header != std::string(SOURCE_HEADER_LABEL, 15)) {
-            return false;
-        }
+        if (std::string(header, 15) != "GENJOB-FILE-3MO") return false;
 
-        unsigned int jobName_len = 0;
-        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&jobName_len), sizeof(unsigned int));
-        jobName.resize(jobName_len);
-        byteCrypt.ReadByteDecrypted(in, &jobName[0], jobName_len);
+        unsigned int len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&len), sizeof(unsigned int));
+        jobName.resize(len);
+        byteCrypt.ReadByteDecrypted(in, &jobName[0], len);
 
         genJobInfoData.Deserialize(in);
+        genJobTaskData.Deserialize(in);
         feedBackData.Deserialize(in);
         return true;
-    };
+    }
 };
 ```
 
@@ -585,6 +596,7 @@ struct GenJobFile {
 ```cpp
 // BLKBinFile 中增加:
 int    gen_block_task_category = 0;     // 0=重建(默认), 1=生成式
+int    gen_next_generation_id = 1;      // 递增计数器 (只增不复用)
 std::string gen_params_json;            // 生成式参数 JSON 字符串
 std::string gen_info_json;              // generations_info_ JSON 数组字符串 (新增)
 int    genJobNum = 0;                   // generationjobs_ 条目数 (对标 jobNum)
@@ -592,6 +604,7 @@ std::vector<std::string> genJobVec;     // "task_uuid:job_name" (对标 jobVec)
 
 // Serialize 中增加:
 byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_block_task_category), sizeof(int));
+byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_next_generation_id), sizeof(int));
 
 unsigned int gen_params_json_len = gen_params_json.size();
 byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_params_json_len), sizeof(gen_params_json_len));
@@ -608,30 +621,34 @@ for (int i = 0; i < genJobNum; i++) {
     byteCrypt.WriteByteDecrypted(out, genJobVec[i].c_str(), len);
 }
 
-// Deserialize 中增加:
-byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_block_task_category), sizeof(int));
+// Deserialize 中增加 (兼容旧文件):
+// ★ 旧 .blk 文件末尾没有以下字段, 用 peek() 检测 EOF 防止读到垃圾数据
+if (in.peek() != EOF) {
+    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_block_task_category), sizeof(int));
+    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_next_generation_id), sizeof(int));
 
-unsigned int gen_params_json_len = 0;
-byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_params_json_len), sizeof(unsigned int));
-gen_params_json.resize(gen_params_json_len);
-byteCrypt.ReadByteDecrypted(in, &gen_params_json[0], gen_params_json_len);
+    unsigned int gen_params_json_len = 0;
+    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_params_json_len), sizeof(unsigned int));
+    gen_params_json.resize(gen_params_json_len);
+    byteCrypt.ReadByteDecrypted(in, &gen_params_json[0], gen_params_json_len);
 
-unsigned int gen_info_json_len = 0;
-byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_info_json_len), sizeof(unsigned int));
-gen_info_json.resize(gen_info_json_len);
-byteCrypt.ReadByteDecrypted(in, &gen_info_json[0], gen_info_json_len);
+    unsigned int gen_info_json_len = 0;
+    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_info_json_len), sizeof(unsigned int));
+    gen_info_json.resize(gen_info_json_len);
+    byteCrypt.ReadByteDecrypted(in, &gen_info_json[0], gen_info_json_len);
 
-byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&genJobNum), sizeof(int));
-genJobVec.resize(genJobNum);
-for (int i = 0; i < genJobNum; i++) {
-    unsigned int len = 0;
-    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&len), sizeof(unsigned int));
-    genJobVec[i].resize(len);
-    byteCrypt.ReadByteDecrypted(in, &genJobVec[i][0], len);
+    byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&genJobNum), sizeof(int));
+    genJobVec.resize(genJobNum);
+    for (int i = 0; i < genJobNum; i++) {
+        unsigned int len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&len), sizeof(unsigned int));
+        genJobVec[i].resize(len);
+        byteCrypt.ReadByteDecrypted(in, &genJobVec[i][0], len);
+    }
 }
 ```
 
-> **兼容性**: 旧文件没有这些字段 → Deserialize 后保持默认值 0。新字段追加在末尾，旧 reader 读完已知字段后停止，不受影响。
+> **兼容性**: `if (in.peek() != EOF)` 保护新 reader 读取旧文件。旧文件末尾没有 GenTask 字段，peek() 返回 EOF → 跳过解析 → 新字段保持默认值 (gen_block_task_category=0, gen_params_json="", generations_info_ 为空)。新文件有这些字段，正常解析。
 
 > **魔数汇总**:
 > | 文件类型 | 魔数 | 用途 |
@@ -736,13 +753,14 @@ namespace AI3D {
         // GenTaskParams — 生成式任务的具体参数
         // 前端填充 → WriteToJson()/ToJsonString() → JSON → HTTP 请求 / BIN 持久化
         // ============================================================================
-        struct AI3D_API GenTaskParams
+        struct GenTaskParams  // 不加 AI3D_API — 纯数据 struct, 隐式拷贝构造需内联, 否则跨 DLL 边界崩溃 (0x8)
         {
             GenTaskSubType  sub_type = GenTaskSubType::UNKNOWN;     // 任务类型 (调用者需过滤)
             std::string prompt;            // 文本提示词
             std::string negative_prompt;   // 反向提示词
             int         polygon_limit = 0; // 面数限制
             int         texture_size = 0;  // 纹理分辨率
+            int         provider_id = 0;   // 供应商类型 (默认 0, 前端根据服务商列表选择)
             std::string model_version;     // 模型版本 (字符串: 服务端可能新增版本)
             std::string file_key;          // 已上传文件的 key。前端先调用 UploadFile 上传本地素材
                                           // (图片/模型), 服务端返回 file_key 后填入此处。
@@ -762,6 +780,8 @@ namespace AI3D {
                     metadata.AddMember("polygon_limit", rapidjson::Value(polygon_limit), allocator);
                 if (texture_size != 0)
                     metadata.AddMember("texture_size", rapidjson::Value(texture_size), allocator);
+                if (provider_id != 0)
+                    metadata.AddMember("provider_id", rapidjson::Value(provider_id), allocator);
                 if (!StringIsNullOrBlank(model_version))
                     metadata.AddMember("model_version", rapidjson::Value(model_version.c_str(), allocator), allocator);
                 if (!StringIsNullOrBlank(file_key))
@@ -789,6 +809,8 @@ namespace AI3D {
                     polygon_limit = metadata["polygon_limit"].GetInt();
                 if (metadata.HasMember("texture_size"))
                     texture_size = metadata["texture_size"].GetInt();
+                if (metadata.HasMember("provider_id"))
+                    provider_id = metadata["provider_id"].GetInt();
                 if (metadata.HasMember("model_version"))
                     model_version = metadata["model_version"].GetString();
                 if (metadata.HasMember("file_key"))
@@ -811,7 +833,7 @@ namespace AI3D {
         // 对标 ATOptions at_options, 仅含生成参数
         // 任务类型判断由 Task_Info::block_task_category 负责
         // ============================================================================
-        struct AI3D_API GenTaskOptions
+        struct GenTaskOptions  // 不加 AI3D_API — 同上
         {
             GenTaskParams gen_params;                // 生成参数
 
@@ -826,25 +848,26 @@ namespace AI3D {
 
         // ============================================================================
         // blk_generation_info_s — 生成式任务结果元数据
-        // 对标 blk_recontruction_info_s, 存储在 Block 的 Task_Info 中, 供前端目录树展示
+        // 对标 blk_reconst_production_info_s, 存储在 Block 的 Task_Info 中, 供前端目录树展示
         // status / sub_type 存 int (避免 Core→Util 依赖), 读取后由调用者转枚举
         // ============================================================================
-        struct AI3D_API blk_generation_info_s
+        struct blk_generation_info_s  // 不加 AI3D_API — 同上, vector 拷贝会触发每个元素的拷贝构造
         {
-            std::string task_uuid;       // 任务唯一标识
-            std::string job_name;        // job 文件名 (J_BlockName_timestamp)
-            int         sub_type = -1;   // GenTaskSubType 枚举值 (int 存储, 对标 reconstruction_t)
-            int         status = -1;     // GenTaskStatus 枚举值
-            std::string preview_url;     // 预览图链接 (左侧树缩略图)
-    std::string result_path;
-    std::string preview_path;
-            std::string result_url;      // 结果下载链接
-            std::string result_path;     // 结果本地保存路径
-            std::string preview_path;    // 预览图本地保存路径
-            std::string created_time;    // 创建时间 "yyyyMMddhhmmss"
+            int         generation_id = -1;  // 对标 production_t id_
+            std::string task_uuid;           // 任务唯一标识
+            std::string job_name;            // job 文件名
+            int         sub_type = -1;       // GenTaskSubType 枚举值
+            int         status = -1;         // GenTaskStatus 枚举值
+            std::string preview_url;         // 预览图链接
+            std::string result_url;          // 结果下载链接
+            std::string result_path;         // 结果本地保存路径 (下载后)
+            std::string preview_path;        // 预览图本地保存路径 (下载后)
+            std::string result_dir;          // 结果目录: Generations/Generation_<id>/
+            std::string created_time;        // 创建时间 "yyyyMMddhhmmss"
 
             void CreateJson(rapidjson::Value& value, rapidjson::Document& doc) const {
                 auto& allocator = doc.GetAllocator();
+                value.AddMember("generation_id", rapidjson::Value(generation_id), allocator);
                 value.AddMember("task_uuid", rapidjson::Value(task_uuid.c_str(), allocator), allocator);
                 value.AddMember("job_name", rapidjson::Value(job_name.c_str(), allocator), allocator);
                 value.AddMember("sub_type", rapidjson::Value(sub_type), allocator);
@@ -857,20 +880,24 @@ namespace AI3D {
                     value.AddMember("result_path", rapidjson::Value(result_path.c_str(), allocator), allocator);
                 if (!preview_path.empty())
                     value.AddMember("preview_path", rapidjson::Value(preview_path.c_str(), allocator), allocator);
+                if (!result_dir.empty())
+                    value.AddMember("result_dir", rapidjson::Value(result_dir.c_str(), allocator), allocator);
                 if (!created_time.empty())
                     value.AddMember("created_time", rapidjson::Value(created_time.c_str(), allocator), allocator);
             }
 
             void ParseJson(const rapidjson::Value& value) {
-                if (value.HasMember("task_uuid"))    task_uuid = value["task_uuid"].GetString();
-                if (value.HasMember("job_name"))     job_name = value["job_name"].GetString();
-                if (value.HasMember("sub_type"))     sub_type = value["sub_type"].GetInt();
-                if (value.HasMember("status"))       status = value["status"].GetInt();
-                if (value.HasMember("preview_url"))  preview_url = value["preview_url"].GetString();
-                if (value.HasMember("result_url"))   result_url = value["result_url"].GetString();
-                if (value.HasMember("created_time")) created_time = value["created_time"].GetString();
-                if (value.HasMember("result_path"))  result_path = value["result_path"].GetString();
-                if (value.HasMember("preview_path")) preview_path = value["preview_path"].GetString();
+                if (value.HasMember("generation_id")) generation_id = value["generation_id"].GetInt();
+                if (value.HasMember("task_uuid"))     task_uuid = value["task_uuid"].GetString();
+                if (value.HasMember("job_name"))      job_name = value["job_name"].GetString();
+                if (value.HasMember("sub_type"))      sub_type = value["sub_type"].GetInt();
+                if (value.HasMember("status"))        status = value["status"].GetInt();
+                if (value.HasMember("preview_url"))   preview_url = value["preview_url"].GetString();
+                if (value.HasMember("result_url"))    result_url = value["result_url"].GetString();
+                if (value.HasMember("created_time"))  created_time = value["created_time"].GetString();
+                if (value.HasMember("result_path"))   result_path = value["result_path"].GetString();
+                if (value.HasMember("preview_path"))  preview_path = value["preview_path"].GetString();
+                if (value.HasMember("result_dir"))    result_dir = value["result_dir"].GetString();
             }
         };
 
@@ -892,7 +919,10 @@ GenTaskOptions gen_options;             // 生成式任务参数 (block_task_cat
 // 在 Task_Info 结构体中 (reconstructions_info_ / reconstructionjobs_ 旁边):
 std::vector<blk_generation_info_s> generations_info_;        // 生成结果元数据列表
 std::map<std::string, std::string> generationjobs_;         // task_uuid → job_name
+int           next_generation_id = 1;   // 递增计数器 (只增不复用, 对标 reconstruction 的 ID 机制)
 ```
+
+> `next_generation_id` 持久化在 Block.blk 中，每次 SubmitGenTask 取当前值后自增，删除已存在的 Generation 不会重置它。
 #### 修改 BlockObject.cpp —— JSON 序列化
 
 `WriteBlockInfoToJson()` 中增加：
@@ -959,6 +989,7 @@ if (doc_blk.HasMember("GenJobs")) {
 
 ```cpp
 bLKBinFile.gen_block_task_category = block_task_category;
+bLKBinFile.gen_next_generation_id  = next_generation_id;
 bLKBinFile.gen_params_json         = gen_options.gen_params.ToJsonString();
 
 // generations_info_ → JSON array string (对标 gen_params_json 的序列化策略)
@@ -986,7 +1017,8 @@ for (auto& jobstr : generationjobs_)
 `ReadBlockInfoBin()` 中增加：
 
 ```cpp
-block_task_category = bLKBinFile.gen_block_task_category;
+block_task_category    = bLKBinFile.gen_block_task_category;
+next_generation_id     = bLKBinFile.gen_next_generation_id;
 gen_options.gen_params = GenTaskParams::CreateFromJsonString(bLKBinFile.gen_params_json);
 
 // generations_info_ ← JSON array string
@@ -1024,7 +1056,7 @@ for (auto& job : bLKBinFile.genJobVec) {
 >
 > **持有关系**: `GenJobFullInfo_s` 新增 `JobFeedBack_s feedback` 成员（对标 `TaskGraph_s` 持有 `JobFeedBack_s`），在调度线程中加载 job 时同步加载 feedback 到内存，`UpdateFeedback()` 直接修改内存中的 `feedback` 成员，调用者负责写回独立 `JF_*` 文件。避免了每次更新 feedback 都要 `load_with_retry` + `save_with_retry` 的额外 I/O。
 >
-> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`cost_credits`/`error_message`）全部存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。前端通过读取 Block 的 `generations_info_` 获取 result_url 等结果数据。
+> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`error_message`）存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。积分数据统一在 `PointInfoBase point_info` 中，由 FreezePoints/SettlePoints 回填。
 
 ### 1.5 编译验证与 CMake 修改
 
@@ -1269,8 +1301,12 @@ static void TestGenJobFullInfoBinRoundtrip()
     info.job.preview_url         = "https://cdn.example.com/preview.png";
     info.job.result_path         = "/local/path/result.glb";
     info.job.preview_path        = "/local/path/preview.png";
-    info.job.cost_credits        = 10;
-    info.job.points_balance      = 90;
+    info.job.point_info.freeze_no        = "test-freeze-no-123";
+    info.job.point_info.frozen_points    = 100;
+    info.job.point_info.consumed         = 10;
+    info.job.point_info.total_balance    = 90;
+    info.job.point_info.available_points = 90;
+    info.job.point_info.points_settled   = false;
     info.job.query_retry_count   = 2;
     info.feedback.Status     = jobsta_e::STATUS_RUNNING;
     info.feedback.Percent    = 45.0f;
@@ -1312,9 +1348,12 @@ static void TestGenJobFullInfoBinRoundtrip()
     TEST_ASSERT(loaded.job.preview_url == info.job.preview_url, "preview_url mismatch");
     TEST_ASSERT(loaded.job.result_path == info.job.result_path, "result_path mismatch");
     TEST_ASSERT(loaded.job.preview_path == info.job.preview_path, "preview_path mismatch");
-    TEST_ASSERT(loaded.job.cost_credits == info.job.cost_credits, "cost_credits mismatch");
-    TEST_ASSERT(loaded.job.points_balance == info.job.points_balance,
-                "points_balance mismatch");
+    TEST_ASSERT(loaded.job.point_info.freeze_no == info.job.point_info.freeze_no,
+                "freeze_no mismatch");
+    TEST_ASSERT(loaded.job.point_info.consumed == info.job.point_info.consumed,
+                "consumed mismatch");
+    TEST_ASSERT(loaded.job.point_info.total_balance == info.job.point_info.total_balance,
+                "total_balance mismatch");
     TEST_ASSERT(loaded.job.query_retry_count == info.job.query_retry_count,
                 "query_retry_count mismatch");
 
@@ -1511,10 +1550,13 @@ static void TestBlockFileGenFieldsRoundtrip()
     block.Init();  // → name_ = "Block_1", path_ = projectPath/Block_1
     block.SetStatus(jobsta_e::STATUS_NEW);
 
+    // Block 子目录 (Init 后 path_ = projectPath/Block_1)
+    QDir().mkpath(QString::fromStdString(block.GetPath()));
+
     // 对标 AddBlock 中的设置
     // Matching settings from AddBlock
     block.GetTaskInfoMutual().blockString = "Block_1";
-    block.GetTaskInfoMutual().blockName = "TestGenBlock";
+    block.GetTaskInfoMutual().blockName = block.GetName();  // 用 Init 后的 name_, 保持一致
     block.GetTaskInfoMutual().blockId    = 1;
     block.GetTaskInfoMutual().projectfile_ = projectPath;
     block.GetTaskInfoMutual().isSaved    = false;
@@ -1540,16 +1582,14 @@ static void TestBlockFileGenFieldsRoundtrip()
 
     info.generationjobs_[gen1.task_uuid] = gen1.job_name;
 
-    // 7d. 落地 (对标 Project::Save → BlockObject::Save)
-    // 7d. Persist (matching Project::Save → BlockObject::Save)
-    bool ok = block.Save();
-    TEST_ASSERT(ok, "BlockObject::Save failed");
+    // 7d. 落地 (直接写 .blk, 不调 Save() — Save() 内部会尝试导出 AT 数据, 空 Block 无 AT)
+    // 7d. Persist (write .blk directly; Save() tries to export AT data, fails for empty block)
+    std::string blkPath = block.GetPath() + "/" + block.GetName() + ".blk";
+    bool ok = info.WriteBlockInfoToBin(blkPath);
+    TEST_ASSERT(ok, "WriteBlockInfoToBin failed");
 
     // 7e. 读回 .blk 文件
     // 7e. Read back .blk file
-    //     Save 输出路径: path_/name_ + ".blk" = projectPath/Block_1/Block_1.blk
-    //     Save output path: path_/name_ + ".blk" = projectPath/Block_1/Block_1.blk
-    std::string blkPath = block.GetPath() + "/" + block.GetName() + ".blk";
     BlockObject::Task_Info loaded;
     ok = loaded.ReadBlockInfoBin(blkPath);
     TEST_ASSERT(ok, "ReadBlockInfoBin failed");
@@ -1648,13 +1688,22 @@ static void TestFrontendSubmitGenTask()
                 "user_account should match");
     TEST_ASSERT(jobInfo.job.project_path == projectPath,
                 "project_path should match");
+    TEST_ASSERT(result.generation_id == 1,
+                "generation_id should be 1 for first generation");
+    std::string expectedResultDir = projectPath + "/Block_1/" + std::string(GENERATION_DIR)
+        + "/" + GENERATION_PREFIX + "1";
+    TEST_ASSERT(jobInfo.job.result_dir == expectedResultDir,
+                "result_dir should be Generations/Generation_1/");
+    TEST_ASSERT(QDir(QString::fromStdString(expectedResultDir)).exists(),
+                "Generations/Generation_1/ directory should be created");
 
-    // 8h. 验证 feedback 文件已创建
+    // 8h. 验证 feedback 文件已创建 (路径使用 job.result_dir, 而非 expectedResultDir)
+    //     两者应一致, 此处用 job.result_dir 确保测试的是实际写入的值
     // 8h. Verify feedback file created
-    std::string fbPath = projectPath + "/Block_1/JF_" + result.job_name
+    std::string fbPath = jobInfo.job.result_dir + "/JF_" + result.job_name
         + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
     TEST_ASSERT(QFileInfo(QString::fromStdString(fbPath)).exists(),
-                "feedback file should exist");
+                "feedback file should exist in Generations/Generation_1/");
     JobFeedBack_s fb;
     TEST_ASSERT(fb.load_with_retry(fbPath, false), "should load feedback");
     TEST_ASSERT(fb.Status == jobsta_e::STATUS_PENDDING, "feedback should be PENDING");
@@ -1662,6 +1711,64 @@ static void TestFrontendSubmitGenTask()
     // 8i. 清理
     // 8i. Cleanup
     QDir(tmpDir).removeRecursively();
+}
+
+// ============================================================================
+// 9. 验证 AI3D_API 去除后 GetTaskInfo() 返回值拷贝不崩溃
+//    根因: AI3D_API (__declspec(dllimport)) 导致 MSVC 认为 GenTaskParams/
+//    GenTaskOptions/blk_generation_info_s 的拷贝构造在 DLL 中, 实际不存在。
+//    修复: 去掉这三个 struct 的 AI3D_API, 让编译器内联生成拷贝构造。
+// ============================================================================
+void TestGetTaskInfoCopy()
+{
+    std::string tmpDir = QDir::tempPath().toStdString() + "/test_gen_task_info_copy/";
+    QDir().mkpath(QString::fromStdString(tmpDir));
+    std::string blkPath = tmpDir + "test.blk";
+
+    // a. 构造含 gen_options 的 BlockObject
+    AI3D::CORE::BlockObject block;
+    block.SetName("test_block");
+    block.SetPath(tmpDir);
+
+    AI3D::CORE::BlockObject::Task_Info& info = block.GetTaskInfoMutual();
+    info.block_task_category = 1;
+    info.gen_options.gen_params.sub_type      = GenTaskSubType::TEXT_TO_MODEL;
+    info.gen_options.gen_params.prompt        = "a red sports car";
+    info.gen_options.gen_params.polygon_limit = 50000;
+    info.gen_options.gen_params.texture_size  = 1024;
+    info.gen_options.gen_params.model_version = "v2";
+    info.blockName = "test_block";
+    info.projectfile_ = tmpDir;
+
+    // b. 写 BIN, 再读回
+    TEST_ASSERT(info.WriteBlockInfoToBin(blkPath), "WriteBlockInfoToBin should succeed");
+
+    AI3D::CORE::BlockObject::Task_Info readBack;
+    TEST_ASSERT(readBack.ReadBlockInfoBin(blkPath), "ReadBlockInfoBin should succeed");
+
+    // c. ★ 关键: 通过 GetTaskInfo() 返回值触发拷贝构造
+    //    如果 AI3D_API 未去除, 此行崩溃在偏移 0x8
+    AI3D::CORE::BlockObject::Task_Info copied = readBack;  // 显式拷贝
+    (void)copied;
+
+    // d. 验证拷贝后的数据一致
+    AI3D::CORE::BlockObject block2;
+    block2.SetName("test_block2");
+    block2.SetPath(tmpDir);
+    block2.SetTaskInfo(readBack);  // 通过 BlockObject 间接触发 GetTaskInfo() 路径
+    AI3D::CORE::BlockObject::Task_Info gotBack = block2.GetTaskInfo();  // ← GetTaskInfo() 返回值拷贝
+
+    TEST_ASSERT(gotBack.block_task_category == 1,                            "block_task_category mismatch");
+    TEST_ASSERT(gotBack.gen_options.gen_params.sub_type == GenTaskSubType::TEXT_TO_MODEL, "sub_type mismatch");
+    TEST_ASSERT(gotBack.gen_options.gen_params.prompt == "a red sports car", "prompt mismatch");
+    TEST_ASSERT(gotBack.gen_options.gen_params.polygon_limit == 50000,       "polygon_limit mismatch");
+    TEST_ASSERT(gotBack.gen_options.gen_params.texture_size == 1024,         "texture_size mismatch");
+    TEST_ASSERT(gotBack.blockName == "test_block",                           "blockName mismatch");
+
+    // e. 清理
+    QDir(tmpDir).removeRecursively();
+
+    LOGI("TestGetTaskInfoCopy PASSED — AI3D_API fix verified");
 }
 
 int main()
@@ -1674,6 +1781,7 @@ int main()
     TestGenerationsInfoArrayRoundtrip();
     TestBlockFileGenFieldsRoundtrip();
     TestFrontendSubmitGenTask();
+    TestGetTaskInfoCopy();  // ← 新增: 验证 AI3D_API 修复
 
     if (g_failures == 0) {
         LOGI("All Phase 1 tests passed.");
@@ -1684,6 +1792,70 @@ int main()
     }
 }
 ```
+
+---
+
+## 文件目录结构与命名约定
+
+### 生成式 vs 重建式对照
+
+```
+重建式:
+  Project/                                       ← Project 根
+    Block_N/                                     ← Block 目录
+      JF_<jobname>.bin                           ← Job Feedback (Block 根)
+      JT_<jobname>.bin                           ← TimeSum (Block 根)
+      <jobname>/                                 ← Job 工作目录 (TI 子任务)
+      Reconstruction_M/                          ← 重建
+        <jobname>/                               ← 重建 Job 工作目录
+        JF_<baseName_R>.bin                      ← 重建 Job Feedback
+        Productions/
+          Production_P/                          ← 生产 (PRODUCTION_PREFIX + id)
+            Tile_000/                            ← Tile 子任务工作目录
+              TI_0.bin                           ← Tile 任务定义
+              JF_<baseName_BRP>.bin              ← Tile Feedback
+            JF_<baseName_BRP>.bin                ← 生产总 Job Feedback
+            result/                              ← 产出数据目录
+      source_data.json                           ← Block 数据文件
+      .blk / .bbin                              ← Block 元数据
+
+生成式:
+  Project/
+    Block_N/
+      Generations/                               ← 对标 Productions
+        Generation_1/                            ← 对标 Production_1 (GENERATION_PREFIX + id)
+          JF_J_<BlockName>_<timestamp>.bin       ← Job Feedback (对标 Production 下的 JF)
+          result.glb                             ← 结果文件
+          preview.png                            ← 预览图
+        Generation_2/
+          JF_J_<BlockName>_<timestamp>.bin
+      .blk / .bbin
+```
+
+### 命名规则
+
+| 项目 | 规则 | 对标 |
+|------|------|------|
+| job_name | `J_<BlockName>_<yyyyMMddhhmmss>` | 重建式 job 名无固定规则, 生成式统一用 BlockName + 时间戳 |
+| job 文件 | `<job_name>.bin` → `J_Block1_20240604120000.bin` | 同重建式 |
+| JF 文件 | `JF_<job_name>.bin`, 放在 `result_dir/` 下 | 对标 `Productions/Production_<id>/JF_<jobname>.bin` |
+| task_uuid | `<user>_<timestamp>_<uuid4>` | 生成式特有 (无对标) |
+| 结果目录 | `Generations/Generation_<id>/` | 对标 `Productions/Production_<id>/` |
+| generation_id | `int`, 从 1 递增, 由 `GetNextGenerationId()` 分配 | 对标 `production_t id_`, 由 `GenerateValidProductionId()` 分配 |
+
+### JF 文件区分
+
+多个生成任务提交到同一个 Block 时, JF 文件名中 `job_name` 含时间戳, 互不冲突:
+
+```
+Block/Generations/
+  Generation_1/
+    JF_J_Block1_20240604120000.bin   ← 第 1 个任务
+  Generation_2/
+    JF_J_Block1_20240604130000.bin   ← 第 2 个任务
+```
+
+前端遍历 `generations_info_` 时用 `gen.result_dir + "/JF_" + gen.job_name` 即可定位对应 feedback。
 
 ---
 
@@ -1963,12 +2135,10 @@ namespace AI3D {
 #include <chrono>
 
 namespace AI3D {
-    namespace CORE {
+namespace CORE {
 
-        }
-
-        // ============================================================================
-        // LoadAccessToken — 从注册表读取 token (复制自 HttpClient::post())
+    // ============================================================================
+    // LoadAccessToken — 从注册表读取 token (复制自 HttpClient::post())
         // ============================================================================
 
         QString GenHttpClient::LoadAccessToken()
@@ -2048,8 +2218,7 @@ namespace AI3D {
                             response.preview_url = doc["preview_url"].toString().toStdString();
                         if (doc.contains("error_message"))
                             response.error_message = doc["error_message"].toString().toStdString();
-                        response.cost_credits   = doc.value("cost_credits").toInt();
-                        response.points_balance = doc.value("points_balance").toInt();
+                        // 积分字段已迁移到 PointInfoBase, 不再从 Task API 响应中解析
                         ok = true;
                     } else {
                         response.task_id = task_uuid;
@@ -2107,8 +2276,7 @@ namespace AI3D {
                             response.preview_url = doc["preview_url"].toString().toStdString();
                         if (doc.contains("error_message"))
                             response.error_message = doc["error_message"].toString().toStdString();
-                        response.cost_credits   = doc.value("cost_credits").toInt();
-                        response.points_balance = doc.value("points_balance").toInt();
+                        // 积分字段已迁移到 PointInfoBase, 不再从 Task API 响应中解析
                         ok = true;
                     } else {
                         response.status = GenTaskStatus::IDLE;
@@ -2304,8 +2472,7 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
         resp.progress   = 100;
         resp.result_url = "https://mock-cdn.example.com/" + server_task_id + "/result.glb";
         resp.preview_url = "https://mock-cdn.example.com/" + server_task_id + "/preview.png";
-        resp.cost_credits   = 10;
-        resp.points_balance = 90;
+        // 积分字段已迁移到 PointInfoBase, mock 中不再设置
     }
     return resp;
 }
@@ -2539,10 +2706,9 @@ namespace AI3D {
         }
 
         static std::string BuildFeedbackPath(const GenJobFullInfo_s& info) {
-            // feedback 放在项目目录下: project/BlockName/JF_<job_name>.bin (.json)
-            // 对标 CallEngine.cpp 中 MAKE_FEEDBAK_BIN_FILE / MAKE_FEEDBAK_JSON_FILE 宏
-            std::string base = info.job.project_path + "/" + info.job.block_item
-                + "/JF_" + info.job_name;
+            // feedback 放在结果目录下: Generations/Generation_<id>/JF_<job_name>.bin
+            //   对标重建式: Productions/Production_<id>/JF_<job_name>.bin
+            std::string base = info.job.result_dir + "/JF_" + info.job_name;
             if (JOB_FEEDBACK_USE_BIN) {
                 return base + BINFILE_POSTFIX;   // ".bin"
             } else {
@@ -2566,6 +2732,7 @@ namespace AI3D {
                     break;
                 case GenTaskStatus::IN_PROGRESS:
                     fb.Status  = jobsta_e::STATUS_RUNNING;
+                    fb.Percent = job.progress;  // 由 ApplyResponse 从 resp.progress 回填
                     break;
                 case GenTaskStatus::COMPLETED:
                     fb.Status  = jobsta_e::STATUS_COMPLETE;
@@ -2608,8 +2775,11 @@ namespace AI3D {
         //   1. 遍历 jobs_gen/Pending/*.json
         //   2. deny-write 锁 → 加载 job → 检查崩溃恢复
         //   3. 上传本地文件 (FILE_PATH → FILE_KEY)
-        //   4. HTTP POST submit → 回填 server_task_id → 保存 → 移到 Running/
-        //   5. submit 失败不移动文件, 下轮重试
+        //   4. HTTP POST submit → 回填 server_task_id
+        //   5. HTTP POST /point/freeze → 回填 freeze_no         ← ★ 积分冻结 (详见 积分接口集成方案.md 第四章)
+        //      失败不移文件, 下轮重试
+        //   6. 保存 → 移到 Running/
+        //   7. submit 失败不移动文件, 下轮重试
         // ============================================================================
 
         void GenTaskThread::ProcessPendingJobs()
@@ -2677,11 +2847,13 @@ namespace AI3D {
                     BlockObject::Task_Info blkInfo;
                     if (blkInfo.ReadBlockInfoBin(blkPath)) {
                         blk_generation_info_s genInfo;
-                        genInfo.task_uuid    = job.task_uuid;
-                        genInfo.job_name     = info.job_name;
-                        genInfo.sub_type     = static_cast<int>(job.params.sub_type);
-                        genInfo.status       = static_cast<int>(GenTaskStatus::PENDING);
-                        genInfo.created_time = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+                        genInfo.generation_id = job.generation_id;
+                        genInfo.task_uuid     = job.task_uuid;
+                        genInfo.job_name      = info.job_name;
+                        genInfo.sub_type      = static_cast<int>(job.params.sub_type);
+                        genInfo.status        = static_cast<int>(GenTaskStatus::PENDING);
+                        genInfo.result_dir    = job.result_dir;
+                        genInfo.created_time  = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
                         blkInfo.generations_info_.push_back(genInfo);
                         blkInfo.generationjobs_[job.task_uuid] = info.job_name;
                         blkInfo.WriteBlockInfoToBin(blkPath, false);
@@ -2700,9 +2872,14 @@ namespace AI3D {
         // 流程:
         //   1. 遍历 jobs_gen/Running/J_*
         //   2. deny-write 锁 → 加载 job
-        //   3. HTTP GET query 服务端状态
-        //   4. 根据返回: COMPLETED → 移 Completed/, FAILED → 移 Failed/, IN_PROGRESS → 更新 feedback
-        //   5. 连续 5 次网络超时 → 标记 FAILED
+        //   3. 兜底: 无 freeze_no → 补 FreezeCredits                  ← ★ 积分冻结兜底
+        //   4. HTTP GET query 服务端状态
+        //   5. 根据返回处理 — 终态时**先 settle 再更新状态**:
+        //      COMPLETED/FAILED/CANCELLED → 先 POST /point/settle (详见 积分接口集成方案.md 第四章)
+        //        ├─ settle 成功 → 更新状态/feedback/Block → 移目录
+        //        └─ settle 失败 → break (不更新任何状态, 下轮重试)
+        //      IN_PROGRESS → 更新 feedback
+        //   6. 连续 5 次网络超时 → 标记 FAILED
         // ============================================================================
 
         void GenTaskThread::ProcessRunningJobs()
@@ -2803,8 +2980,9 @@ namespace AI3D {
                     }
 
                     case GenTaskStatus::IN_PROGRESS: {
-                        // 进度更新: 保存状态 + 写 feedback
-                        job.status = GenTaskStatus::IN_PROGRESS;
+                        // 进度更新: ApplyResponse 回填 progress/result_url/preview_url 等
+                        // 再 UpdateFeedback 写到 feedback 文件供前端轮询
+                        job.ApplyResponse(resp);
                         info.save_with_retry(filePathStr);
                         UpdateFeedback(info);
                         info.feedback.save_with_retry(fbPath, false);
@@ -3071,21 +3249,36 @@ public:
     struct SubmitResult {
         std::string task_uuid;       // 全局唯一, 取消任务时用
         std::string job_name;        // J_BlockName_timestamp, 在 generations_info_ 中匹配
+        int         generation_id = -1;  // 分配的 generation id (前端用于更新 Block)
         bool        success = false;
         std::string error_msg;
     };
 
     static SubmitResult SubmitGenTask(
-        const BlockObject::Task_Info& blockInfo,
+        BlockObject::Task_Info& blockInfo,       // 非 const: 内部递增 next_generation_id
         const std::string& user_account,
         const std::string& pendingJobPath);
 
+    /// @brief 通过 task_uuid 获取结果目录 (从 Block 的 generations_info_ 中查找)
+    /// @return result_dir, 未找到返回空字符串
+    static std::string GetResultDir(
+        const std::string& task_uuid,
+        const BlockObject::Task_Info& blockInfo);
+
+    /// @brief 通过 task_uuid 下载结果到对应的 Generations/Generation_<id>/ 目录
+    ///        自动从 generations_info_ 中查找 result_url 和 result_dir
+    /// @param progressCb  进度回调 (bytesReceived, bytesTotal), 可选
+    /// @return true=成功
+    static bool DownloadResultByTaskUuid(
+        const std::string& task_uuid,
+        const BlockObject::Task_Info& blockInfo,
+        std::function<void(qint64 bytesReceived, qint64 bytesTotal)> progressCb = nullptr);
+
+    /// @brief 直接下载 (保留, 供特殊场景指定自定义路径)
     static bool DownloadResult(const std::string& result_url,
                                 const std::string& save_path);
 
-    /// @brief 查询用户积分余额 (TODO: 对接 Triverse 积分 API)
-    ///        需要 user_account 做身份标识, HTTP 鉴权由 GenHttpClient 处理
-    /// @brief 请求取消任务 (写取消标记, GenTaskThread 定时检查并执行 CancelGenTask)
+    /// @brief 请求取消任务
     static bool RequestCancel(const std::string& task_uuid);
 
     static int QueryCredits(const std::string& user_account);
@@ -3127,7 +3320,7 @@ namespace AI3D { namespace CORE {
 // SubmitGenTask
 // ============================================================================
 GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
-    const BlockObject::Task_Info& blockInfo,
+    BlockObject::Task_Info& blockInfo,       // 非 const: 内部自增 next_generation_id
     const std::string& user_account,
     const std::string& pendingJobPath)
 {
@@ -3138,6 +3331,9 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
         result.error_msg = "Block does not support generative tasks";
         return result;
     }
+
+    // 从持久化计数器取 generation_id, 取后自增 (只增不复用)
+    int generation_id = blockInfo.next_generation_id++;
 
     GenJobFullInfo_s fullInfo;
     fullInfo.job_name = "J_" + blockInfo.blockName + "_"
@@ -3154,10 +3350,10 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     job.params       = blockInfo.gen_options.gen_params;
     job.status       = GenTaskStatus::IDLE;
 
-    QString resultDir = QString::fromStdString(blockInfo.projectfile_)
-        + "/" + QString::fromStdString(blockInfo.blockName)
-        + "/" + QString::fromStdString(fullInfo.job_name);
-    QDir().mkpath(resultDir);
+    // 结果目录: Generations/Generation_<id>/
+    std::string generationDir = std::string(GENERATION_DIR) + "/" + GENERATION_PREFIX + std::to_string(generation_id);
+    job.result_dir = blockInfo.projectfile_ + "/" + blockInfo.blockName + "/" + generationDir;
+    QDir().mkpath(QString::fromStdString(job.result_dir));
 
     QDir().mkpath(QString::fromStdString(pendingJobPath));
     std::string jobFilePath = pendingJobPath + fullInfo.job_name + ".bin";
@@ -3167,21 +3363,107 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
         return result;
     }
 
-    std::string feedbackPath = blockInfo.projectfile_ + "/"
-        + blockInfo.blockName + "/JF_" + fullInfo.job_name
+    std::string feedbackPath = job.result_dir + "/JF_" + fullInfo.job_name
         + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
     fullInfo.feedback.Status = jobsta_e::STATUS_PENDDING;
     fullInfo.feedback.Percent = 0.0f;
     fullInfo.feedback.save_with_retry(feedbackPath, false);
 
+    job.generation_id = generation_id;  // 存入 job, 引擎后续使用
+
     result.success   = true;
     result.task_uuid = job.task_uuid;
     result.job_name  = fullInfo.job_name;
+    result.generation_id = generation_id;
     return result;
 }
 
 // ============================================================================
-// DownloadResult
+// GetResultDir — 通过 task_uuid 查找结果目录
+// ============================================================================
+std::string GenTaskAPI::GetResultDir(const std::string& task_uuid,
+                                      const BlockObject::Task_Info& blockInfo)
+{
+    for (auto& gen : blockInfo.generations_info_) {
+        if (gen.task_uuid == task_uuid)
+            return gen.result_dir;
+    }
+    return "";
+}
+
+// ============================================================================
+// DownloadResultByTaskUuid — 自动定位 result_dir 下载, 支持进度回调
+// ============================================================================
+bool GenTaskAPI::DownloadResultByTaskUuid(
+    const std::string& task_uuid,
+    const BlockObject::Task_Info& blockInfo,
+    std::function<void(qint64, qint64)> progressCb)
+{
+    // 1. 从 generations_info_ 中查找 result_url 和 result_dir
+    std::string resultUrl;
+    std::string resultDir;
+    for (auto& gen : blockInfo.generations_info_) {
+        if (gen.task_uuid == task_uuid) {
+            resultUrl = gen.result_url;
+            resultDir = gen.result_dir;
+            break;
+        }
+    }
+    if (resultUrl.empty()) {
+        LOGE("DownloadResultByTaskUuid: task_uuid not found or result_url empty");
+        return false;
+    }
+    if (resultDir.empty()) {
+        LOGE("DownloadResultByTaskUuid: result_dir is empty");
+        return false;
+    }
+
+    // 2. 确定保存路径: result_dir/result.glb (后续可按 sub_type 选择扩展名)
+    std::string savePath = resultDir + "/result.glb";
+
+    // 3. 下载
+    QNetworkAccessManager manager;
+    QUrl url(QString::fromStdString(resultUrl));
+    QNetworkRequest request(url);
+    request.setTransferTimeout(60000);
+    QNetworkReply* reply = manager.get(request);
+
+    // 进度回调
+    if (progressCb) {
+        QObject::connect(reply, &QNetworkReply::downloadProgress,
+                         [&](qint64 received, qint64 total) {
+                             progressCb(received, total);
+                         });
+    }
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, [&]() { reply->abort(); loop.quit(); });
+    timer.start(60000);
+    loop.exec();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        LOGE("DownloadResultByTaskUuid: " + reply->errorString().toStdString());
+        reply->deleteLater();
+        return false;
+    }
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+
+    QFile file(QString::fromStdString(savePath));
+    if (!file.open(QIODevice::WriteOnly)) {
+        LOGE("DownloadResultByTaskUuid: cannot write to " + savePath);
+        return false;
+    }
+    file.write(data);
+    file.close();
+    return true;
+}
+
+// ============================================================================
+// DownloadResult — 指定 URL 和路径直接下载 (保留, 供特殊场景)
 // ============================================================================
 bool GenTaskAPI::DownloadResult(const std::string& result_url,
                                  const std::string& save_path)
@@ -3532,8 +3814,12 @@ def submit(task_type):
 
 ```cpp
 // Include/Core/Types.h
-#define GEN_SERVER_URL  "http://localhost:5000"
-#define GEN_API_PREFIX  "/api/v1"
+#define GEN_SERVER_URL    "http://localhost:5000"
+#define GEN_API_PREFIX    "/api/v1"
+
+// 生成式任务目录常量 (对标 PRODUCTION_DIR / PRODUCTION_PREFIX)
+#define GENERATION_DIR    "Generations"
+#define GENERATION_PREFIX "Generation_"
 ```
 
 > Mock Server 不需要鉴权 → accessToken 为空, 签名不含 token。
@@ -3637,7 +3923,8 @@ int main(int argc, char** argv)
         task, "testuser@example.com", genPendingJobPath.toStdString());
     TEST_ASSERT(result.success, "SubmitGenTask should succeed");
     std::cout << "  task_uuid=" << result.task_uuid
-              << "  job=" << result.job_name << std::endl;
+              << "  job=" << result.job_name
+              << "  gen_id=" << result.generation_id << std::endl;
 
     // 6. 启动 GenTaskThread 线程 (真实调度逻辑, HTTP 走 mock)
         // 6. Start GenTaskThread (real scheduling, HTTP mock)
@@ -3646,7 +3933,8 @@ int main(int argc, char** argv)
 
     // 7. 主线程轮询 feedback 等待完成
         // 7. Main thread polls feedback waiting for completion
-    std::string fbPath = projectPath + "/Block_1/JF_" + result.job_name
+    std::string expectedResultDir = projectPath + "/Block_1/Generations/Generation_1";
+    std::string fbPath = expectedResultDir + "/JF_" + result.job_name
         + (JOB_FEEDBACK_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX);
     bool completed = false;
     for (int i = 0; i < 60; i++) {
@@ -3681,7 +3969,8 @@ int main(int argc, char** argv)
     TEST_ASSERT(doneInfo.load_with_retry(
         (genCompletedJobPath + done[0]).toStdString()), "load completed job");
     std::cout << "  result_url=" << doneInfo.job.result_url << std::endl;
-    std::cout << "  cost_credits=" << doneInfo.job.cost_credits << std::endl;
+    std::cout << "  consumed=" << doneInfo.job.point_info.consumed
+              << " total_balance=" << doneInfo.job.point_info.total_balance << std::endl;
     TEST_ASSERT(!doneInfo.job.result_url.empty(), "result_url not empty");
 
     // 9. 清理
@@ -3720,7 +4009,7 @@ int main(int argc, char** argv)
 
 | 文件 | Phase | 改动 |
 |------|-------|------|
-| `Include/Core/DataStruct.h` | P1 | 新增 `GenJobInfoData`/`GenJobFile` (含 `FeedBackData feedBackData`)；`BLKBinFile` 增加 `gen_block_task_category` + `gen_params_json` + `gen_info_json` + `genJobNum` + `genJobVec` |
+| `Include/Core/DataStruct.h` | P1 | 新增 `GenJobInfoData`/`GenJobTaskData`/`GenJobFile`（含积分字段 `PointInfoBase` 平铺 + `FeedBackData`）；`BLKBinFile` 扩展 |
 | `Include/Core/BlockObject.h` | P1 | `Task_Info` 增加 `GenTaskOptions gen_options` + `generations_info_` + `generationjobs_` (对标 `at_options` + `reconstructions_info_` + `reconstructionjobs_`) |
 | `Include/Core/BlockObject.cpp` | P1 | 4 个序列化方法增加 `gen_options` 读写 |
 | `Include/Util/Settings.h` | P2 | 增加 `getGenEngineJobQueue()` |

@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////
 //  FileLibrary.cpp
 //  Implementation of the Class FileLibrary
 //  Created on:      11-五月-2017 17:40:43
@@ -7,6 +7,7 @@
 
 #include <FileLibrary.h>
 #include "Core/File.h"
+#include <filesystem>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include "psapi.h"    
@@ -43,12 +44,14 @@ FileLibrary::~FileLibrary(){
 
 
 std::string FileLibrary::getCurrentFilePath(){
-    char Buffer[MAX_PATH] = { 0 };
-
-    GetModuleFileNameA(NULL, Buffer, MAX_PATH);
-    std::string filepath = Buffer;
-    filepath = filepath.substr(0, filepath.find_last_of("\\"));
-    return filepath;
+    wchar_t buffer[MAX_PATH] = { 0 };
+    const DWORD len = GetModuleFileNameW(NULL, buffer, MAX_PATH);
+    if (len == 0) {
+        return {};
+    }
+    std::filesystem::path p(buffer);
+    p = p.parent_path();
+    return AI3D::CORE::File::BoostPathToUtf8String(p);
 }
 
 

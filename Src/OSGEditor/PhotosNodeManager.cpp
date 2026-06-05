@@ -1,5 +1,6 @@
-
+﻿
 #include "PhotosNodeManager.h"
+#include "OSGEditor/OsgEngine.h"
 #include "EventManager.h"
 #include "thread"
 #include <future>
@@ -18,6 +19,13 @@ PhotosNodeManager::PhotosNodeManager(OsgEngine *pOsgEngine, osg::ref_ptr<osgView
     m_pRootGeodeSwitch = new osg::Switch;
     addChild(m_pRootGeodeSwitch);
 
+}
+
+PhotosNodeManager::~PhotosNodeManager() = default;
+
+void PhotosNodeManager::SetViewer(osg::ref_ptr<osgViewer::Viewer> pViewer)
+{
+    m_pViewer = pViewer;
 }
 
 void PhotosNodeManager::Add(const std::vector<ST_CAMERA_INFO>& vecCamera)
@@ -671,8 +679,7 @@ void PhotosNodeManager::EventCallBack()
     }
 
     OsgEngine* pOsgEngine = m_pOsgEngine;
-    async(launch::async, [&vecCallback, pOsgEngine]() {
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO, &vecCallback }, pOsgEngine);
+    async(launch::async, [&vecCallback, pOsgEngine]() { EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO, &vecCallback }, pOsgEngine);
 
         });
 }

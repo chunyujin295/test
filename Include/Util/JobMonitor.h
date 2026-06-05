@@ -22,7 +22,9 @@ class JobMonitor
 public:
 	JobMonitor() {};
 	static bool CreateJobQueueDir(QString path);
+	static bool CreateGenJobQueueDir(QString path);
 	static bool CreateLocalJobQueueDir();
+	static bool CreateLocalGenJobQueueDir();
 	static bool CreateDirs();
 	struct JobFileTimeInfo
 	{

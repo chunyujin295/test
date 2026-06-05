@@ -25,18 +25,17 @@
 #include "OSGEditor/PolygonNode.h"
 #include "Core/ReconstructionObject.h"
 #include "Core/ATData.h"
-#include "OSGEditor/PhotosNodeManager.h"
 using namespace AI3D::CORE;
 class PickEventHandler;
 class PointNode;
 class ROINode;
 class PhotosNodeManager;
 class  ModelNode;
-class DLL_API OsgEngine
+class OSGEDITOR_CLASS_API OsgEngine
 {
 public:
     OsgEngine();
-    ~OsgEngine() { std::cout << "osgengine destroyed:" << std::hex << std::showbase << this << std::dec << std::endl; };
+    ~OsgEngine();
 
     const float kInitNearPlane = 0.5f;// 1.0f;
     const float kMinNearPlane = 1e-3f;
@@ -199,6 +198,14 @@ public:
 
     std::vector<osg::ref_ptr<CustomNode>>* GetPickedNode() ;
 
+    size_t GetPickedNodeCount() const;
+    void GetPickedElementIds(std::vector<int>& elementIds) const;
+    bool GetPickedPhotoIds(std::vector<int>& photoIds);
+    bool GetPickedTileIds(std::vector<int>& tileIds);
+
+    static void GetTileDirCoarseLevelTrees(
+        const std::string& dir, std::vector<std::string>& trees, const std::string& extension = ".osgb");
+
     void RemovePickedNode();
     void DeselectPickedNodeWithoutDeleting();
 
@@ -225,7 +232,7 @@ private:
     osg::ref_ptr<osg::Group> m_pRootGroup;
      osg::ref_ptr<PickEventHandler> m_pPickEventHandler;                                                   
  //要素根节点集合
-    osg::ref_ptr<PhotosNodeManager> m_pPhotosNodeManager;  //照片根节点管理对象                                                                             
+    osg::ref_ptr<CustomNode> m_pPhotosNodeManager;  // PhotosNodeManager (CustomNode in header)                                                                             
     
     osg::ref_ptr<PointNode> m_pTiesPointsRootGroup;         //点云
     osg::ref_ptr<SurveyPointsNode> m_pSurveyPointsRootGroup;  //控制点

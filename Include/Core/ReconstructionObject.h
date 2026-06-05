@@ -51,6 +51,7 @@ namespace AI3D
             void CopyBase(const ReconstructionObject& object);
             ReconstructionObject(block_t blockid) ;
             ReconstructionObject(const ATData& atdata, block_t blockid);
+            ReconstructionObject(ATData&& atdata, block_t blockid);
             ~ReconstructionObject();
             
             void SetId(const reconstruction_t& id);

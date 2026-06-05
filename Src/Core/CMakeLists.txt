@@ -1,25 +1,22 @@
 if (WIN32)
- # MSVC UTF-8 (source + execution): use root /utf-8; former per-config flags were:
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/source-charset:utf-8>")
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/execution-charset:gbk>")
  add_definitions(-D_UNICODE -DUNICODE)
 endif()
 
 set(TARGET_NAME MoldAIData)# 设定目标名
 ############################### GRAB HEADERS #####################################
-FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} 
-									
+FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 									"${CMAKE_CURRENT_SOURCE_DIR}/../../include/Core/*.h"
-									
 									"${CMAKE_CURRENT_SOURCE_DIR}/../../include/Core/*.hpp"	 # 设定头文件路径
+									"${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/HttpClient.h"
+									"${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/constant.h"
 									)
 
 
 
 ########################################### BEGIN: GRAB SOURCE FILES ##########################################
 FILE(GLOB SRC_LIST RELATIVE_PATH	"${CMAKE_CURRENT_SOURCE_DIR}"
-										"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"		
-                                        									
+										"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+										"${CMAKE_CURRENT_SOURCE_DIR}/../Util/HttpClient.cpp"
 								)
 
 
@@ -61,7 +58,7 @@ if(INCLUDE_PROJ)
 endif(INCLUDE_PROJ)
 
 
-set(SRC_FILES ${SRC_LIST} ${HEADER_LIST} )
+set(SRC_FILES ${SRC_LIST} ${HEADER_LIST})
 set(DEPENDS_LIBS ${DEPENDS_LIBS} ${EXTER_DEPENDS_LIBS} ${AI3D_GDAL_LIB} ${AI3D_KML_LIB} ${AI3D_GEOS_LIB} ${AI3D_SQLITE_LIB} ${AI3D_PROJ_LIB})
 #message("${AI3D_GEOS_LIBRARY_PATH}    ${AI3D_GEOS_INCLUDE_PATH}   ${AI3D_GEOS_LIB} ")
 # Must match glog's google::LogSink::send() (see Core/Logging.cpp). Change via CMake: -DMOLDAI_GLOG_LOGSINK_API=0|1|2

@@ -1,4 +1,4 @@
-﻿#include <conio.h>
+#include <conio.h>
 
 #include "Util/CatchProcess.h"
 #include <atomic>
@@ -60,8 +60,11 @@
 
 #include "Util/Statistic.h"
 
+#include "GenTaskThread.h"
+
 #include <Windows.h>
 
+#include "GenHttpClient.h"
 
 
 #define ENGINEJOBPATH Settings::getEngineJobQueue()
@@ -127,6 +130,7 @@ void init()
 	taskrunning = false;
 	gotNewPendingJobFile = false;
 	NewFileForRun = "";
+	// Each task can be handled independently (distributed); mapping should be rebuilt when needed.
 	maptaskfunction.clear();
 
 	if (fpTaskLock != NULL)
@@ -139,6 +143,9 @@ void init()
 
 std::string getATBlockJobPath(std::string& jobFilename);
 QString getATBlockJobPath(QString jobFilename);
+
+// Forward declarations
+void getTaskList(const std::string& rootPath, std::vector<std::string>& filenames);
 
 QString progName;
 
@@ -154,6 +161,14 @@ QString failedJobPath;
 QString cancelledJobPath;
 
 CatchProcess catchProcess;
+
+QString genPendingJobPath;
+QString genRunningJobPath;
+QString genCompletedJobPath;
+QString genFailedJobPath;
+QString genCancelledJobPath;
+
+
 
 
 int previousSfmRetryTimes = 0;
@@ -175,11 +190,9 @@ QMap<QString,int> hasFinishedJobMap;
 void DoCleanupJobLockOnceWhileEngineStart()
 {
 	
-	//在引擎启动之前，需要将正在运行的、和高优先级的等待任务的、只有.lock但没有任务本体的.lock文件删掉
-	//可能因为某些原因，任务已经不处于这个状态了，但是它的lock锁没有来得及删掉
 
-	QString lsPendingHighJobPath = pendingJobPath + pathSeperator + "High"; // 高优先级的-等待中的-工作
-	QString lsRunningJobPath = runningJobPath; // 运行中的工作
+	QString lsPendingHighJobPath = pendingJobPath + pathSeperator + "High"; 
+	QString lsRunningJobPath = runningJobPath; 
 
 	QDir pendingHighDir(lsPendingHighJobPath);
 	QDir runningDir(lsRunningJobPath);
@@ -191,7 +204,6 @@ void DoCleanupJobLockOnceWhileEngineStart()
 		QFileInfoList fileInfoList = pendingHighDir.entryInfoList(QDir::NoDotAndDotDot | QDir::Files);
 		foreach(QFileInfo fileInfo, fileInfoList)
 		{
-			// 若后缀有锁
 			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive))
 			{
 				QString postFix = "";
@@ -202,7 +214,7 @@ void DoCleanupJobLockOnceWhileEngineStart()
 					postFix = JSONFILE_POSTFIX;
 				}
 				QString jobJson = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + postFix;
-				if (!QFileInfo(jobJson).exists())// 如果job文件没了，但是它的lock还在就要删掉
+				if (!QFileInfo(jobJson).exists())
 				{
 					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
 				}
@@ -210,7 +222,7 @@ void DoCleanupJobLockOnceWhileEngineStart()
 		}
 	}
 
-	if (runningDir.exists()) 
+	if (runningDir.exists())
 	{
 		QFileInfoList fileInfoList = runningDir.entryInfoList(QDir::NoDotAndDotDot|QDir::Files);
 		foreach(QFileInfo fileInfo, fileInfoList)
@@ -229,6 +241,42 @@ void DoCleanupJobLockOnceWhileEngineStart()
 				{
 					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
 				}
+			}
+		}
+	}
+
+	QString genPendingDir(genPendingJobPath);
+	QString genRunningDir(genRunningJobPath);
+
+	QDir pendingGenDir(genPendingDir);
+	if (pendingGenDir.exists())
+	{
+		QFileInfoList fileInfoList = pendingGenDir.entryInfoList((QDir::NoDotAndDotDot | QDir::Files));
+		foreach(QFileInfo fileInfo, fileInfoList)
+		{
+			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive))
+			{
+				QString postFix = JOB_INFO_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX;
+				QString jobFile = fileInfo.absoluteFilePath() + pathSeperator + fileInfo.baseName() + postFix;
+				if (!QFileInfo(jobFile).exists())
+				{
+					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
+				}
+			}
+		}
+	}
+
+	QDir runningGenDir(genRunningDir);
+	if (runningGenDir.exists())
+	{
+		QFileInfoList fileInfoList = runningGenDir.entryInfoList(QDir::NoDotAndDotDot | QDir::Files);
+		foreach(QFileInfo fileInfo, fileInfoList)
+		{
+			QString postFix = JOB_INFO_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX;
+			QString jobFile = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + postFix;
+			if (!QFileInfo(jobFile).exists())
+			{
+				toBeRemovedFileList.append(fileInfo.absoluteFilePath());
 			}
 		}
 	}
@@ -489,43 +537,81 @@ void ExportTimeSum(JobFullInfo_s jobinfo,int type)
 {
 	if (jobinfo.tg.tasksmap.empty())
 		return;
-	if (jobinfo.tg.tasksmap.count(0) &&jobinfo.tg.tasksmap.at(0).Type == 4)
-	{
+	if (GetJobType(jobinfo.JobName) == JOB_BATCH)
 		return;
-	}
-	
-	{
-		ATTimeSummary_s attimesum;
-		attimesum.runinfo = jobinfo.tg.runinfo;
-		for (auto iter : jobinfo.tg.tasksmap)
-		{
-			if (iter.second.Type == ATLASTTASKTYPE || iter.second.Type == ATCOMPLETETYPE)
-				continue;
-			attimesum.tasksmap[iter.first].Id = iter.second.Id;
-			attimesum.tasksmap[iter.first].StartTime = iter.second.runinfo.StartTime;
-			attimesum.tasksmap[iter.first].EndTime = iter.second.runinfo.EndTime;
 
-			attimesum.tasksmap[iter.first].Status = iter.second.Status;
-			
-			if (maptaskfunction.count(iter.first))
-			{
-				attimesum.tasksmap[iter.first].FunctionName = maptaskfunction.at(iter.first);
+	// Reconstruction/tile jobs use the legacy export path (always write JT_ run times).
+	// AT jobs keep the newer guard that skips incomplete task->function mappings.
+	const bool isReconstructionJob = (GetJobType(jobinfo.JobName) == JOB_TILE);
+
+	ATTimeSummary_s attimesum;
+	attimesum.runinfo = jobinfo.tg.runinfo;
+	int missingFunc = 0;
+
+	// AT-only: rebuild task->function mapping from TI_ files when empty.
+	if (!isReconstructionJob && maptaskfunction.empty()) {
+		try {
+			std::string baseDir = AI3D::CORE::File::GetParentDir(jobinfo.tg.job.ProjectPath) + "/" + jobinfo.tg.job.ItemPath;
+			baseDir = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(baseDir));
+			std::string jobDir = baseDir + jobinfo.JobName + "/";
+			std::vector<std::string> taskList;
+			getTaskList(jobDir, taskList);
+			if (!taskList.empty()) {
+				maptaskfunction.clear();
+				maptaskfunction[0] = StepAT_function.at(GenTasks);
+				for (auto taskfile : taskList) {
+					ATTaskInfo task;
+					task.load(taskfile);
+					maptaskfunction[task.task_.id_] = task.task_.fun_name_;
+				}
 			}
-			attimesum.tasksmap[iter.first].Type = iter.second.Type;
+		} catch (...) {
 		}
-
-		std::string path = AI3D::CORE::File::GetParentDir(jobinfo.tg.job.ProjectPath) + "/"+ jobinfo.tg.job.ItemPath;
-
-		 path = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(path)));
-		 
-		 if (JOB_FEEDBACK_USE_BIN) {
-			 path = MAKE_TIMESUM_BIN_FILE(path, jobinfo.JobName);
-		 }
-		 else {
-			 path = MAKE_TIMESUM_JSON_FILE(path, jobinfo.JobName);
-		 }
-		attimesum.save(path);
 	}
+
+	for (auto iter : jobinfo.tg.tasksmap)
+	{
+		if (iter.second.Type == ATLASTTASKTYPE || iter.second.Type == ATCOMPLETETYPE)
+			continue;
+		attimesum.tasksmap[iter.first].Id = iter.second.Id;
+		attimesum.tasksmap[iter.first].StartTime = iter.second.runinfo.StartTime;
+		attimesum.tasksmap[iter.first].EndTime = iter.second.runinfo.EndTime;
+
+		attimesum.tasksmap[iter.first].Status = iter.second.Status;
+
+		if (maptaskfunction.count(iter.first))
+		{
+			attimesum.tasksmap[iter.first].FunctionName = maptaskfunction.at(iter.first);
+		}
+		else if (!isReconstructionJob)
+		{
+			missingFunc++;
+		}
+		attimesum.tasksmap[iter.first].Type = iter.second.Type;
+	}
+
+	std::string path = AI3D::CORE::File::GetParentDir(jobinfo.tg.job.ProjectPath) + "/"+ jobinfo.tg.job.ItemPath;
+
+	path = AI3D::CORE::File::EnsureTrailingSlash(AI3D::CORE::File::EnsureUnifySlash(std::string(path)));
+
+	if (JOB_FEEDBACK_USE_BIN) {
+		path = MAKE_TIMESUM_BIN_FILE(path, jobinfo.JobName);
+	}
+	else {
+		path = MAKE_TIMESUM_JSON_FILE(path, jobinfo.JobName);
+	}
+	// AT-only: if mapping is incomplete, do not overwrite an existing JT_ file.
+	if (!isReconstructionJob && missingFunc > 0) {
+		try {
+			if (std::filesystem::exists(AI3D::CORE::File::BoostPathFromUtf8(path))) {
+				return;
+			}
+			return;
+		} catch (...) {
+			return;
+		}
+	}
+	attimesum.save(path);
 }
 
 bool killTaskProcess()
@@ -682,7 +768,7 @@ Retry_It:
 			bSuccessful = true;
 		}
 		else {
-			QString feedbackFilename = QString::fromStdString(feedback_file);
+			QString feedbackFilename = str2qstr(feedback_file);
 			if (feedbackFilename.isEmpty())
 			{
 				break;
@@ -779,7 +865,7 @@ void ProcessUnnormaldRunningJobV2()
 
 
 
-	if (!QFileInfo(str2qstr(job_file)).exists())
+	if (!AICORE::File::ExistsFile(job_file))
 	{
 
 		if (bSpecialLog)
@@ -863,7 +949,7 @@ void ProcessUnnormaldRunningJob()
 	}
 	
 	
-	QString jobFileName = QString::fromStdString(job_file);
+	QString jobFileName = str2qstr(job_file);
 	QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
 	QString lsPendingJobFile = pendingJobPath + pathSeperator + lsRunningJobFileName;
 	QString lsRunningJobFile = runningJobPath + pathSeperator + lsRunningJobFileName;
@@ -872,11 +958,11 @@ void ProcessUnnormaldRunningJob()
 	QString cancelledJobFile = cancelledJobPath + pathSeperator + lsRunningJobFileName;
 	QString failedJobFile = failedJobPath + pathSeperator + lsRunningJobFileName;
 
-	QString jobFilePathLock = QString::fromStdString(job_file) + ".lock";
+	QString jobFilePathLock = str2qstr(job_file) + ".lock";
 	QString taskLock = NewFileForRun + ".lock";
 	std::string feedLock = current_feedback_file + ".lock";
 	QFile lockFilejob(jobFilePathLock);
-	QFile lockFilefeed(QString::fromStdString(feedLock));
+	QFile lockFilefeed(str2qstr(feedLock));
 	QFile lockFiletask(taskLock);
 
 	if (!gotNewPendingJobFile)
@@ -889,7 +975,7 @@ void ProcessUnnormaldRunningJob()
 	{
 		if (!std::filesystem::exists(AICORE::File::BoostPathFromUtf8(job_file)))
 		{
-			if (QFileInfo::exists(QString::fromStdString(job_file)))
+			if (AICORE::File::ExistsFile(job_file))
 			{
 				SimpleWriteLog(job_file + " (job_file) exists.");
 			}
@@ -1203,7 +1289,6 @@ void searchUnnormaldRunningJobThread()
 		if (bNetworkPathAlreadyInvalid)
 			break;
 
-		// 这个里面的逻辑没有仔细看
 		ProcessUnnormaldRunningJobV2();
 		
 
@@ -1341,9 +1426,9 @@ void GetPendingJob()
 					taskfile = MAKE_TASK_JSON_FILE(taskpath, std::to_string(firstId));
 				}
 
-				if (!QFileInfo::exists(str2qstr(taskfile)))
+				if (!AICORE::File::ExistsFile(taskfile))
 				{
-
+					LOGI("task file not exist (UTF-8 path check): " + taskfile);
 					projectfilefullpath = "";
 					
 
@@ -1445,8 +1530,8 @@ void GetPendingJob()
 
 int GetRunningTaskInRunningJob()
 {
-	QStringList jobNameList;// 所有文件的文件名列表
-	QStringList jobFullPathList;// 所有文件
+	QStringList jobNameList;
+	QStringList jobFullPathList;
 
 	std::vector<std::string> jobliststring = JobMonitor::SortJobFile(qstr2str(runningJobPath));
 	for (auto iter : jobliststring)
@@ -1482,7 +1567,6 @@ int GetRunningTaskInRunningJob()
 		if (jobFilePath.endsWith(".lock"))
 			continue;
 
-		// 执行到这，这个running中的job刚好被处理完了（并行）
 		if (!QFile(jobFilePath).exists())
 		{
 			std::cout << __FUNCTION__ << " LINE " << __LINE__ << qstr2str(jobFilePath) << std::endl;
@@ -1503,7 +1587,7 @@ int GetRunningTaskInRunningJob()
 		std::string jobFilePathString = qstr2str(jobFilePath);
 
 		QString jobFilePathLock = jobFilePath + LOCKFILE_POSTFIX;
-		JobFullInfo_s jobinfo(jobFilePathString);//遍历到的每个任务文件（C盘下的），提取出来任务的完整/base信息（项目下的）
+		JobFullInfo_s jobinfo(jobFilePathString);
 
 		if (bSpecialLog)
 		{
@@ -1514,8 +1598,6 @@ int GetRunningTaskInRunningJob()
 			
 		}
 
-		// 为什么叫tasksmap？项目中存在的这个完整信息，难道还有可能映射着好几个task？
-		// 但是问题是，C盘下的任务文件也是分好了子任务的，这个时候项目文件夹下的任务完整文件又是怎么组织的呢
 		if (jobinfo.tg.tasksmap.empty())
 		{
 			if (bSpecialLog)
@@ -1552,9 +1634,7 @@ int GetRunningTaskInRunningJob()
 		std::string block = jobinfo.tg.job.ItemPath;
 
 		
-		// 如果当前job是未被拆分的任务（我认为是，job其实对应的是空三/重建，而一个空三任务，是从一个大task开始（拆分n个小task->执行）的；
-		// 所以最开始，job和task（准确是task0）个数是对应的，1对1，但是task0被拆出来后，就不一定了，所以会有一个jobinfo.tg【即task Graph，任务表】里面的tasksmap
-		// 里面存的是task编号和task工作信息的map，且编号对应顺序，0一定是原始大task
+		
 		if (jobinfo.tg.HasTaskDef0())
 			{
 				if (bSpecialLog)
@@ -1568,9 +1648,9 @@ int GetRunningTaskInRunningJob()
 				}
 		
 
-				FILE* fpjob = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));// 这是C盘下的（工作目录）
+				FILE* fpjob = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
 
-				if (fpjob == NULL)// 若已经被占用
+				if (fpjob == NULL)
 				{
 					if (bSpecialLog)
 					{
@@ -1586,7 +1666,7 @@ int GetRunningTaskInRunningJob()
 
 				int id = -1;
 	
-				// 如果任务列表中的0号任务未完成，即大任务未完成拆分（下面的逻辑好像只是锁起来，但是什么也不干）
+
 				if (jobinfo.tg.tasksmap.at(0).Status != jobsta_e::STATUS_COMPLETE)
 				{
 					if (bSpecialLog)
@@ -1612,8 +1692,7 @@ int GetRunningTaskInRunningJob()
 
 
 					std::string taskfile_lock = taskfile + ".lock";
-					FILE* fptask = AICORE::File::FopenDenyWriteLockUtf8(taskfile_lock);// 这是D盘下的（项目目录）
-					// 锁上，为后面处理这个任务做准备
+					FILE* fptask = AICORE::File::FopenDenyWriteLockUtf8(taskfile_lock);
 					if (fptask == NULL)
 					{
 						fclose(fpjob);
@@ -1626,11 +1705,8 @@ int GetRunningTaskInRunningJob()
 					}
 				}
 
-				// 如果没有走上面的if逻辑
 				if (id == -1)
 				{
-					// 找到任务列表中的第一个等待中的任务，然后打个日志（第一个等待的任务，可能是任何任务，
-					// 但是其实这段逻辑的优先级，低于处理未完成的大任务拆分，因为逻辑流程位于上面if之后
 					id = jobinfo.tg.GetFirstPendingTaskId();
 					if (id >= 0)
 					{
@@ -1718,7 +1794,7 @@ int GetRunningTaskInRunningJob()
 				}
 
 
-				// 所以说，在此之前的几个判断，都是为接下来要进行处理的工作文件，先加上锁的
+
 				std::string feedback_file = "";
 				if (JOB_FEEDBACK_USE_BIN) {
 					feedback_file = MAKE_FEEDBAK_BIN_FILE(AICORE::File::GetParentDir(blockpath) + block + "/", jobBaseNameString);
@@ -1746,14 +1822,14 @@ int GetRunningTaskInRunningJob()
 
 
 				
-				if (!QFileInfo(str2qstr(taskfile)).exists())
+				if (!AICORE::File::ExistsFile(taskfile))
 				{
 					
 					if (bSpecialLog)
 					{
 						std::ostringstream oss;
 						oss.clear();
-						oss << " jobfile " << qstr2str(jobFilePath) << " taskfile is not exist ";
+						oss << " jobfile " << qstr2str(jobFilePath) << " taskfile is not exist: " << taskfile;
 						LOGI(oss.str());
 					}
 
@@ -1979,10 +2055,8 @@ int GetRunningTaskInRunningJob()
 					continue;
 				}
 			}
-		// 如果这是一个子任务 -- 三方的话，借鉴这里的逻辑就行，上面的不用管，因为不需要拆分任务了
 		else             
 		{
-			// 如果发现其实任务并没有拆分完成
 			if (jobinfo.tg.tasksmap.at(0).Status != jobsta_e::STATUS_COMPLETE)
 			{
 				if (bSpecialLog)
@@ -2227,7 +2301,7 @@ void searchPendingJobThread2()
 		
 		checkPathList.append(ENGINEJOBPATH);
 
-		// 1.引擎层正在处理一个任务了
+
 		if (gotNewPendingJobFile || !NewFileForRun.isEmpty())
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -2235,7 +2309,6 @@ void searchPendingJobThread2()
 			continue;
 		}
 
-		// 2.task在运行了
 		if(taskrunning)
 		{
 
@@ -2244,7 +2317,7 @@ void searchPendingJobThread2()
 			continue;
 		}
 
-		// feedback文件锁？
+		
 		if (fpTaskLock != NULL)
 		{
 			fclose(fpTaskLock);
@@ -2259,7 +2332,7 @@ void searchPendingJobThread2()
 			}
 		}
 
-		// AI3D_SUCCESS是什么含义？
+		
 		if (GetRunningTaskInRunningJob() != AI3D_SUCCESS)
 		{
 	
@@ -2306,8 +2379,7 @@ void searchPendingJobThread2()
 			QString currentFile = NewFileForRun;
 			
 			
-			// ！！！ 启动task进程！！！
-			int retCode = ExecTaskFileV2();// 里面会进行一些阻塞，直到任务完成或者终止，跳出此函数，像这里往下走
+			int retCode = ExecTaskFileV2();
 			if(retCode == -1)
 			{
 			
@@ -2498,12 +2570,17 @@ int ExecTaskFileV2()
 	std::string fileName = qstr2str(NewFileForRun);
 
 	ATTaskInfo atparam;;
-	 
+	
 	std::string msg = "load task file:" + fileName;
 	
 	LOGI(msg);
-	atparam.load(fileName);
+	if (!AICORE::File::ExistsFile(fileName))
+		return -1;
+	if (!atparam.load(fileName))
+		return -1;
 	std::string function = atparam.task_.fun_name_;
+	if (atparam.projectFile_.empty())
+		return -1;
 
 	QString exceptionMsg;
 
@@ -2565,6 +2642,8 @@ int ExecTaskFileV2()
 
 			int task_count = taskList.size();
 
+			// Rebuild mapping for current job
+			maptaskfunction.clear();
 			maptaskfunction[0] = StepAT_function.at(GenTasks);
 
 			for (auto taskfile : taskList)
@@ -2579,10 +2658,11 @@ int ExecTaskFileV2()
 	}
 	
 	
+	if (!AICORE::File::ExistsFile(feedback_file))
+		return -1;
 	if (!feadback.load_with_retry(feedback_file))
 	{
 		bLoadFeedbackFileError = true;
-		LOGI("loading feedback file failed:" + feedback_file);
 		return -1;
 	}
 	if (feadback.Status == jobsta_e::STATUS_PENDDING)
@@ -2894,7 +2974,8 @@ int ExecTaskFileV2()
 		{
 			std::ostringstream oss;
 			oss.clear();
-			oss << " " << qstr2str(NewFileForRun) << " start failed." << suce;
+			oss << " " << qstr2str(NewFileForRun) << " MoldAITask start failed. exe=" << qstr2str(path)
+				<< " err=" << process.errorString().toUtf8().constData();
 			LOGI(oss.str());
 			
 
@@ -2928,7 +3009,6 @@ int ExecTaskFileV2()
 		taskrunning = true;
 
 		
-		// 阻塞当前线程，一直等待子进程结束，永不超时 
 		process.waitForFinished(-1);
 		int iTaskRetVal = -1;
 
@@ -3571,6 +3651,8 @@ int ExecTaskFileV2()
 							jobinfo.tg.tasksmap.at(0).Status = int(job_status_e::STATUS_COMPLETE);
 							jobinfo.tg.tasksmap.at(0).Percent = 100.0;
 
+							// Rebuild mapping for current job
+							maptaskfunction.clear();
 							maptaskfunction[0] = StepAT_function.at(GenTasks);
 							
 							for (auto taskfile : taskList)
@@ -4329,7 +4411,6 @@ void MakePath()
 {
 	if (!JobMonitor::CreateJobQueueDir(ENGINEJOBPATH))
 	{
-		
 		JobMonitor::CreateLocalJobQueueDir();
 		JobMonitor::CreateJobQueueDir(ENGINEJOBPATH);
 	}
@@ -4340,6 +4421,19 @@ void MakePath()
 	completedJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBCOMPLETEDSTR + pathSeperator;
 	failedJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBFAILEDSTR + pathSeperator;
 	cancelledJobPath = Settings::getEngineJobQueue() + pathSeperator + JOBCANCELLEDSTR + pathSeperator;
+
+	QString genEnginePath = Settings::getGenEngineJobQueue();
+	if (!JobMonitor::CreateGenJobQueueDir(genEnginePath))
+	{
+		JobMonitor::CreateLocalGenJobQueueDir();
+		JobMonitor::CreateGenJobQueueDir(genEnginePath);
+	}
+
+	genPendingJobPath = genEnginePath + pathSeperator + JOBPENDINGSTR + pathSeperator;
+	genRunningJobPath = genEnginePath + pathSeperator + JOBRUNNINGSTR + pathSeperator;
+	genCompletedJobPath = genEnginePath + pathSeperator + JOBCOMPLETEDSTR + pathSeperator;
+	genFailedJobPath = genEnginePath + pathSeperator + JOBFAILEDSTR + pathSeperator;
+	genCancelledJobPath = genEnginePath + pathSeperator + JOBCANCELLEDSTR + pathSeperator;
 }
 
 
@@ -4381,12 +4475,10 @@ void execEngineTimeThread()
 		}
 
  
-		// 写入文件
 		if (!engineinfofile.empty() && !bQuitingApplication)
 		{
 			if (ENGINE_USE_BIN) {
-				runinfo.savebin(engineinfofile);// C:\Users\Administrator\AppData\Local\MoldAI\jobs\Engines\WIN-9T1KS4GI4M9.bin创建出来了
-				// 在此之后，App能知道这个引擎已经启动了
+				runinfo.savebin(engineinfofile);
 			}
 			else {
 				runinfo.save(engineinfofile);
@@ -4819,8 +4911,9 @@ int main(int argc, char** argv)
 	
 
 	
-	// ------- begin 一些基本信息获取、前置准备工作、合法性校验 -------
-	SetConsoleOutputCP(936);
+	
+	SetConsoleOutputCP(CP_UTF8);
+	SetConsoleCP(CP_UTF8);
 
 #ifdef WIN32
 	SetUnhandledExceptionFilter(ExceptionFilter);
@@ -4841,10 +4934,8 @@ int main(int argc, char** argv)
 
 	enginestarttime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
 	QFileInfo finfoProgFile(argv[0]);
-
-	// 拼装出来【工作路径】，默认~/Local/MoldAI
 	std::string workPath = GetWorkPath();
-	std::string m_enginePath = workPath + "/Engine";// 这个局部变量没人用
+	std::string m_enginePath = workPath + "/Engine";
 
 	std::string apppath = qstr2str(finfoProgFile.absolutePath());
 
@@ -4857,17 +4948,15 @@ int main(int argc, char** argv)
 		postFix = JSONFILE_POSTFIX;
 	}
 	
-	
 	std::string enginejsonpath = workPath + "/" + machinecode + STAT_ENGINE_POSTFIX + postFix;
 	EngineInfo::Getinstance().GetEngineJsonPathMutual() = enginejsonpath;
 
 	try
 	{
-		
 		if (std::filesystem::is_regular_file(AICORE::File::BoostPathFromUtf8(enginejsonpath)))
 		{
 			if (STAT_USE_BIN) {
-				EngineInfo::Getinstance().LoadEngineInfoBin();// 单例 
+				EngineInfo::Getinstance().LoadEngineInfoBin();
 			}
 			else {
 				EngineInfo::Getinstance().LoadEngineInfoJson();
@@ -4894,15 +4983,14 @@ int main(int argc, char** argv)
 	APPUseInfo appuseinfo;
 	appuseinfo.StartTime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
 
-	// 读取一下MoldAI的配置（软件目录下）
 	std::string versionCode;
 	std::string configpath = apppath + "/" + "MoldAIConfig.ini";
 	std::string language;
 	EngineInfo::Getinstance().ParseConfig(configpath, versionName, versionCode, language);
 	appuseinfo.VersionCode = versionCode;
 	appuseinfo.VersionName = versionName;
-	appuseinfo.language = language;// 为什么引擎需要读取App配置中的语言？--可能是为了区分编解码
-	EngineInfo::Getinstance().GetAPPUseInfosMutual().push_back(appuseinfo);// 获取APP联动数据？
+	appuseinfo.language = language;
+	EngineInfo::Getinstance().GetAPPUseInfosMutual().push_back(appuseinfo);
 
 
 	if (argc > 1)
@@ -4911,7 +4999,6 @@ int main(int argc, char** argv)
 	}
 	
 	
-	// 程序基础名称？
 	progBaseName = finfoProgFile.baseName();
 
 
@@ -4926,7 +5013,6 @@ int main(int argc, char** argv)
 
 	}
 
-	// 确保Node进程唯一性
 	if (!progBaseName.compare("MoldAINode", Qt::CaseInsensitive))
 	{
 		int exenum = catchProcess.NumProgramRunning("MoldAINode.exe");
@@ -4957,7 +5043,6 @@ int main(int argc, char** argv)
 
 	app.setQuitOnLastWindowClosed(false);
 
-	// 接管退出流程（后面可以仔细看一下里面的具体退出逻辑）
 	::atexit(customized_exit);
 	signal(SIGINT, SigInt_Handler);
 	signal(SIGBREAK, SigBreak_Handler);
@@ -4980,9 +5065,14 @@ int main(int argc, char** argv)
 		LOGI(oss.str());	
 	}
 	
-	MakePath();// jobs下的四种工作状态目录
+	MakePath();
 
-	// 启动引擎之前先删除锁（目前不知道是为什么）
+	std::thread genTaskThread(GenTaskThread::Run);
+	genTaskThread.detach();
+
+	std::thread searchUnnormalGenRunningJob(GenTaskThread::SearchUnnormalRunningJob);
+	searchUnnormalGenRunningJob.detach();
+	
 	DoCleanupJobLockOnceWhileEngineStart();
 
 	msgBoxThread = new MsgBoxThread(nullptr);
@@ -5000,7 +5090,7 @@ int main(int argc, char** argv)
 		if (std::filesystem::exists(AICORE::File::BoostPathFromUtf8(engineinfofile)))
 		{
 			
-			// 引擎正式启动之前把之前遗留下来的本机引擎标识文件删除
+
 			QFile(str2qstr(engineinfofile)).remove();
 
 		}
@@ -5020,16 +5110,13 @@ int main(int argc, char** argv)
 		LOGI(oss.str());
 	}
 
-	// 维护引擎信息文件的线程，每隔一段时间进行刷新信息
 	std::thread execEngineTimejob(execEngineTimeThread);
 	execEngineTimejob.detach();
 
 	
-	// 查询等待中的任务（主要逻辑都在这了）
 	std::thread searchPendingJob1(searchPendingJobThread2);
 	searchPendingJob1.detach();
 
-	// 查询非正常的运行态任务
 	std::thread searchCancelledRunningJob(searchUnnormaldRunningJobThread);
 	searchCancelledRunningJob.detach();
 

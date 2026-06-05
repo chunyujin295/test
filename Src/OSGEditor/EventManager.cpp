@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////
 //  EventManager.cpp
 //  Implementation of the Class EventManager
 //  Created on:      16-九月-2014 15:27:25
@@ -6,6 +6,7 @@
 ///////////////////////////////////////////////////////////
 
 //#include "OSGEditor/OsgEngine.h"
+#include "OSGEditor/OsgEditorDllBuild.h"
 #include <OSGEditor/EventManager.h>
 
 EventManager * EventManager::m_pInstance = NULL;
@@ -74,7 +75,7 @@ void EventManager::notifyEvent(const EventInfo &info,void* pOsgEngine)
     }
 }
 
- EventManager * EventManager::GetInstance()
+EventManager * EventManager::GetInstance()
  {
     if (m_pInstance == NULL)
     {

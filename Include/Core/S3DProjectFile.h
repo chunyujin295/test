@@ -13,6 +13,7 @@
 #include "Core/ControlPoint.h"
 #include "Core/Bitmap.h"
 #include "Core/ATOptions.h"
+#include "Core/File.h"
 #include <Core/json.h>
 using namespace AI3D::CORE;
 namespace AI3D
@@ -242,7 +243,7 @@ namespace AI3D
             }
             bool load(const std::string& file)
             {
-                std::ifstream ifs(file);
+                std::ifstream ifs(AI3D::CORE::Utf8Path(file));
                 if (ifs.fail())
                     return false;
 

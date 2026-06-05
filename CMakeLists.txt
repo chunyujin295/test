@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 2.8)
-#cmake_minimum_required(VERSION 3.10)
+#cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.10) # TODO CYJ
 set(PROJECT_NAME MoldAI)
 
 # Qt 6.10+ official msvc2022_64 kits expect a recent VS2022 MSVC (v143, ~VS 17.14+). Using the older v142
@@ -12,12 +12,6 @@ if(AI3D_FORCE_MSVC_TOOLSET_V142 AND NOT CMAKE_GENERATOR_TOOLSET)
 endif()
 
 project(${PROJECT_NAME})
-
-if(MSVC)
-	add_compile_options(/utf-8)
-endif()
-
-# MSVC: UTF-8 source + execution charsets via /utf-8 above (replaces former /source-charset:utf-8 + /execution-charset:gbk in subdirs).
 
 # C++17: std::filesystem::u8path + path-aware fstreams for UTF-8 paths (see Core/File.cpp).
 set(CMAKE_CXX_STANDARD 17)
@@ -37,6 +31,7 @@ set(AI3D_TEST_TARGETDIR ${PROJECT_NAME})
 
 set(AI3D_BUILD_DIR  ${AI3D_DIR}CMakeModules) 
 set(CMAKE_MODULE_PATH	${CMAKE_MODULE_PATH}    ${AI3D_BUILD_DIR}/CMake)
+include(${AI3D_BUILD_DIR}/CMake/Ai3dMsvcUtf8.cmake)
  #开启的话用咱们的，也就是proj.db的路线
  OPTION(INCLUDE_PROJ  "INCLUDE PROJ" ON)
  

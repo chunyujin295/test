@@ -694,7 +694,8 @@ namespace AI3D
             {
              return   imageids_tiling_;;
             }
-            std::set<point3D_t> GetPointsIDsTiling(){ return point3dids_tiling_; }
+            std::set<point3D_t> GetPointsIDsTiling() { return point3dids_tiling_; }
+            const std::set<point3D_t>& GetPointsIDsTiling() const { return point3dids_tiling_; }
             
             static bool LoadViewsBin(const std::string& filename,std::set<image_t>& ids);
 

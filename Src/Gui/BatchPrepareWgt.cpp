@@ -235,21 +235,20 @@ namespace AI3D
 		{
 
 			/// todo2:
-			///return qstr2str(ui.le_posfile->text().toStdString());
-			return ui.le_posfile->text().toStdString();
+			return qstr2str(ui.le_posfile->text());
 
 		}
 		std::string BatchPrepareDia::GetPrefix()
 		{
-			return ui.le_imgprefix ->text().toStdString();
+			return qstr2str(ui.le_imgprefix ->text());
 		}
 		std::string BatchPrepareDia::GetNumLength()
 		{
-			return ui.le_numlength->text().toStdString();
+			return qstr2str(ui.le_numlength->text());
 		}
 		std::string BatchPrepareDia::GetStartNum()
 		{
-			return ui.le_startnum->text().toStdString();
+			return qstr2str(ui.le_startnum->text());
 		}
 		std::string BatchPrepareDia::GetGCPFile()
 		{
@@ -512,14 +511,14 @@ namespace AI3D
 				}*/
 				if (!ui.le_image_path->text().isEmpty())
 				{
-					params_.ImagePath = ui.le_image_path->text().toStdString();
+					params_.ImagePath = qstr2str(ui.le_image_path->text());
 				}
 				if (!ui.le_posfile->text().isEmpty())
 				{
-					params_.PosfilePath = ui.le_posfile->text().toStdString();
+					params_.PosfilePath = qstr2str(ui.le_posfile->text());
 				}
 				//由于qt不太熟，暂时没考虑输入为空的情形1121chy
-				params_.Prefix = ui.le_imgprefix->text().toStdString();
+				params_.Prefix = qstr2str(ui.le_imgprefix->text());
 				params_.NumLength = ui.le_numlength->text().toInt();
 				params_.NumStart = ui.le_startnum->text().toInt();
 				params_.SRS = GetSrsName().toStdString();

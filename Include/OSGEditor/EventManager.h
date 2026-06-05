@@ -5,7 +5,7 @@ using namespace std;
 
 //class OsgEngine;
 
-class DLL_API EventInfo
+class OSGEDITOR_CLASS_API EventInfo
 {
 
 public:
@@ -24,7 +24,7 @@ private:
 };
 
 //回调事件注册基类，子类继承并实现接口
-class DLL_API EventBaseServer
+class OSGEDITOR_CLASS_API EventBaseServer
 {
 public:
     EventBaseServer() { pOsgEngine = nullptr; }
@@ -37,7 +37,7 @@ public:
     void* pOsgEngine;
 };
 
-class DLL_API EventManager
+class OSGEDITOR_CLASS_API EventManager
 {
 
 public:

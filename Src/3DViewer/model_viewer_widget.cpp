@@ -493,7 +493,7 @@ void  ModelViewerWidget::UploadGcpPoint()
 			}
 
 
-		point.name = QString(it.second.GetName().c_str());
+		point.name = str2qstr(it.second.GetName());
 		gcpPoints.append(point);
 	}
 	

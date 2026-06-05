@@ -35,6 +35,7 @@
 #include "Gui/CommonDelDia.h"
 #include "Gui/ImportGcpDia.h"
 #include "Gui/MoPhotoWidget.h"
+#include "Util/TaskProcess.h"
 
 #include "3DViewer/render_options.h"
 #include "3DViewer/image_viewer_widget.h"
@@ -1159,8 +1160,8 @@ namespace AI3D
 
             void SetCurrentExeNum(int num) { currentExeNum = num; };
 
-            QString getBlockName() const { return QString(block_data_->GetName().c_str()); };
-            QString getBlockPath() const { return QString(block_data_->GetPath().c_str()); };
+            QString getBlockName() const { return str2qstr(block_data_->GetName()); };
+            QString getBlockPath() const { return str2qstr(block_data_->GetPath()); };
 
             
             //双server

@@ -11,7 +11,7 @@ using namespace std;
 
 
 
-class DLL_API LODTree
+class OSGEDITOR_INTERNAL_CLASS LODTree
 {
 public:
 	LODTree(std::string name);

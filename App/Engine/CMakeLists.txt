@@ -1,7 +1,4 @@
 if (WIN32)
- # MSVC UTF-8 (source + execution): use root /utf-8; former per-config flags were:
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/source-charset:utf-8>")
- # add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>>:/execution-charset:gbk>")
  add_definitions(-D_UNICODE -DUNICODE)
 endif()
 
@@ -31,8 +28,11 @@ FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/CatchProcess.h									
 							${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/Settings.h
 									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/TaskProcess.h
+									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/GenTaskProcess.h
 									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/Statistic.h
 									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/JobMonitor.h
+									${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/HttpClient.h
+
 ${CMAKE_CURRENT_SOURCE_DIR}/../../include/Util/OTA.h
 									)		
 
@@ -45,9 +45,14 @@ FILE(GLOB SRC_LIST RELATIVE_PATH	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../Src/Util/Statistic.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../Src/Util/JobMonitor.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../Src/Util/OTA.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../../Src/Util/HttpClient.cpp"
 )
 
-set(SRC_FILES ${SRC_LIST} ${HEADER_LIST})
+set(SRC_FILES ${SRC_LIST} ${HEADER_LIST}
+        GenTaskThread.cpp
+        GenTaskThread.h
+		GenHttpClient.cpp
+		GenHttpClient.h)
 set(DEPENDS_LIBS MoldAIData ${AI3D_CORE_LIB} 	${AI3D_CURL_LIB} ${AI3D_OPENSSL_LIB}  	${AI3D_EVENT_LIB} 
 				${AI3D_EXPAT_LIB}  ${AI3D_BOOST_LIB}  ${AI3D_GLOG_LIB} ${AI3D_CERES_LIB}
 				)

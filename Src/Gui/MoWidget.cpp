@@ -6525,7 +6525,7 @@ void BasicSettings::Init()
 
     leName = new QLineEdit(this);
 
-    leName->setText(QString::fromStdString(name_));
+    leName->setText(str2qstr(name_));
     //leName->setFont(font);
     leName->setStyleSheet("background-color:#20242B;color:#FFFFFF;height:36px;font:14px \"Arial\";border:1px solid #404040;border-radius:2px;padding-left:12px;");
     QRegExp rx4Name("[^*?:\"<\\\\>/| ]+");
@@ -6551,7 +6551,7 @@ void BasicSettings::Init()
     //lblDestination->setFont(font);
 
     leDestination = new QLineEdit(this);
-    leDestination->setText(QString::fromStdString(desination_));
+    leDestination->setText(str2qstr(desination_));
     //leDestination->setFont(font);
     QRegExp rx4Name2("[^*?\"<>| ]+");
     QValidator* validator2 = new QRegExpValidator(rx4Name2);
@@ -6638,7 +6638,7 @@ void BasicSettings::Slot_TextEdited()
 //此处应该需要加相关的检查处理
 void BasicSettings::Slot_SetName()
 {
-    name_ = leName->text().toStdString();
+    name_ = qstr2str(leName->text());
 
     bool bProductionNameExists = false;
 
@@ -6664,7 +6664,7 @@ void BasicSettings::Slot_SetName()
 
 void BasicSettings::Slot_SetDestination()
 {
-    desination_ = leDestination->text().toStdString();
+    desination_ = qstr2str(leDestination->text());
     ChangeEnabledState4NextButton();
 }
 
@@ -6676,7 +6676,7 @@ void BasicSettings::Slot_ChooseFolder()
     if (!dstDirPath.isEmpty())
     {
         leDestination->setText(dstDirPath);
-        desination_ = leDestination->text().toStdString();
+        desination_ = qstr2str(leDestination->text());
 
         // note: may need to adjust enabled state based on whether name and/or destionation are empty.
         ChangeEnabledState4NextButton();
@@ -9143,7 +9143,7 @@ TilesList::TilesList(AI3D::CORE::ReconstructionObject* recons_object_, QWidget* 
                 pItem->setTextColor(QColor(0xff, 0xff, 0xff));
                 if (j == 0)
                 {
-                    pItem->setText(QString::fromStdString(t));
+                    pItem->setText(str2qstr(t));
                 }
                 else if (j == 1)
                 {
@@ -9301,7 +9301,7 @@ void TilesList::InitTileListItem()
             pItem->setTextColor(QColor(0xff, 0xff, 0xff));
 
             if (j == 0)
-                pItem->setText(QString::fromStdString(t));
+                pItem->setText(str2qstr(t));
             else if (j == 2)
                 pItem->setText("--");
             else if (j == 1)
@@ -9392,7 +9392,7 @@ void TilesList::Slot_Close()
             QTableWidgetItem* pItem = twTiles->item(i, 0);
             if (selectedItems.contains(pItem))
             {
-                selectedTiles.push_back(pItem->text().toStdString());
+                selectedTiles.push_back(qstr2str(pItem->text()));
             }
         }
 
@@ -9489,7 +9489,7 @@ void TilesList::SetSelectItems()
             auto tilessetselect = pParamSettings4Production->tilingRange->tiles_selected_;
 
             QTableWidgetItem* pItem = twTiles->item(i, 0);
-            std::string tilename = pItem->text().toStdString();
+            std::string tilename = qstr2str(pItem->text());
             if (std::find(tilessetselect.begin(), tilessetselect.end(), tilename) != tilessetselect.end())
             {
                 twTiles->selectRow(i);
@@ -9878,7 +9878,7 @@ UserTiePoints::UserTiePoints(AI3D::GUI::ViewWidget* viewWidget, AI3D::CORE::Imag
             imageName = imageName.substr(0, pointPos);
 
         ///leName->setText(QString("User_%1").arg(QString::fromStdString(image.GetName())));
-        leName->setText(QString("User_%1").arg(QString::fromStdString(imageName)));
+        leName->setText(QString("User_%1").arg(str2qstr(imageName)));
     }
 
     leName->setStyleSheet("background-color:#1D1D1D;color:#FFFFFF;border-radius:2px;border:none;height:32px;padding-left:12px;");

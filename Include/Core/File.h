@@ -23,6 +23,15 @@
 #include <unistd.h>
 #include <dirent.h>
 #endif
+#if defined(_WIN32) && (defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__))
+#include <share.h>
+#endif
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#endif
 
 namespace AI3D
 {
@@ -111,6 +120,10 @@ namespace AI3D
 
             /** Read entire file; utf8Path is UTF-8. Uses path-aware ifstream (no wchar_t in app code). */
             static bool ReadBinaryFileUtf8(const std::string& utf8Path, std::vector<unsigned char>& out);
+
+            /** Write binary blob; utf8Path is UTF-8. Uses path-aware ofstream. */
+            static bool WriteBinaryUtf8(const std::string& utf8Path, const unsigned char* data, size_t size);
+            static bool WriteBinaryUtf8(const std::string& utf8Path, const std::vector<unsigned char>& data);
             
             static void  CreateDirIfNotExists(const std::string& path, bool bdeepcreate = false);
             static std::string  GetFileName(const std::string& path);
@@ -150,6 +163,9 @@ namespace AI3D
             static std::ifstream OpenIfstreamUtf8(const std::string& utf8Path, std::ios::openmode mode = std::ios::in);
             static std::ofstream OpenOfstreamUtf8(const std::string& utf8Path, std::ios::openmode mode = std::ios::out);
 
+            /** UTF-8 path: fopen with std::filesystem::u8path (mode e.g. "rb", "wb", "wt"). Caller must fclose. nullptr on failure. */
+            static FILE* FopenUtf8(const std::string& utf8Path, const char* mode);
+
             /** UTF-8 lock path: open for write with deny-write sharing on Windows (_SH_DENYWR). Caller must fclose. nullptr on failure. */
             static FILE* FopenDenyWriteLockUtf8(const std::string& utf8LockPath);
 
@@ -188,10 +204,80 @@ namespace AI3D
             
             std::vector<std::string> static ReadTextFileLines(const std::string& path);
         };
-            
-            
-            
-        
+
+        /** UTF-8 narrow path as std::filesystem::path for fstream::open / path APIs. */
+        inline std::filesystem::path Utf8Path(const std::string& utf8Path)
+        {
+            return std::filesystem::u8path(utf8Path);
+        }
+
+        /**
+         * Win32 ANSI (ACP/GBK) narrow string from GetModuleFileNameA / FindFirstFileA /
+         * getenv → UTF-8 for Core/Qt/std::filesystem (MoldApp compiles with /utf-8).
+         */
+        inline std::string SystemAcpPathToUtf8(const std::string& acpPath)
+        {
+#if defined(_WIN32)
+            if (acpPath.empty()) {
+                return {};
+            }
+            const int wlen = MultiByteToWideChar(CP_ACP, 0, acpPath.c_str(), -1, nullptr, 0);
+            if (wlen <= 0) {
+                return acpPath;
+            }
+            std::wstring wstr(static_cast<size_t>(wlen), L'\0');
+            MultiByteToWideChar(CP_ACP, 0, acpPath.c_str(), -1, wstr.data(), wlen);
+            const int u8len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (u8len <= 0) {
+                return acpPath;
+            }
+            std::string utf8(static_cast<size_t>(u8len), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, utf8.data(), u8len, nullptr, nullptr);
+            if (!utf8.empty() && utf8.back() == '\0') {
+                utf8.pop_back();
+            }
+            return utf8;
+#else
+            return acpPath;
+#endif
+        }
+
+        /** UTF-8 → Windows ACP (GBK on Chinese locale). For osgDB built without /utf-8. */
+        inline std::string Utf8ToWindowsAcp(const std::string& utf8Path)
+        {
+#if defined(_WIN32)
+            if (utf8Path.empty()) {
+                return {};
+            }
+            const int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8Path.c_str(), -1, nullptr, 0);
+            if (wlen <= 0) {
+                return utf8Path;
+            }
+            std::wstring wstr(static_cast<size_t>(wlen), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, utf8Path.c_str(), -1, wstr.data(), wlen);
+            const int acplen = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (acplen <= 0) {
+                return utf8Path;
+            }
+            std::string acp(static_cast<size_t>(acplen), '\0');
+            WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, acp.data(), acplen, nullptr, nullptr);
+            if (!acp.empty() && acp.back() == '\0') {
+                acp.pop_back();
+            }
+            return acp;
+#else
+            return utf8Path;
+#endif
+        }
+
+        /**
+         * Pass-through UTF-8 path for osgDB / MSVC /utf-8 (do not convert to ACP/GBK).
+         */
+        inline std::string Utf8ToSystemAcp(const std::string& utf8Path)
+        {
+            return utf8Path;
+        }
+
             template <typename... T>
             std::string File::JoinPaths(T const&... paths)
             {

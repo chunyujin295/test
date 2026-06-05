@@ -1,9 +1,58 @@
-#include "OSGEditor/PointNode.h"
+﻿#include "OSGEditor/PointNode.h"
 #include "osg/DrawPixels"
 #include "OSGEditor/Unitl.h"
 #include "OSGEditor/OsgEngine.h"
 #include "OSGEditor/EventManager.h"
+#include <algorithm>
+#include <future>
 #include <thread>
+#include <unordered_set>
+#include <vector>
+
+namespace
+{
+    constexpr size_t kParallelPhotoThreshold = 256;
+    constexpr size_t kPhotosPerWorker = 1000;
+
+    std::vector<int> CollectPointIndicesForPhotos(
+        const ST_TIEPOINT& tiepoint,
+        const std::vector<int>& photos,
+        size_t begin,
+        size_t end)
+    {
+        std::vector<int> indices;
+        std::unordered_set<int> seenPointIds;
+        indices.reserve(256);
+
+        for (size_t i = begin; i < end; ++i)
+        {
+            const int photoID = photos[i];
+            const auto photoIt = tiepoint.PhotoRelevancyID.find(photoID);
+            if (photoIt == tiepoint.PhotoRelevancyID.end())
+            {
+                continue;
+            }
+
+            for (const int pointID : photoIt->second)
+            {
+                if (!seenPointIds.insert(pointID).second)
+                {
+                    continue;
+                }
+
+                const auto indexIt = tiepoint.PointIDRelevancyIndex.find(pointID);
+                if (indexIt == tiepoint.PointIDRelevancyIndex.end())
+                {
+                    continue;
+                }
+
+                indices.push_back(indexIt->second);
+            }
+        }
+
+        return indices;
+    }
+}
 
 osg::Vec3 WorldToScreen(osgViewer::Viewer* viewer, osg::Vec3& world)
 {
@@ -96,111 +145,75 @@ void PointNode::Picked(const uint32_t& photoID)
 
 void PointNode::Picked(const std::vector<int>& photos)
 {
-    if (photos.size() == 0)
+    if (photos.empty())
     {
         return;
     }
     m_vecPointIndex.clear();
     m_mapTmpPointID.clear();
 
-    std::mutex _Mutex;
-    int threadNum = 100, realThreadNum = 0;
-    int photosNum = photos.size();
-    int start = 0, end = 0;
-    std::vector<int> * pvecPointIndex = &m_vecPointIndex;
-    ST_TIEPOINT* pTiepoint = &m_stTiePoint;
-    osg::ref_ptr<osg::Vec4Array> pColor = dynamic_cast<osg::Vec4Array*>(m_pGeometry->getColorArray());
-    std::vector<thread> threadVec(threadNum);
-    {
-       for (int i=0; i< threadNum; i++)
-       {
-           end = (start + 2000) > photosNum ? photosNum : (start + 2000);    //每个线程处理的数据     
-           realThreadNum++;
-
-           threadVec[i] = thread([start, end, photos, pTiepoint, &_Mutex, &pColor, &pvecPointIndex]() {
-                std::map<int, bool>   mapTmpPointID;
-               std::vector<int> vecPointIndex;
-               osg::Vec4 color = Unitl::FromHex(EditerEngine::TiePointColor[1]);
-               if (pColor == nullptr)
-               {
-                   return;
-               }
-               for (int ii = start; ii < end; ii++)
-               {
-                   auto photoID = photos[ii];
-                   if (pTiepoint->PhotoRelevancyID.find(photoID) == pTiepoint->PhotoRelevancyID.end())
-                   {
-                       continue;
-                   }
-
-                   auto& vecPointsID = pTiepoint->PhotoRelevancyID.find(photoID)->second;
-                   for (auto& pointID : vecPointsID)
-                   {
-                       auto it = pTiepoint->PointIDRelevancyIndex.find(pointID);
-                       if (mapTmpPointID.find(pointID) != mapTmpPointID.end() || it == pTiepoint->PointIDRelevancyIndex.end())
-                       {
-                           continue;
-                       }
-
-                       int pointIndex = it->second;
-                       mapTmpPointID.insert(make_pair(pointID, false));
-                       vecPointIndex.push_back(pointIndex);
-                       (*pColor)[pointIndex] = color;
-                   }
-               }
-               _Mutex.lock();
-               pvecPointIndex->insert(pvecPointIndex->end(), vecPointIndex.begin(), vecPointIndex.end());
-               _Mutex.unlock();
-
-            });//end thread;
-
-           start = end;
-           if (end == photosNum)
-           {
-               break;
-           }
-
-       } //end for;
-
-       for (int i=0; i< realThreadNum; i++)
-       {
-           threadVec[i].join();
-       }
-    }
-#if 0
-    for (auto &photoID : photos)
-    {
-        if (m_stTiePoint.PhotoRelevancyID.find(photoID) == m_stTiePoint.PhotoRelevancyID.end())
-        {
-            continue;
-        }
-
-        auto &vecPointsID = m_stTiePoint.PhotoRelevancyID.find(photoID)->second;
-        for (auto &pointID : vecPointsID)
-        {
-            if (m_mapTmpPointID.find(pointID) != m_mapTmpPointID.end())
-            {
-                continue;
-            }
-
-            int pointIndex = m_stTiePoint.PointIDRelevancyIndex.find(pointID)->second;
-            m_mapTmpPointID.insert(make_pair(pointID, false));
-            m_vecPointIndex.push_back(pointIndex);
-        }
-    }
-
-    osg::Vec4 color = Unitl::FromHex(EditerEngine::TiePointColor[1]);
     osg::ref_ptr<osg::Vec4Array> pColor = dynamic_cast<osg::Vec4Array*>(m_pGeometry->getColorArray());
     if (pColor == nullptr)
     {
         return;
     }
-    for (auto &id : m_vecPointIndex)
-    {
-        (*pColor)[id] = color;
-    }
-#endif
 
+    std::vector<int> pointIndices;
+    const ST_TIEPOINT& tiepoint = m_stTiePoint;
+
+    if (photos.size() < kParallelPhotoThreshold)
+    {
+        pointIndices = CollectPointIndicesForPhotos(tiepoint, photos, 0, photos.size());
+    }
+    else
+    {
+        const size_t workerCount = std::max<size_t>(
+            1,
+            std::min(
+                static_cast<size_t>(std::thread::hardware_concurrency()),
+                (photos.size() + kPhotosPerWorker - 1) / kPhotosPerWorker));
+
+        const size_t chunkSize = (photos.size() + workerCount - 1) / workerCount;
+        std::vector<std::future<std::vector<int>>> futures;
+        futures.reserve(workerCount);
+
+        for (size_t worker = 0; worker < workerCount; ++worker)
+        {
+            const size_t begin = worker * chunkSize;
+            if (begin >= photos.size())
+            {
+                break;
+            }
+            const size_t end = std::min(begin + chunkSize, photos.size());
+
+            futures.push_back(std::async(
+                std::launch::async,
+                [&tiepoint, &photos, begin, end]() {
+                    return CollectPointIndicesForPhotos(tiepoint, photos, begin, end);
+                }));
+        }
+
+        std::unordered_set<int> seenPointIndices;
+        seenPointIndices.reserve(photos.size());
+        for (auto& future : futures)
+        {
+            for (const int pointIndex : future.get())
+            {
+                if (seenPointIndices.insert(pointIndex).second)
+                {
+                    pointIndices.push_back(pointIndex);
+                }
+            }
+        }
+    }
+
+    const osg::Vec4 color = Unitl::FromHex(EditerEngine::TiePointColor[1]);
+    for (const int pointIndex : pointIndices)
+    {
+        (*pColor)[pointIndex] = color;
+    }
+
+    m_vecPointIndex = std::move(pointIndices);
     m_pGeometry->dirtyDisplayList();
     m_eMouseType = MOUSE_TYPE::MOUSE_PICKED;
 
@@ -525,8 +538,7 @@ bool PointNode::Picked(osg::ref_ptr<osgViewer::Viewer> pViewer, const float& x, 
         std::vector<ST_CALLBACK_ELEMENT_INFO> vecCallback;
         ST_CALLBACK_ELEMENT_INFO callBackInfo;
         callBackInfo.ID = m_stTiePoint.IDRelevancyPhoto.at(pointIndex).first;
-        vecCallback.push_back(callBackInfo);
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                                                                               
+        vecCallback.push_back(callBackInfo); EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                                                                               
     }
 
     return true;
@@ -572,8 +584,7 @@ bool PointNode::BoxSelect(osg::ref_ptr<osgViewer::Viewer> pViewer, const osg::Ve
     for (auto it : m_vecPointIndex)
     {
         vecCallback.push_back({ m_stTiePoint.IDRelevancyPhoto.at(it).first , "" });
-    }
-    EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                        
+    } EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                        
     return true;
 }
 
@@ -633,8 +644,7 @@ bool  PointNode::PolygonSelect(osg::ref_ptr<osgViewer::Viewer> pViewer, const st
     for (auto it : m_vecPointIndex)
     {
         vecCallback.push_back({ m_stTiePoint.IDRelevancyPhoto.at(it).first , ""});
-    }
-    EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                        
+    } EventManager::GetInstance()->notifyEvent({ CALL_BACK_TIEPOINT, &vecCallback },m_pOsgEngine);                        
     return true;
 }
 void PointNode::GetSelectedPointID(std::vector<int>& pointIDs)

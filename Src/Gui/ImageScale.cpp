@@ -46,7 +46,7 @@ namespace AI3D
 						std::string hash_filename = hashfile.substr(2);
 						std::string path = hash_path + "/" + hash_filename;
 						
-						QString thumbnailImagepath = QDir(QString(path.c_str())).absolutePath();
+						QString thumbnailImagepath = QDir(str2qstr(path)).absolutePath();
 						QDir().mkpath(thumbnailImagepath);
 						
 						Sleep(1);

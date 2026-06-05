@@ -29,9 +29,9 @@ namespace AI3D
            
             static int SubmitReconstruction(BlockObject* block, reconstruction_t& rid, const processing_settings_s& options = processing_settings_s());
 
-   
-            
-           
+            /** Writes reconstruction SRS + RB.bin (deferred from SubmitReconstruction until first production). */
+            static int ExportReconstructionViewBin(BlockObject* block, ReconstructionObject* reconstruction);
+
             static bool  CanSubmitProduction(const ReconstructionObject& object);
             static int SubmitProduction(std::string hostname, std::string jobstr,std::string projectpath,
                 BlockObject* block, reconstruction_t reconstruction_id,  production_option_s options, production_t&production_id);
@@ -130,6 +130,13 @@ namespace AI3D
             static std::string GenerateFeedbackFile(BlockObject* block, ReconstructionObject* reconstruction, ProductionObject* production, std::string tile_name, const std::string& lsMasterJobQueue = std::string(""), std::string fullPathJobName = std::string(""), int* jobStatus = nullptr);
             
             static std::string GenerateTileFeedbackFile(BlockObject* block_object,ProductionObject* production_object,std::string& tile,std::string& job);
+
+            static std::string MakeProductionTileJobKey(block_t block_id, reconstruction_t reconstruction_id,
+                production_t production_id, const std::string& tile_name);
+            static std::string ResolveProductionTileJobStr(BlockObject* block, ReconstructionObject* reconstruction,
+                ProductionObject* production, const std::string& tile_name, bool update_tile = true);
+            static void SyncProductionTileJobStrs(BlockObject* block, ReconstructionObject* reconstruction,
+                ProductionObject* production);
 
             static int ReNameReconstruction(BlockObject* block, reconstruction_t reconstruction_id, const std::string& name);
             static int ReNameProduction(BlockObject* block, reconstruction_t reconstruction_id, production_t production_id, const std::string& name);

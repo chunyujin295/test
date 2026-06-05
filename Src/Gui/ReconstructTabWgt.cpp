@@ -4,6 +4,8 @@
 #include <QVariant>
 #include <QDateTime>
 #include <QtConcurrent>
+#include <QEventLoop>
+#include <QFutureWatcher>
 #include <QStringList>
 #include <QHostInfo>
 #include "Util/TaskProcess.h"
@@ -64,15 +66,11 @@ namespace AI3D
 			}
 			LOGI( "======================Submit Reconstruction ,waiting=================" );
 			std::cout << "======================Submit Reconstruction ,waiting==================" << std::endl;
-			bool bRunFinished = false;
 			struct processing_settings_s settings;
 			reconstruction_t newRecounstructionId = kInvalidReconstructionId;
 			auto savefunc = [&, this]()
 			{
-				int  ret = ReconstructionCommandSet::SubmitReconstruction(block_data_, newRecounstructionId, settings);
-				bRunFinished = true;
-
-				return ret;
+				return ReconstructionCommandSet::SubmitReconstruction(block_data_, newRecounstructionId, settings);
 			};
 
 			int ret = AI3D_FAILURE;
@@ -87,13 +85,11 @@ namespace AI3D
 					OpenLoadingPromptV4("Please be patient and wait.New reconstruction");
 				}
 				QFuture<int> f1 = QtConcurrent::run(savefunc);
-
-				while (!bRunFinished)
-				{
-					qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
-
-					std::this_thread::sleep_for(std::chrono::milliseconds(100));
-				}
+				QEventLoop waitLoop;
+				QFutureWatcher<int> watcher;
+				QObject::connect(&watcher, &QFutureWatcher<int>::finished, &waitLoop, &QEventLoop::quit);
+				watcher.setFuture(f1);
+				waitLoop.exec();
 				ret = f1.result();
 				
 			}

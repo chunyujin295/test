@@ -626,7 +626,7 @@ namespace AI3D
 			SetCurrentSrs(default_srs_);
 
 			///int retint = ui->comboBox_srs->findText(QString(default_srs_.name.c_str()), Qt::MatchStartsWith);//暂时选用以开始
-			int retint = ui->comboBox_srs->findText((AI3D::GUI::MohackerWin::prependIndentation() + QString(default_srs_.name.c_str())), Qt::MatchStartsWith);//暂时选用以开始
+			int retint = ui->comboBox_srs->findText((AI3D::GUI::MohackerWin::prependIndentation() + str2qstr(default_srs_.name)), Qt::MatchStartsWith);//暂时选用以开始
 			ui->comboBox_srs->setCurrentIndex(retint);
 
 			//坐标转换
@@ -1245,7 +1245,7 @@ namespace AI3D
 					std::string path = image.GetPath();
 					std::string name = image.GetName();
 					std::string img_name_ = path + "/" + name;
-					QString qimg_name_ = QString::fromStdString(img_name_);
+					QString qimg_name_ = str2qstr(img_name_);
 					ids.insert(it);
 
 					// 缩略图文件列表.
@@ -1267,7 +1267,7 @@ namespace AI3D
 					std::string path = image.GetPath();
 					std::string name = image.GetName();
 					std::string img_name_ = path + "/" + name;
-					QString qimg_name_ = QString::fromStdString(img_name_);
+					QString qimg_name_ = str2qstr(img_name_);
 					ids.insert(it);
 
 					// 缩略图文件列表.
@@ -1414,7 +1414,7 @@ namespace AI3D
 			{
 				group_t groupId = it.first;;
 				AI3D::CORE::PhotoGroup& group = blockdata_->GetGroup(groupId);
-				QString groupName = QString::fromStdString(group.GetName());
+				QString groupName = str2qstr(group.GetName());
 				photoGroups.insert(groupId, groupName);
 			}
 
@@ -2136,7 +2136,7 @@ namespace AI3D
 				//LOGI("dump gcpview info.");
 				measuringview_->dumpInfo();
 
-					measuringview_->addImage(QString::fromStdString(imageName), currentimage_id_, 0, 0, true);
+					measuringview_->addImage(str2qstr(imageName), currentimage_id_, 0, 0, true);
 
 					//LOGI("dump gcpview info.");
 					measuringview_->dumpInfo();
@@ -2150,7 +2150,7 @@ namespace AI3D
 			}
 			else
 			{
-				measuringview_->addImage(QString::fromStdString(imageName), currentimage_id_, 0, 0, true);
+				measuringview_->addImage(str2qstr(imageName), currentimage_id_, 0, 0, true);
 				measuringview_->setScale(scale_);
 				
 				

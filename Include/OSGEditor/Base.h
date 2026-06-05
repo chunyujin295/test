@@ -90,10 +90,39 @@ using namespace std;
 
 #define MAX_DISTANCE 25000000
 
-#ifdef AI3D_MAKE_DLL
-#define DLL_API __declspec(dllexport)  
+#ifdef DLL_API
+#undef DLL_API
+#endif
+
+#if defined(MoldAIOSGEditor_EXPORTS)
+#define OSGEDITOR_DLL_EXPORT __declspec(dllexport)
 #else
-#define DLL_API __declspec(dllimport)  
+#define OSGEDITOR_DLL_EXPORT __declspec(dllimport)
+#endif
+
+#define DLL_API OSGEDITOR_DLL_EXPORT
+#define OSGEDITOR_DLL_API_GUARD
+
+// DLL export policy (MoldAIOSGEditor):
+// - OSGEDITOR_CLASS_API: only on OsgEngine, EventInfo, EventBaseServer, EventManager.
+//   Do NOT use "class DLL_API" (MSVC C4273). Implementations: include OsgEditorDllBuild.h first.
+// - OSGEDITOR_INTERNAL_CLASS: PhotosNodeManager, CustomNode, PointNode, Unitl, LODTree, ...
+//   No dllexport/dllimport; use OsgEngine facade APIs from Gui/other DLLs.
+#if defined(MoldAIOSGEditor_EXPORTS)
+#define OSGEDITOR_CLASS_API __declspec(dllexport)
+#else
+#define OSGEDITOR_CLASS_API __declspec(dllimport)
+#endif
+#define OSGEDITOR_INTERNAL_CLASS
+
+#if defined(_MSC_VER)
+#ifndef OSGEDITOR_CPP_METHOD
+#define OSGEDITOR_CPP_METHOD OSGEDITOR_DLL_EXPORT
+#endif
+#else
+#ifndef OSGEDITOR_CPP_METHOD
+#define OSGEDITOR_CPP_METHOD
+#endif
 #endif
 
 template <class T>

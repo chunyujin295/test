@@ -1,4 +1,4 @@
-#include "OSGEditor/CoordinateAxis.h"
+﻿#include "OSGEditor/CoordinateAxis.h"
 #include "OSGEditor/EventManager.h"
 CoordinateAxis::CoordinateAxis(OsgEngine* pOsgEngine)
 {
@@ -103,8 +103,7 @@ void CoordinateAxis::traverse(osg::NodeVisitor& nv)
         {
             m_stMatrix = matrix;
 
-            //回调联动信息
-            EventManager::GetInstance()->notifyEvent({ CALL_BACK_CAMERA, &m_stMatrix },m_pOsgEngine);
+            //回调联动信息 EventManager::GetInstance()->notifyEvent({ CALL_BACK_CAMERA, &m_stMatrix },m_pOsgEngine);
         }
     }
 

@@ -109,5 +109,20 @@ namespace AI3D
             strftime(tmp, sizeof(tmp), "%Y%m%d%H%M%S", localtime(&t));
             return tmp;
 		}
+
+        namespace
+        {
+            bool g_recon_perf_log_enabled = false;
+        }
+
+        AI3D_API bool IsReconPerfLogEnabled()
+        {
+            return g_recon_perf_log_enabled;
+        }
+
+        AI3D_API void SetReconPerfLogEnabled(bool enabled)
+        {
+            g_recon_perf_log_enabled = enabled;
+        }
     }
 }  

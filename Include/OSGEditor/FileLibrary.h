@@ -26,10 +26,12 @@ struct Quate{
     float x, y, z, w;
 
 };
+#ifndef OSGEDITOR_DLL_API_GUARD
 #ifdef API_EXPORTS
-#define DLL_API __declspec(dllexport)  
+#define DLL_API __declspec(dllexport)
 #else
-#define DLL_API 
+#define DLL_API
+#endif
 #endif
 /**
     * 公用方法文件
@@ -207,7 +209,7 @@ private:
 #include <qtextstream.h>
 #include "qdatetime.h"
 //
-class DLL_API QFileLibrary {
+class QFileLibrary {
     public:
 
 

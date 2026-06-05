@@ -31,7 +31,6 @@ namespace AI3D
             texture_compression_quality_e quality_;
             int maximum_texture_size_ = 2048;
             bool texturesharpning_ = false;
-
         };
         
         

@@ -1,6 +1,5 @@
 #pragma once
 #include <qwidget.h>
-
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QLineEdit>
@@ -44,9 +43,6 @@ struct RunningEngineNode
     QString jobName;
 };
 
-
-
-
 class JobStage
 {
 public:
@@ -54,7 +50,6 @@ public:
 
 public:
     QString functionName;
-
     int status; 
     int percent;
     int percentAcc;
@@ -91,6 +86,7 @@ public:
     static  bool isEngine();
     static QString getMasterJobQueue();
     static QString getEngineJobQueue();
+    static QString getGenEngineJobQueue();
    
     static QSettings* pSettings;
     

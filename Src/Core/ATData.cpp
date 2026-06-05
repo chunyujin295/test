@@ -527,8 +527,8 @@ namespace AI3D
 					return;
 				}
 				auto& image = images_.at(iter);
-				LOGI(image.GetImageId());
-				
+				// LOGI(image.GetImageId());
+
 				if (image.HasDepth())
 				{
 					
@@ -991,10 +991,8 @@ namespace AI3D
 
 		void ATData::GeneratePointViews(std::set<image_t>& imageids, std::set<point3D_t>& point3dids)
 		{
-			
-			
-			
-			if (1)
+			// Full per-image visibility pass is too slow on large blocks; subsample tiepoints instead.
+			if (points3D_.size() <= 200000)
 			{
 				std::map<int, image_t> image_idx_to_id;
 				std::map<image_t, int> id_to_idx;
@@ -1082,43 +1080,11 @@ namespace AI3D
 
 		void  ATData::GeneratePointViews()
 		{
-			if (!imageids_tiling_.empty()&&!point3dids_tiling_.empty())
+			if (!imageids_tiling_.empty() && !point3dids_tiling_.empty())
 			{
 				return;
 			}
-
-			std::map<int, image_t> image_idx_to_id;
-			std::map<image_t, int> id_to_idx;
-			std::vector<AI3D::CORE::Image> imagevec(reg_image_ids_.size());
-			for (image_t imgidx = 0; imgidx < reg_image_ids_.size(); imgidx++)
-			{
-				image_t image_id = reg_image_ids_[imgidx];
-				imagevec[imgidx] = images_[image_id];
-				AI3D::CORE::Image image = images_[image_id];
-				image_idx_to_id[imgidx] = image_id;
-				id_to_idx[image_id] = imgidx;
-				for (int ptidx = 0; ptidx < images_[image_id].GetPoints2D().size(); ptidx++)
-				{
-					Point2D point2d = images_[image_id].GetPoints2D()[ptidx];
-					point3D_t point_id = point2d.GetPoint3DId();
-					if (!points3D_.count(point_id))
-					{
-						continue;
-					}
-					Point3D point3d = points3D_.at(point_id);
-					if (image.IsVisible(point3d.GetXYZ(), cameras_.at(image.GetCameraId()).GetCalibrationMatrix()))
-					{
-						point_views_[point_id].emplace_back(std::make_pair(image_id, 1.0));
-						view_points_[image_id].emplace_back(point_id);
-						imageids_tiling_.insert(image_id);
-						point3dids_tiling_.insert(point_id);
-					}
-				}
-			}
-
-
-			
-			
+			GeneratePointViews(imageids_tiling_, point3dids_tiling_);
 		}
 		const std::map<point3D_t, std::vector<viewweight>>& ATData::GetPointsViews() const
 		{
@@ -5251,8 +5217,9 @@ namespace AI3D
 						std::vector<Eigen::Vector3d> imagepose;
 						for (auto& it : imageids)
 						{
-							AI3D::CORE::Image& image = images.at(it);
-							imagepose.push_back(image.GetPosition() - position_offset);
+							AI3D::CORE::Image image = images.at(it);
+							image.GetPositionMutual() -= position_offset;
+							imagepose.push_back(image.GetPositionMutual());
 							poses.push_back((cameras.at(image.GetCameraId()).GetCalibrationMatrix() * image.GetProjectionMatrix()).cast<float>());
 							
 						}
@@ -5493,8 +5460,9 @@ namespace AI3D
 						std::vector<Eigen::Vector3d> imagepose;
 						for (auto& it : imageids)
 						{
-							AI3D::CORE::Image& image = images.at(it);
-							imagepose.push_back(image.GetPosition() - position_offset);
+							AI3D::CORE::Image image = images.at(it);
+							image.GetPositionMutual() -= position_offset;
+							imagepose.push_back(image.GetPositionMutual());
 							poses.push_back((cameras.at(image.GetCameraId()).GetCalibrationMatrix() * image.GetProjectionMatrix()).cast<float>());
 							
 						}
@@ -5527,7 +5495,9 @@ namespace AI3D
 
 						}
 
-						
+						const bool triFinite = std::isfinite(xyz.x()) && std::isfinite(xyz.y()) && std::isfinite(xyz.z());
+						if (triFinite)
+						{
 						ids_gcp_for3DError.emplace_back(gcp_tmp.first);
 						ids_gcp_forPixError.emplace_back(gcp_tmp.first);
 						gcp.GetObjectPointMutual().GetEstimatedXYZMutual() = xyz;
@@ -5540,6 +5510,14 @@ namespace AI3D
 						given_x.push_back(gcp.GetGivenXYZMutual().x());
 						given_y.push_back(gcp.GetGivenXYZMutual().y());
 						given_z.push_back(gcp.GetGivenXYZMutual().z());
+						}
+						else
+						{
+						xyz = Eigen::Vector3d{ -DBL_MAX, -DBL_MAX, -DBL_MAX };
+						gcp.GetObjectPointMutual().GetEstimatedXYZMutual() = xyz;
+						gcp.GetEstimatedXYZMutual() = xyz;
+						ids_gcp_forPixError.emplace_back(gcp_tmp.first);
+						}
 
 					}
 					else

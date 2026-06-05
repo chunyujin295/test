@@ -78,6 +78,8 @@ namespace AI3D
 
             
             static bool StringContains(const std::string& str, const std::string& sub_str);
+
+            static bool StringIsNullOrBlank(const std::string& str);
         };
     }
 } 

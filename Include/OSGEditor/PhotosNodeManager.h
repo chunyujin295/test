@@ -2,14 +2,16 @@
 //#include "PhotosNode.h"
 #include "OSGEditor/Base.h"
 #include "PhotoGeometry.h"
-#include "OsgEngine.h"
 
-//照片节点管理类
-class DLL_API PhotosNodeManager : public CustomNode
+class OsgEngine;
+
+// OSGEDITOR_INTERNAL_CLASS — not exported; Gui uses OsgEngine::{GetPickedPhotoIds, ...}.
+class OSGEDITOR_INTERNAL_CLASS PhotosNodeManager : public CustomNode
 {
 public:
     PhotosNodeManager(OsgEngine *pOsgEngine, osg::ref_ptr<osgViewer::Viewer> pViewer);
-    void SetViewer(osg::ref_ptr<osgViewer::Viewer> pViewer) { m_pViewer = pViewer; };
+    virtual ~PhotosNodeManager();
+    void SetViewer(osg::ref_ptr<osgViewer::Viewer> pViewer) { m_pViewer = pViewer; }
     void Add(const std::vector<ST_CAMERA_INFO> &vecCamera);
     //默认根据选中的id恢复状态
     virtual void Reset();

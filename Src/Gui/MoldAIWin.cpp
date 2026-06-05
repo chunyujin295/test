@@ -25,6 +25,7 @@
 #include "Gui/message_box.h"
 #include "Util/TaskProcess.h"
 #include "Core/ReconstructionCommandSet.h"
+#include "Core/ReconPerfLog.h"
 #include "Gui/ExportXmlDia.h"
 #ifdef USE_AI3D_PROJ
 #include "Core/Proj/QProj.h"
@@ -383,14 +384,14 @@ namespace AI3D
         QStandardItem* MohackerWin::NewBlock(AI3D::CORE::BlockObject* block,int index)
         {
             block->SetStatus(jobsta_e::STATUS_NEW);
-            QStandardItem* blockItem = new QStandardItem(_map_icon_[tr("Block")], QString(block->GetName().c_str()));
+            QStandardItem* blockItem = new QStandardItem(_map_icon_[tr("Block")], str2qstr(block->GetTaskInfo().blockString));
             blockItem->setData(index, CustomRole::CRBlockIndex);
             blockItem->setData(QVariant::fromValue(block), CustomRole::CRBlockData);
 
             blockItem->setData(ItemType::ITBlock, CustomRole::CRItemType);
 
             std::string tooltip = block->GetTaskInfo().blockString + "\nphotos: 0\ncontrolpoints: 0\ntie points: 0";
-            blockItem->setToolTip(tr(tooltip.c_str()));
+            blockItem->setToolTip(str2qstr(tooltip));
            
             ProjectManager* promanager = ProjectManager::GetInstance();
             Block_Status_s& BlockStatus = promanager->GetBlockManaget(block->GetId())->GetBlockStatusMutual();
@@ -472,7 +473,7 @@ namespace AI3D
                     if(pReconstructionObject)
                         pProductionObject = pReconstructionObject->GetProduction(product_.id_);
 
-                    QStandardItem* product_item = new QStandardItem(QString(product_.name_.c_str()));
+                    QStandardItem* product_item = new QStandardItem(str2qstr(product_.name_));
                     product_item->setData(product_index, CustomRole::CRBlockIndex);
                     product_item->setData(ItemType::ITProduction, CustomRole::CRItemType);
                     product_item->setData(recons.id_, CustomRole::CRReconstructionID);
@@ -1729,7 +1730,7 @@ namespace AI3D
             if (ui_action_save->isEnabled())
             {
                 QString dlgTitle = tr("Warning");
-                QString strInfo = tr("The project '%1' has been modified.\n do you want to save your changes?").arg(promanager->GetProject()->GetName().c_str());
+                QString strInfo = tr("The project '%1' has been modified.\n do you want to save your changes?").arg(str2qstr(promanager->GetProject()->GetName()));
 
                 QMessageBox::StandardButton defaultBtn = QMessageBox::NoButton;
                 QMessageBox::StandardButton result;
@@ -3131,7 +3132,7 @@ namespace AI3D
             fd.setAcceptMode(QFileDialog::AcceptOpen);
             fd.setFileMode(QFileDialog::ExistingFile);
             fd.setViewMode(QFileDialog::Detail);
-            fd.setDirectory(QDir(QString(promanager->GetProject()->GetPath().c_str())).absolutePath());
+            fd.setDirectory(QDir(str2qstr(promanager->GetProject()->GetPath())).absolutePath());
             if (QDialog::Accepted != fd.exec())
                 return;
             emit CloseFirstWgt();
@@ -3151,7 +3152,7 @@ namespace AI3D
             pfd->setAcceptMode(QFileDialog::AcceptOpen);
             pfd->setFileMode(QFileDialog::ExistingFile);
             pfd->setViewMode(QFileDialog::Detail);
-            pfd->setDirectory(QDir(QString(promanager->GetProject()->GetPath().c_str())).absolutePath());
+            pfd->setDirectory(QDir(str2qstr(promanager->GetProject()->GetPath())).absolutePath());
             if (QDialog::Accepted != pfd->exec())
             {
                 delete pfd;
@@ -3394,7 +3395,7 @@ namespace AI3D
             {
                 item_->setData(2, CustomRole::CanSaveBlock);//chy add cansaveblock ：2 表示没有保存可以保存
             }
-            item_->setText(block->GetTaskInfo().blockString.c_str());
+            item_->setText(str2qstr(block->GetTaskInfo().blockString));
             
             ui_stackedWidget->setCurrentWidget(item_->data(CustomRole::CRBlockWgt).value<QWidget*>());
         }
@@ -3414,7 +3415,7 @@ namespace AI3D
             fd.setFileMode(QFileDialog::ExistingFile);
             fd.setViewMode(QFileDialog::Detail);
           
-            fd.setDirectory(QDir(QString(promanager->GetProject()->GetPath().c_str())).absolutePath());
+            fd.setDirectory(QDir(str2qstr(promanager->GetProject()->GetPath())).absolutePath());
             if (QDialog::Accepted != fd.exec())
                 return;
             QString fileName = fd.selectedFiles().first();    
@@ -4345,7 +4346,7 @@ namespace AI3D
                         //执行取消
                         QString str1;
                         int errornum;
-                        QString jobname = QString(blockData->GetTaskInfo().job_.c_str()).split(PATH_SEPARATOR_STR).last();
+                        QString jobname = str2qstr(blockData->GetTaskInfo().job_).split(PATH_SEPARATOR_STR).last();
                        //chy 0901需要看一下原来的代码是怎么处理等待的
 
 ///                        bool flag = doCancelJob2(blockData->GetPath(), jobname.toStdString(), errornum);
@@ -4715,7 +4716,7 @@ namespace AI3D
                     //执行取消
                     QString str1;
                     int errornum;
-                    QString jobname = QString(blockData->GetTaskInfo().job_.c_str()).split(PATH_SEPARATOR_STR).last();
+                    QString jobname = str2qstr(blockData->GetTaskInfo().job_).split(PATH_SEPARATOR_STR).last();
                     //chy 0901需要看一下原来的代码是怎么处理等待的
 
 ///                        bool flag = doCancelJob2(blockData->GetPath(), jobname.toStdString(), errornum);
@@ -4749,7 +4750,7 @@ namespace AI3D
                                     itertile.second.status_ == jobsta_e::STATUS_PENDDING)
                                 {
                                     std::string jobstr = itertile.second.jobstr_;
-                                    QString jobname = QString(jobstr.c_str()).split(PATH_SEPARATOR_STR).last();
+                                    QString jobname = str2qstr(jobstr).split(PATH_SEPARATOR_STR).last();
                                     //feedback path
                                     std::string feedbackpath = iterpro.second->GetPath() + "/" + itertile.second.name_ + "/";
                                     feedbackpath = AI3D::CORE::File::EnsureUnifySlash(feedbackpath);
@@ -4890,7 +4891,7 @@ namespace AI3D
                                     itertile.second.status_ == jobsta_e::STATUS_PENDDING)
                                 {
                                     std::string jobstr = itertile.second.jobstr_;
-                                    QString jobname = QString(jobstr.c_str()).split(PATH_SEPARATOR_STR).last();
+                                    QString jobname = str2qstr(jobstr).split(PATH_SEPARATOR_STR).last();
                                     //feedback path
                                     std::string feedbackpath = iterpro.second->GetPath() + "/" + itertile.second.name_ + "/";
                                     feedbackpath = AI3D::CORE::File::EnsureUnifySlash(feedbackpath);
@@ -4940,7 +4941,7 @@ namespace AI3D
                             itertile.second.status_ == jobsta_e::STATUS_PENDDING)
                         {
                             std::string jobstr = itertile.second.jobstr_;
-                            QString jobname = QString(jobstr.c_str()).split(PATH_SEPARATOR_STR).last();
+                            QString jobname = str2qstr(jobstr).split(PATH_SEPARATOR_STR).last();
 
                             std::string feedbackpath = production_object->GetPath() + "/" + itertile.second.name_ + "/";
                             feedbackpath = AI3D::CORE::File::EnsureUnifySlash(feedbackpath);
@@ -5052,7 +5053,7 @@ namespace AI3D
                     AI3D::CORE::ProductionObject* production_object = productionWgt->getProductionObject();
                     
                    
-                    path =QString::fromStdString( production_object->GetOptions().destination_);
+                    path = str2qstr(production_object->GetOptions().destination_);
                 }
 
                 break;
@@ -5322,21 +5323,36 @@ namespace AI3D
                     ItemType itemtype = var.value<ItemType>();
                     switch (itemtype) {
                     case ItemType::ITBlock:
-                        item->setText(str2qstr(item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->GetName()));
+                    {
+                        AI3D::CORE::BlockObject* block = item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>();
+                        if (block)
+                            item->setText(str2qstr(block->GetTaskInfo().blockString));
                         item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->GetTaskInfoMutual().isSaved = false;
                         break;
+                    }
                     case ItemType::ITProject:
-                        //item->setText(item->data(CustomRole::CRProjectData).value< Project* >()->project_name);
+                    {
+                        ProjectManager* proManage = ProjectManager::GetInstance();
+                        if (proManage && proManage->GetProject())
+                            item->setText(str2qstr(proManage->GetProject()->GetName()));
                         break;
+                    }
 
                     case ItemType::ITReconstruction:
-                        //item->setText(QString::fromLocal8Bit(item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->GetName().c_str()));
-                        //item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->GetTaskInfoMutual().isSaved = false;
-
+                    {
+                        AI3D::CORE::ReconstructionObject* pRec = item->data(CustomRole::CRReconstructionData).value<AI3D::CORE::ReconstructionObject*>();
+                        if (pRec)
+                            item->setText(str2qstr(pRec->GetName()));
                         break;
+                    }
 
                     case ItemType::ITProduction:
+                    {
+                        AI3D::CORE::ProductionObject* pProd = item->data(CustomRole::CRProductionData).value<AI3D::CORE::ProductionObject*>();
+                        if (pProd)
+                            item->setText(str2qstr(pProd->GetName()));
                         break;
+                    }
 
                     default:
                         break;
@@ -5352,14 +5368,23 @@ namespace AI3D
                     ItemType itemtype = var.value<ItemType>();
                     if (ItemType::ITBlock == itemtype) {
 
-///                        item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->ReName(item->text().toStdString());
-
                         item->data(CustomRole::CRBlockData).value<AI3D::CORE::BlockObject*>()->ReName(qstr2str(item->text()));
+                        SetFileModifiedProj();
 
+                    }
+                    else if (ItemType::ITProject == itemtype)
+                    {
+                        ProjectManager* proManage = ProjectManager::GetInstance();
+                        if (proManage && proManage->GetProject())
+                        {
+                            proManage->GetProject()->ReName(qstr2str(item->text()));
+                            if (ui_projectWgt_)
+                                ui_projectWgt_->ShowProjectName(item->text());
+                            SetFileModifiedProj();
+                        }
                     }
                     else if (ItemType::ITReconstruction == itemtype)
                     {
-                        // static int ReNameReconstruction(BlockObject * block, group_t reconstruction_id, const std::string & name);
                         AI3D::CORE::BlockObject* block = item->data(CustomRole::CRParentBlockData).value<AI3D::CORE::BlockObject*>();
                         AI3D::CORE::ReconstructionObject* pReconstructionObject = item->data(CustomRole::CRReconstructionData).value<AI3D::CORE::ReconstructionObject*>();                       
                         if (block && pReconstructionObject)
@@ -5373,6 +5398,18 @@ namespace AI3D
                             {
                                 std::cout << "inside " <<  ",exception occured:" << ex.what() << std::endl;
                             }
+                        }
+                    }
+                    else if (ItemType::ITProduction == itemtype)
+                    {
+                        AI3D::CORE::BlockObject* block = item->data(CustomRole::CRParentBlockData).value<AI3D::CORE::BlockObject*>();
+                        AI3D::CORE::ReconstructionObject* pReconstructionObject = item->data(CustomRole::CRReconstructionData).value<AI3D::CORE::ReconstructionObject*>();
+                        AI3D::CORE::ProductionObject* pProductionObject = item->data(CustomRole::CRProductionData).value<AI3D::CORE::ProductionObject*>();
+                        if (block && pReconstructionObject && pProductionObject)
+                        {
+                            AI3D::CORE::ReconstructionCommandSet::ReNameProduction(
+                                block, pReconstructionObject->GetId(), pProductionObject->GetId(), qstr2str(item->text()));
+                            SetFileModifiedProj();
                         }
                     }
 
@@ -5489,38 +5526,60 @@ namespace AI3D
 
                         auto savefunc = [&, this]()
                         {
-                            LOGI("preparing to load reconstruction...");
+                            AI3D::CORE::ReconPerfStage perf_total("LoadReconstruction", "total");
+                            bool res = false;
+                            std::string atbin = pReconstructionObject->GetPath() + "/" + PRODUCTIONVIEWIDSBIN;
+                            atbin = AI3D::CORE::File::EnsureUnifySlash(atbin);
+                            const AI3D::CORE::ATData& mem_at = pReconstructionObject->GetATData();
+                            const bool mem_ok =
+                                mem_at.HasRegImages() || !mem_at.GetRegImageIds().empty();
 
-                            
+                            if (AI3D::CORE::File::ExistsFile(atbin))
+                            {
+                                AI3D::CORE::ReconPerfStage perf_load("LoadReconstruction", "LoadATBinary");
                                 AI3D::CORE::BlockObject blockload;
                                 auto atdata = std::make_shared<ATData>();
-                                //@attention此处双方还未统一好GCP这一块，所以暂不用Bin
-
-                                std::string atbin = pReconstructionObject->GetPath() + "/" + PRODUCTIONVIEWIDSBIN;
-                                std::string atxml = pReconstructionObject->GetPath() + "/views.xml";
-                                atbin = AI3D::CORE::File::EnsureUnifySlash(atbin);
-                                atxml = AI3D::CORE::File::EnsureUnifySlash(atxml);
-                                auto res =  blockload.LoadATBinary(atbin, atdata);
-                              // auto res = blockload.LoadATXML(atxml, atdata);
-                               if (res)
-                               {
-                                   pReconstructionObject->SetATData(*atdata.get());
-                                   srs_s atcustomsrs = pReconstructionObject->GetCustomSrs();
-                                   AI3D::CORE::ATData atdata_custom = *atdata.get();
-                                   atdata_custom.TransFormATData(atcustomsrs.definition);
-                                   atdata_custom.ComputeDepths();
-                                   pReconstructionObject->SetATDataCustom(atdata_custom);
-                               }
-
-                            
-
-                            LOGI("load reconstruction finished.");
-                           
+                                res = blockload.LoadATBinary(atbin, atdata);
+                                if (res)
+                                {
+                                    {
+                                        AI3D::CORE::ReconPerfStage perf_set("LoadReconstruction", "SetATData");
+                                        pReconstructionObject->SetATData(*atdata.get());
+                                    }
+                                    srs_s atcustomsrs = pReconstructionObject->GetCustomSrs();
+                                    AI3D::CORE::ATData atdata_custom = *atdata.get();
+                                    {
+                                        AI3D::CORE::ReconPerfStage perf_transform("LoadReconstruction", "TransFormATData");
+                                        atdata_custom.TransFormATData(atcustomsrs.definition);
+                                    }
+                                    {
+                                        AI3D::CORE::ReconPerfStage perf_depths("LoadReconstruction", "ComputeDepths");
+                                        atdata_custom.ComputeDepths();
+                                    }
+                                    {
+                                        AI3D::CORE::ReconPerfStage perf_custom("LoadReconstruction", "SetATDataCustom");
+                                        pReconstructionObject->SetATDataCustom(atdata_custom);
+                                    }
+                                }
+                            }
+                            else if (mem_ok)
+                            {
+                                LOGI("LoadReconstruction: RB.bin not exported yet, use in-memory reconstruction AT");
+                                res = true;
+                                const AI3D::CORE::ATData& mem_custom = pReconstructionObject->GetATDataCustom();
+                                if (!mem_custom.HasRegImages() && mem_custom.GetRegImageIds().empty())
+                                {
+                                    srs_s atcustomsrs = pReconstructionObject->GetCustomSrs();
+                                    AI3D::CORE::ATData atdata_custom = mem_at;
+                                    atdata_custom.TransFormATData(atcustomsrs.definition);
+                                    atdata_custom.ComputeDepths();
+                                    pReconstructionObject->SetATDataCustom(atdata_custom);
+                                }
+                            }
+                            AI3D::CORE::ReconPerfLog(AI3D::CORE::String::StringPrintf(
+                                "[ReconPerf] LoadReconstruction | done | success=%d", res ? 1 : 0));
                             bSaveFinished = true;
-                            //LOGI("res:" + res);
-
                             return res;
-                            //return true;
                         };
                         bool ret = false;
                         if (AI3D::CORE::Application::Getinstance().GetReleaseLevel() <= 2)

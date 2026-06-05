@@ -1,11 +1,21 @@
+﻿#include "OSGEditor/OsgEditorDllBuild.h"
 #include "OSGEditor/OsgEngine.h"
+#include "OSGEditor/PhotosNodeManager.h"
+#include "OSGEditor/LodTreeProcessor.h"
 #include "OSGEditor/CoordinateAxis.h"
 #include "OSGEditor/Unitl.h"
 #include "OSGEditor/EventManager.h"
 #include <future>
 using namespace AI3D::CORE;
 
+namespace {
 
+inline PhotosNodeManager* AsPhotosNodeManager(const osg::ref_ptr<CustomNode>& node)
+{
+    return static_cast<PhotosNodeManager*>(node.get());
+}
+
+} // namespace
 
 static std::map<unsigned long, OsgEngine*> m_mapEngineCaller;//@add by 
 
@@ -42,7 +52,12 @@ OsgEngine::OsgEngine()
     std::cout << "osgengine constructor:" << std::hex << std::showbase << this << std::dec << std::endl;
 }
 
-OsgEngine *OsgEngine::getInstance()
+OsgEngine::~OsgEngine()
+{
+    std::cout << "osgengine destroyed:" << std::hex << std::showbase << this << std::dec << std::endl;
+}
+
+OsgEngine* OsgEngine::getInstance()
 {
 
     static OsgEngine* s_registry = new OsgEngine();
@@ -101,7 +116,7 @@ void OsgEngine::initViewer(osg::ref_ptr< osgViewer::Viewer> pViewer, int x, int 
     if (pViewer)
     {
         m_pOsgViewer = pViewer;
-        m_pPhotosNodeManager->SetViewer(m_pOsgViewer);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->SetViewer(m_pOsgViewer);
     }
     manipulator->setAllowThrow(false);
             manipulator->setMinimumDistance(1.0);                            
@@ -213,9 +228,9 @@ void OsgEngine::AddCoordinateAxis(const osg::Vec3& center, const osg::Vec3& rang
     coord->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE); // 关闭深度测试，并设置覆盖标志
    
     
-    Unitl::AddAxis(coord, Vec3(range.x(), 0., 0.), "", Vec4(1., 0., 0., 1.)); // x-axis
-    Unitl::AddAxis(coord, Vec3(0., range.y(), 0.), "", Vec4(0., 1., 0., 1.)); // y-axis
-    Unitl::AddAxis(coord, Vec3(0., 0., range.z()), "", Vec4(0., 0., 1., 1.)); // z-axis
+Unitl::AddAxis(coord, Vec3(range.x(), 0., 0.), "", Vec4(1., 0., 0., 1.)); // x-axis
+Unitl::AddAxis(coord, Vec3(0., range.y(), 0.), "", Vec4(0., 1., 0., 1.)); // y-axis
+Unitl::AddAxis(coord, Vec3(0., 0., range.z()), "", Vec4(0., 0., 1., 1.)); // z-axis
     m_pCoordinateAxisNode = new osg::PositionAttitudeTransform;
     m_pCoordinateAxisNode->addChild(coord);
     m_pCoordinateAxisNode->setPosition(center);
@@ -326,6 +341,55 @@ std::vector<osg::ref_ptr<CustomNode>>* OsgEngine::GetPickedNode() {
     return &m_vecPickedNode; 
 };
 
+size_t OsgEngine::GetPickedNodeCount() const
+{
+    return m_vecPickedNode.size();
+}
+
+void OsgEngine::GetPickedElementIds(std::vector<int>& elementIds) const
+{
+    elementIds.clear();
+    for (const auto& node : m_vecPickedNode) {
+        if (node.valid()) {
+            elementIds.push_back(node->m_iID);
+        }
+    }
+}
+
+bool OsgEngine::GetPickedPhotoIds(std::vector<int>& photoIds)
+{
+    photoIds.clear();
+    if (m_vecPickedNode.empty()) {
+        return false;
+    }
+    PhotosNodeManager* photos = dynamic_cast<PhotosNodeManager*>(m_vecPickedNode.front().get());
+    if (!photos) {
+        return false;
+    }
+    photos->GetPickedPhotosID(&photoIds);
+    return !photoIds.empty();
+}
+
+bool OsgEngine::GetPickedTileIds(std::vector<int>& tileIds)
+{
+    tileIds.clear();
+    for (const auto& node : m_vecPickedNode) {
+        if (!node.valid()) {
+            continue;
+        }
+        if (node->GetElementType() == ELEMENT_LAYER_TYPE::ELEMENT_TILE && node->m_iID > 0) {
+            tileIds.push_back(node->m_iID);
+        }
+    }
+    return !tileIds.empty();
+}
+
+void OsgEngine::GetTileDirCoarseLevelTrees(
+    const std::string& dir, std::vector<std::string>& trees, const std::string& extension)
+{
+    LodTreeProcessor::GetTileDirCoarseLevelTrees(dir, trees, extension);
+}
+
 osg::ref_ptr<osg::Node> OsgEngine::AddTileNodes(const std::vector<ST_BOUNDINGBOX>& box)
 {
 
@@ -378,7 +442,7 @@ void OsgEngine::AddPhotos(const std::vector<ST_CAMERA_INFO>& stCamera)
     osg::Timer tmpTimer;
     tmpTimer.setStartTick();
 
-    m_pPhotosNodeManager->Add(stCamera);
+    AsPhotosNodeManager(m_pPhotosNodeManager)->Add(stCamera);
    // std::cout << "init camera : " << tmpTimer.time_s() << std::endl;
 }
 
@@ -515,7 +579,7 @@ void OsgEngine::Remove(const ELEMENT_LAYER_TYPE& type, const int& id)
     {
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:                                                 
     {
-        m_pPhotosNodeManager->RemoveChild(id);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->RemoveChild(id);
     }break;
     case ELEMENT_LAYER_TYPE::ELEMENT_SURVEY_POINTS:
     {
@@ -553,7 +617,7 @@ void  OsgEngine::RemoveAll(const ELEMENT_LAYER_TYPE& type)
     {
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
     {
-        m_pPhotosNodeManager->RemoveAll();
+        AsPhotosNodeManager(m_pPhotosNodeManager)->RemoveAll();
     }break;
     case ELEMENT_LAYER_TYPE::ELEMENT_SURVEY_POINTS:
     {
@@ -586,7 +650,7 @@ void  OsgEngine::RemoveAll(const ELEMENT_LAYER_TYPE& type)
 
 void OsgEngine::RemoveAll()
 {
-    m_pPhotosNodeManager->RemoveAll();
+    AsPhotosNodeManager(m_pPhotosNodeManager)->RemoveAll();
     m_pSurveyPointsRootGroup->RemoveAll();
     m_pTiesPointsRootGroup->RemoveAll();
     m_pTilesRootGroup->RemoveAll();
@@ -597,7 +661,7 @@ void OsgEngine::RemoveAll()
 }
 bool OsgEngine::IsATEmpty()
 {
-    return m_pPhotosNodeManager->IsEmpty();
+    return AsPhotosNodeManager(m_pPhotosNodeManager)->IsEmpty();
 }
 void OsgEngine::RemoveScene()
 {
@@ -620,8 +684,8 @@ void OsgEngine::RemovePickedNode()
         case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
         {
             std::vector<int> tmpPickedID;
-            m_pPhotosNodeManager->GetPickedPhotosID(&tmpPickedID);
-            m_pPhotosNodeManager->RemoveChild();
+            AsPhotosNodeManager(m_pPhotosNodeManager)->GetPickedPhotosID(&tmpPickedID);
+            AsPhotosNodeManager(m_pPhotosNodeManager)->RemoveChild();
 
             ////删除影像对应的点
             if (m_pTiesPointsRootGroup->getNumChildren() == 1)
@@ -710,7 +774,7 @@ void OsgEngine::DeselectPickedNodeWithoutDeleting()
         {
         case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
         {
-            m_pPhotosNodeManager->RemoveSelectedPhoto();
+            AsPhotosNodeManager(m_pPhotosNodeManager)->RemoveSelectedPhoto();
 
         }break;
         case ELEMENT_LAYER_TYPE::ELEMENT_SURVEY_POINTS:
@@ -786,7 +850,7 @@ const ELEMENT_LAYER_TYPE& OsgEngine::GetCurrentElementType()
 }
 void  OsgEngine::ScalePhotosElement(const float& scale)
 {
-    m_pPhotosNodeManager->Scale(scale);
+    AsPhotosNodeManager(m_pPhotosNodeManager)->Scale(scale);
 }
 
 void  OsgEngine::ScaleTiePointsElement(const float& scale)
@@ -800,7 +864,7 @@ void OsgEngine::ScaleElement(float scale)
     {
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
     {
-        m_pPhotosNodeManager->Scale(scale);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->Scale(scale);
     }break;
     case ELEMENT_LAYER_TYPE::ELEMENT_SURVEY_POINTS:
     {
@@ -845,7 +909,7 @@ void OsgEngine::SetSelectElement(const ELEMENT_LAYER_TYPE& type, const std::vect
     {
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
     {
-        m_pPhotosNodeManager->Picked(vecID);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->Picked(vecID);
         m_vecPickedNode.push_back(m_pPhotosNodeManager);
         for (auto photoID : vecID)
         {
@@ -952,7 +1016,7 @@ void OsgEngine::ClearSelectElement(const ELEMENT_LAYER_TYPE& type, const std::ve
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
     {
         
-        m_pPhotosNodeManager->Reset(vecID);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->Reset(vecID);
         for (auto pointIt = m_pTiesPointsRootGroup->GetAllChild()->begin(); pointIt != m_pTiesPointsRootGroup->GetAllChild()->end(); pointIt++)
         {
             auto itNode = std::find(m_vecPickedNode.begin(), m_vecPickedNode.end(), pointIt->second);
@@ -1104,7 +1168,7 @@ void OsgEngine::SetElementVisible(const ELEMENT_LAYER_TYPE& type, bool status)
     {
     case ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS:
     {
-        m_pPhotosNodeManager->Visible(status);
+        AsPhotosNodeManager(m_pPhotosNodeManager)->Visible(status);
     }break;
     case ELEMENT_LAYER_TYPE::ELEMENT_SURVEY_POINTS:
     {
@@ -1161,7 +1225,7 @@ void OsgEngine::RemovePickedPhotosFromATSide()
         if (t->GetElementType() == ELEMENT_LAYER_TYPE::ELEMENT_PHOTOS)
         {
             std::vector<int> tmpPickedID;
-            m_pPhotosNodeManager->GetPickedPhotosID(&tmpPickedID);
+            AsPhotosNodeManager(m_pPhotosNodeManager)->GetPickedPhotosID(&tmpPickedID);
             for (auto it : tmpPickedID)
             {
                 ST_CALLBACK_ELEMENT_INFO callbackinfo;
@@ -1171,9 +1235,7 @@ void OsgEngine::RemovePickedPhotosFromATSide()
 
             }
         }
-    }
-
-    EventManager::GetInstance()->notifyEvent({ CALL_BACK_REMOVE_PHOTO, &vecCallback }, this);
+    } EventManager::GetInstance()->notifyEvent({ CALL_BACK_REMOVE_PHOTO, &vecCallback }, this);
    /* OsgEngine* pOsgEngine = this;
     async(launch::async, [&vecCallback, pOsgEngine]() {
 
@@ -1208,9 +1270,7 @@ void OsgEngine::RemovePickedTiePointsFromATSide()
                 }                   
             }	 
         }
-    }
-
-    EventManager::GetInstance()->notifyEvent({ CALL_BACK_REMOVE_TIEPOINTS, &vecCallback },this);
+    } EventManager::GetInstance()->notifyEvent({ CALL_BACK_REMOVE_TIEPOINTS, &vecCallback },this);
 }
 
 

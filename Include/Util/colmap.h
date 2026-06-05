@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "Core/Image.h"
 #include "Core/Types.h"
 #include <Eigen/Core>
 #include "Core/ATData.h"

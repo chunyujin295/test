@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <string>
 #include <map>
+#include "Core/File.h"
 #include "Core/Logging.h"
 #include "Core/TaskDef.h"
 #include <Core/ATData.h>
@@ -22,14 +23,11 @@
 #include <QDir>
 using namespace AI3D::CORE;
 
-
-#pragma execution_character_set("utf-8")
-
 int ToColmapForGS(std::string indir, std::string out, std::string atout)
 {
-    QFile file_xml(QString::fromStdString(indir));
-    QDir dir_img(QString::fromStdString(out));
-    QDir dir_out(QString::fromStdString(atout));
+    QFile file_xml(QString::fromUtf8(indir.c_str(), static_cast<int>(indir.size())));
+    QDir dir_img(QString::fromUtf8(out.c_str(), static_cast<int>(out.size())));
+    QDir dir_out(QString::fromUtf8(atout.c_str(), static_cast<int>(atout.size())));
     if (!file_xml.exists() || !dir_img.exists() || !dir_out.exists()) {
         
         return -1;
@@ -104,7 +102,10 @@ int ReadVpc(std::string& infile, ATData& ATdata)
 {
 
 
-    FILE* pf = fopen(infile.c_str(), "rb");
+    FILE* pf = File::FopenUtf8(infile, "rb");
+    if (!pf) {
+        return 1001;
+    }
     int num_pts;
     fread(&num_pts, sizeof(int), 1, pf);
 
@@ -175,7 +176,10 @@ int ReadVpc(std::string& infile, ATData& ATdata)
     std::string colorfile = File::GetParentDir(infile) + "/points_rgb.bin";
     if (File::ExistsFile(colorfile))
     {
-        FILE* fp = fopen(colorfile.c_str(), "rb");
+        FILE* fp = File::FopenUtf8(colorfile, "rb");
+        if (!fp) {
+            return 1001;
+        }
 
         int rgb_num_pts;
         fread(&rgb_num_pts, sizeof(int), 1, fp);
@@ -201,9 +205,9 @@ int RunParsePointcloudVpc(std::string indir, std::string recout) {
     std::string xmlfile = indir + "/views.xml";
     std::string vpcfile = indir + "/point_cloud.vpc";
     std::string campath = recout;
-    QFile file_xml(QString::fromStdString(xmlfile));
-    QFile file_vpc(QString::fromStdString(vpcfile));
-    QDir folder(QString::fromStdString(campath));
+    QFile file_xml(QString::fromUtf8(xmlfile.c_str(), static_cast<int>(xmlfile.size())));
+    QFile file_vpc(QString::fromUtf8(vpcfile.c_str(), static_cast<int>(vpcfile.size())));
+    QDir folder(QString::fromUtf8(campath.c_str(), static_cast<int>(campath.size())));
     if (!file_xml.exists() || !file_vpc.exists() || !folder.exists()) {
         
         return -1;

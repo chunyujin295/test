@@ -1,7 +1,8 @@
-// Copyright Airlook, Inc. All Rights Reserved.
+﻿// Copyright Airlook, Inc. All Rights Reserved.
 #pragma once
 
 #include "OSGEditor/BoxSelect.h"
+#include "OSGEditor/PhotosNodeManager.h"
 #include "OSGEditor/EventManager.h"
 
 BoxSelect::BoxSelect(OsgEngine* pOsgEngine) :m_pOsgEngine(pOsgEngine)
@@ -200,13 +201,11 @@ void BoxSelect::End(osg::Camera* pCamera, const Element_Type& type)
 
     //}break;
     case::ELEMENT_LAYER_TYPE::ELEMENT_TILE:
-    {
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
+    { EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
 
     }break;
     case::ELEMENT_LAYER_TYPE::ELEMENT_ROI:
-    {
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
+    { EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
     }break;
     default:
         break;

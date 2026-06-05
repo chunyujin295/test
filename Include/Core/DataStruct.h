@@ -1321,6 +1321,7 @@ struct ReconstrutionData {
 };
 
 struct BLKBinFile {
+    int gen_block_task_category; // 0 - rebuild, 1 - generate
     std::string blkString;
     std::string mergedFrom;
     int blkId;
@@ -1340,9 +1341,16 @@ struct BLKBinFile {
     std::vector<ReconstrutionData> reconstrutionDataVec;
     int jobNum;
     std::vector<std::string> jobVec;
+
+    std::string gen_params_json; // json params for generate
+    std::string gen_info_json;
+    int genJobNum = 0;
+    std::vector<std::string> genJobVec;
+
     ByteCrypt byteCrypt;
 
     BLKBinFile() {
+        gen_block_task_category = 0;// default: rebuild
         blkString = "";
         mergedFrom = "";
         blkId = 0;
@@ -1368,6 +1376,8 @@ struct BLKBinFile {
         const char SOURCE_HEADER_LABEL[] = "BBLK-FILE-3MO";
         std::string header(SOURCE_HEADER_LABEL, 13); 
         byteCrypt.WriteByteDecrypted(out, header.c_str(), 13); 
+
+        
 
         unsigned int blkStr_len = blkString.size();
         byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&blkStr_len), sizeof(blkStr_len));
@@ -1418,6 +1428,27 @@ struct BLKBinFile {
             byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&tmpJob_len), sizeof(tmpJob_len));
             byteCrypt.WriteByteDecrypted(out, tmpJob.c_str(), tmpJob_len);
         }
+
+        // generate -begin
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_block_task_category), sizeof(int));
+
+        unsigned int gen_params_json_len = gen_params_json.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_params_json_len), sizeof(gen_params_json_len));
+        byteCrypt.WriteByteDecrypted(out, gen_params_json.c_str(), gen_params_json_len);
+
+        unsigned int gen_info_json_len = gen_info_json.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&gen_info_json_len), sizeof(gen_info_json_len));
+        sizeof(gen_info_json_len);
+        byteCrypt.WriteByteDecrypted(out, gen_info_json.c_str(), gen_info_json_len);
+
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&genJobNum), sizeof(int));
+        for (int i = 0; i < genJobNum; ++i)
+        {
+            unsigned int len = genJobVec[i].size();
+            byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&len), sizeof(unsigned int));
+            byteCrypt.WriteByteDecrypted(out, genJobVec[i].c_str(), len);
+        }
+        // generate -end
         return true;
     };
 
@@ -1489,6 +1520,30 @@ struct BLKBinFile {
             jobVec.push_back(jobStr);
         }
 
+        // generate -begin
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_block_task_category), sizeof(int));
+
+        unsigned int gen_params_json_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_params_json_len), sizeof(unsigned int));
+        gen_params_json.resize(gen_params_json_len);
+        byteCrypt.ReadByteDecrypted(in, &gen_params_json[0], gen_params_json_len);
+
+        unsigned int gen_info_json_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&gen_info_json_len), sizeof(unsigned int));
+        gen_info_json.resize(gen_info_json_len);
+        byteCrypt.ReadByteDecrypted(in, &gen_info_json[0], gen_info_json_len);
+
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&genJobNum), sizeof(int));
+        genJobVec.resize(genJobNum);
+        for (int i = 0; i < genJobNum; ++i)
+        {
+            unsigned int len = 0;
+            byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&len), sizeof(unsigned int));
+            genJobVec[i].resize(len);
+            byteCrypt.ReadByteDecrypted(in, &genJobVec[i][0], len);
+        }
+
+        // generate -end
         return true;
     }
 };
@@ -3926,4 +3981,226 @@ struct ConstraintFile {
         }
         return true;
     };
+};
+
+
+struct GenJobInfoData
+{
+    std::string task_uuid;
+    std::string job_name;
+    std::string engine_id;
+    std::string user_account;
+    std::string project_path;
+    std::string block_item;
+    std::string params_json;
+    int status;
+    std::string server_task_id;
+    std::string result_url;
+    std::string preview_url;
+    std::string result_path;
+    std::string preview_path;
+    std::string error_message;
+
+    int query_retry_count;
+    ByteCrypt byteCrypt;
+
+    GenJobInfoData()
+    {
+        task_uuid = "";
+        job_name = "";
+        engine_id = "";
+        user_account = "";
+        project_path = "";
+        block_item = "";
+        params_json = "";
+        status = 0;
+        server_task_id = "";
+        result_url = "";
+        preview_url = "";
+        result_path = "";
+        preview_path = "";
+        error_message = "";
+        query_retry_count = 0;
+    }
+
+    bool Serialize(std::ofstream& out) const
+    {
+        unsigned int task_uuid_len = task_uuid.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&task_uuid_len), sizeof(task_uuid_len));
+        byteCrypt.WriteByteDecrypted(out, task_uuid.c_str(), task_uuid_len);
+
+        unsigned int job_name_len = job_name.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&job_name_len), sizeof(job_name_len));
+        byteCrypt.WriteByteDecrypted(out, job_name.c_str(), job_name_len);
+
+        unsigned int engine_id_len = engine_id.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&engine_id_len), sizeof(engine_id_len));
+        byteCrypt.WriteByteDecrypted(out, engine_id.c_str(), engine_id_len);
+
+        unsigned int user_account_len = user_account.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&user_account_len), sizeof(user_account_len));
+        byteCrypt.WriteByteDecrypted(out, user_account.c_str(), user_account_len);
+
+        unsigned int project_path_len = project_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&project_path_len), sizeof(project_path_len));
+        byteCrypt.WriteByteDecrypted(out, project_path.c_str(), project_path_len);
+
+        unsigned int block_item_len = block_item.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&block_item_len), sizeof(block_item_len));
+        byteCrypt.WriteByteDecrypted(out, block_item.c_str(), block_item_len);
+
+        unsigned int params_json_len = params_json.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&params_json_len), sizeof(params_json_len));
+        byteCrypt.WriteByteDecrypted(out, params_json.c_str(), params_json_len);
+
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&status), sizeof(int));
+
+        unsigned int server_task_id_len = server_task_id.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&server_task_id_len), sizeof(server_task_id_len));
+        byteCrypt.WriteByteDecrypted(out, server_task_id.c_str(), server_task_id_len);
+
+        unsigned int result_url_len = result_url.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_url_len), sizeof(result_url_len));
+        byteCrypt.WriteByteDecrypted(out, result_url.c_str(), result_url_len);
+
+        unsigned int preview_url_len = preview_url.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_url_len), sizeof(preview_url_len));
+        byteCrypt.WriteByteDecrypted(out, preview_url.c_str(), preview_url_len);
+
+        unsigned int result_path_len = result_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&result_path_len), sizeof(result_path_len));
+        byteCrypt.WriteByteDecrypted(out, result_path.c_str(), result_path_len);
+
+        unsigned int preview_path_len = preview_path.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&preview_path_len), sizeof(preview_path_len));
+        byteCrypt.WriteByteDecrypted(out, preview_path.c_str(), preview_path_len);
+        
+        unsigned int error_message_len = error_message.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&error_message_len), sizeof(error_message_len));
+        byteCrypt.WriteByteDecrypted(out, error_message.c_str(), error_message_len);
+
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&query_retry_count), sizeof(int));
+
+        return true;
+    }
+    
+    bool Deserialize(std::ifstream& in)
+    {
+        unsigned int task_uuid_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&task_uuid_len), sizeof(unsigned int));
+        task_uuid.resize(task_uuid_len);
+        byteCrypt.ReadByteDecrypted(in, &task_uuid[0], task_uuid_len);
+
+        unsigned int job_name_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&job_name_len), sizeof(job_name_len));
+        job_name.resize(job_name_len);
+        byteCrypt.ReadByteDecrypted(in, &job_name[0], job_name_len);
+
+        unsigned int engine_id_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&engine_id_len), sizeof(unsigned int));
+        engine_id.resize(engine_id_len);
+        byteCrypt.ReadByteDecrypted(in, &engine_id[0], engine_id_len);
+
+        unsigned int user_account_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&user_account_len), sizeof(unsigned int));
+        user_account.resize(user_account_len);
+        byteCrypt.ReadByteDecrypted(in, &user_account[0], user_account_len);
+
+        unsigned int project_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&project_path_len), sizeof(unsigned int));
+        project_path.resize(project_path_len);
+        byteCrypt.ReadByteDecrypted(in, &project_path[0], project_path_len);
+
+        unsigned int block_item_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&block_item_len), sizeof(unsigned int));
+        block_item.resize(block_item_len);
+        byteCrypt.ReadByteDecrypted(in, &block_item[0], block_item_len);
+
+        unsigned int params_json_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&params_json_len), sizeof(unsigned int));
+        params_json.resize(params_json_len);
+        byteCrypt.ReadByteDecrypted(in, &params_json[0], params_json_len);
+
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&status), sizeof(int));
+
+        unsigned int server_task_id_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&server_task_id_len), sizeof(unsigned int));
+        server_task_id.resize(server_task_id_len);
+        byteCrypt.ReadByteDecrypted(in, &server_task_id[0], server_task_id_len);
+
+        unsigned int result_url_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_url_len), sizeof(unsigned int));
+        result_url.resize(result_url_len);
+        byteCrypt.ReadByteDecrypted(in, &result_url[0], result_url_len);
+
+        unsigned int preview_url_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_url_len), sizeof(unsigned int));
+        preview_url.resize(preview_url_len);
+        byteCrypt.ReadByteDecrypted(in, &preview_url[0], preview_url_len);
+
+        unsigned int result_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&result_path_len), sizeof(unsigned int));
+        result_path.resize(result_path_len);
+        byteCrypt.ReadByteDecrypted(in, &result_path[0], result_path_len);
+
+        unsigned int preview_path_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&preview_path_len), sizeof(unsigned int));
+        preview_path.resize(preview_path_len);
+        byteCrypt.ReadByteDecrypted(in, &preview_path[0], preview_path_len);
+
+        unsigned int error_message_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&error_message_len), sizeof(unsigned int));
+        error_message.resize(error_message_len);
+        byteCrypt.ReadByteDecrypted(in, &error_message[0], error_message_len);
+
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&query_retry_count), sizeof(int));
+
+        return true;
+    }
+};
+
+struct GenJobFile // <-> JobListFile for generationJob
+{
+    std::string jobName;
+    GenJobInfoData genJobInfoData;
+    FeedBackData feedBackData;
+    ByteCrypt byteCrypt;
+
+    GenJobFile() {};
+
+    bool Serialize(std::ofstream& out) const
+    {
+        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
+        std::string header(SOURCE_HEADER_LABEL, 15);
+        byteCrypt.WriteByteDecrypted(out, header.c_str(), 15);
+
+        unsigned int jobName_len = jobName.size();
+        byteCrypt.WriteByteDecrypted(out, reinterpret_cast<const char*>(&jobName_len), sizeof(jobName_len));
+        byteCrypt.WriteByteDecrypted(out, jobName.c_str(), jobName_len);
+
+        genJobInfoData.Serialize(out);
+        feedBackData.Serialize(out);
+        return true;
+    }
+
+    bool Deserialize(std::ifstream& in)
+    {
+        char header[15];
+        byteCrypt.ReadByteDecrypted(in, header, sizeof(header));
+        std::string decrypted_header(header, 15);
+        const char SOURCE_HEADER_LABEL[] = "GENJOB-FILE-3MO";
+        if (decrypted_header != std::string(SOURCE_HEADER_LABEL, 15))
+        {
+            return false;
+        }
+
+        unsigned int jobName_len = 0;
+        byteCrypt.ReadByteDecrypted(in, reinterpret_cast<char*>(&jobName_len), sizeof(unsigned int));
+        jobName.resize(jobName_len);
+        byteCrypt.ReadByteDecrypted(in, &jobName[0], jobName_len);
+
+        genJobInfoData.Deserialize(in);
+        feedBackData.Deserialize(in);
+        return true;
+    }
 };

@@ -1,10 +1,11 @@
-// Copyright Airlook, Inc. All Rights Reserved.
+﻿// Copyright Airlook, Inc. All Rights Reserved.
 #pragma once
 
 #include "PolygonSelect.h"
 #include <osgUtil/Tessellator>
 #include <osg/TriangleFunctor>
 #include "OsgEngine.h"
+#include "OSGEditor/PhotosNodeManager.h"
 #include "EventManager.h"
 
 
@@ -306,13 +307,11 @@ void PolygonSelect::Clear()
     {
    
     case::ELEMENT_LAYER_TYPE::ELEMENT_TILE:
-    {
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
+    { EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
 
     }break;
     case::ELEMENT_LAYER_TYPE::ELEMENT_ROI:
-    {
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
+    { EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
     }break;
     default:
         break;

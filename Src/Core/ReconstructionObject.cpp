@@ -13,6 +13,7 @@
 #include "Core/Rapidjson.h"
 #include "Core/ReconstructionObject.h"
 #include <Core/Logging.h>
+#include "Core/ReconPerfLog.h"
 #include "Core/CoordinateSystem.h"
 #include "Core/BlockObject.h"
 #include "Core/File.h"
@@ -230,6 +231,62 @@ namespace AI3D
             constraint_custom_.clear();
             
 
+
+            processing_settings_ = processing_settings_s();
+            block_id_ = blockid;
+
+        }
+
+        ReconstructionObject::ReconstructionObject(ATData&& atdata, block_t blockid)
+        {
+            ReconPerfStage perf_ctor("SubmitReconstruction", "ReconstructionObject_ctor");
+            id_ = kInvalidReconstructionId;
+            name_ = "";
+
+            atdata_ = std::move(atdata);
+            atdata_custom_ = atdata_;
+
+            srs_base_ = CoordinateDescriptor::GetSRSFromDefinition(atdata_.GetLocalSrs());
+            srs_custom_ = CoordinateDescriptor::GetSRSFromDefinition(atdata_custom_.GetLocalSrs());;
+            ABBox3d box;
+            {
+                ReconPerfStage perf_bbox("SubmitReconstruction", "ComputeTileBoundingBox");
+                atdata_custom_.ComputeTileBoundingBox(bb_scope_e::BB_SCOPE_TIEPOINTS);
+                box = atdata_custom_.GetTileAABBBox().cast<double>();
+            }
+
+            boundingbox_custom_ = box;
+
+            tiling_param_s param;
+
+            param.mode_ = TILE_PALNAR_GRID;
+
+            tiling_discriptor_ = TilingGenaratorFactory(param.mode_);
+            auto scene_length = box.max() - box.min();
+
+            double max_length = std::max(scene_length.x(), std::max(scene_length.y(), scene_length.z()));
+            max_length = max_length < 100. ? max_length : 100.;
+            tiling_discriptor_->GetParamsMutual().regular_params_.tilesize_ = max_length;
+
+            {
+                ReconPerfStage perf_point_views("SubmitReconstruction", "GeneratePointViewsForTiling");
+                atdata_custom_.GeneratePointViews();
+            }
+            {
+                ReconPerfStage perf_tiling("SubmitReconstruction", "InitialRunTiling");
+                GetTilingDiscriptorMutual()->Run(atdata_custom_, box);
+                ReconPerfLog(String::StringPrintf(
+                    "[ReconPerf] SubmitReconstruction | InitialRunTiling | tiles=%zu tiling_points=%zu",
+                    GetTilingDiscriptorMutual()->GetTilesInfo().size(),
+                    atdata_custom_.GetPointsIDsTiling().size()));
+            }
+            tiles_custom_ = GetTilingDiscriptorMutual()->GetTilesInfo();
+
+           OrderTiles();
+
+           boundary_custom_.clear();
+
+            constraint_custom_.clear();
 
             processing_settings_ = processing_settings_s();
             block_id_ = blockid;

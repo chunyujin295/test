@@ -2656,6 +2656,26 @@ namespace AI3D
             return srs_map_.find(id) != srs_map_.end();
         }
 
+        namespace {
+
+        bool ImwriteUtf8(const std::string& utf8Path, const cv::Mat& image)
+        {
+            std::string ext = File::GetFileExtension(utf8Path);
+            if (ext.empty()) {
+                ext = ".jpg";
+            }
+            std::vector<uchar> buf;
+            if (!cv::imencode(ext, image, buf) || buf.empty()) {
+                return false;
+            }
+            return File::WriteBinaryUtf8(
+                utf8Path,
+                reinterpret_cast<const unsigned char*>(buf.data()),
+                buf.size());
+        }
+
+        } // namespace
+
         bool BlockObject::GenerateATReportPicture(const ATReport& at_report, const std::string& picPath)
         {
             
@@ -3000,8 +3020,12 @@ namespace AI3D
             {
                 cv::putText(matColorBar, File::ToStringWithHighPrecision(mindepth + i * range, 2), cv::Point(54 + i * 125, 55), cv::FONT_HERSHEY_COMPLEX, 0.45, cv::Scalar(255,255,255), 1.8);
             }
-            cv::imwrite(File::GetParentDir(picPath) + "/" + SCSCENEIMAG, matColorBar);
-            cv::imwrite(picPath, matOverlap);
+            const std::string colorBarPath = File::EnsureUnifySlash(
+                File::GetParentDir(picPath) + "/" + SCSCENEIMAG);
+            if (!ImwriteUtf8(colorBarPath, matColorBar) || !ImwriteUtf8(picPath, matOverlap))
+            {
+                return false;
+            }
 
             return true;
         }
@@ -3399,7 +3423,7 @@ namespace AI3D
 
                 if (id == kInvalidSrsId || definition.empty())
                 {
-                    LOGE(String::StringPrintf("Invalid SRS  id:%d name:%s definition:%s ", id, name, definition));
+                    LOGE(String::StringPrintf("Invalid SRS  id:%d name:%s definition:%s ", id, name.c_str(), definition.c_str()));
                     return false;
                 }
                 srs_map.insert(std::make_pair(id, srs));
@@ -4196,7 +4220,7 @@ namespace AI3D
 
                         if(imageids.count(image_id))
                         {
-                            LOGE(String::StringPrintf("Parsing GCP: duplicate image id %d for GCP %s", image_id, name));
+                            LOGE(String::StringPrintf("Parsing GCP: duplicate image id %d for GCP %s", image_id, name.c_str()));
                             return false;
                         }
                         uv(0) = ele.child("x").text().as_double();
@@ -6538,7 +6562,7 @@ namespace AI3D
             std::ofstream out = File::OpenOfstreamUtf8(file_path, std::ios::binary);
             
             if (!out.is_open()) {
-                LOGE(String::StringPrintf("Writing file %s error!", file_path));
+                LOGE(String::StringPrintf("Writing file %s error!", file_path.c_str()));
                 return false;
             }
             TiePointsFile tiePointsFile;          
@@ -6599,7 +6623,7 @@ namespace AI3D
             }
             catch (const std::exception& err)
             {
-                LOGE(String::StringPrintf("Saving export images bin: %s failed! Msg: %s", file_path, err.what()));
+                LOGE(String::StringPrintf("Saving export images bin: %s failed! Msg: %s", file_path.c_str(), err.what()));
                 
                 out.close();
                 return false;
@@ -6637,7 +6661,7 @@ namespace AI3D
                 int num_photogroups = atBinFile.num_photogroups;
                 if (num_photogroups > std::numeric_limits<uint8_t>::max())
                 {
-                    LOGW(String::StringPrintf("Invalid SCSFR.bin(%s),too many photogroups!", AT_filepath));
+                    LOGW(String::StringPrintf("Invalid SCSFR.bin(%s),too many photogroups!", AT_filepath.c_str()));
                     return false;
                 }
                 for (int pg_idx = 0; pg_idx < num_photogroups; pg_idx++)
@@ -7677,7 +7701,7 @@ namespace AI3D
                         {
                             if (headNames.find(mandatory[i]) == headNames.end())
                             {
-                                LOGE(String::StringPrintf("Get cell Name PhotogroupName value failed: %s", mandatory[i]));
+                                LOGE(String::StringPrintf("Get cell Name PhotogroupName value failed: %s", mandatory[i].c_str()));
                                 return false;
                             }
                         }
@@ -8394,7 +8418,7 @@ namespace AI3D
                     unsigned short columns;
                     xlnt::worksheet ws = *ws_itr;
                     
-                    LOGI(String::StringPrintf("idx = %d; worksheet = %s", wb.index(ws), ws.title()));
+                    LOGI(String::StringPrintf("idx = %d; worksheet = %s", wb.index(ws), ws.title().c_str()));
                     
                     auto range = ws.calculate_dimension();
                     rows = range.height();
@@ -9781,7 +9805,7 @@ namespace AI3D
                     blockSRS_id_ = block.child("SRSId").text().as_int();
                     if (srs_map.find(blockSRS_id_) == srs_map.end())
                     {
-                        LOGE(String::StringPrintf("Bad block: unknown SRS id in:\n <Name> = %s\n<SRSId> = %s", name_, blockSRS_id_));
+                        LOGE(String::StringPrintf("Bad block: unknown SRS id in:\n <Name> = %s\n<SRSId> = %s", name_.c_str(), blockSRS_id_));
                         return false;
                     }
                     else
@@ -10394,7 +10418,7 @@ namespace AI3D
             bool ret = RapidJsonCore::ReadFile(File::EnsureUnifySlash(file_path), blkcontent);
             if (!ret)
             {
-                LOGE(String::StringPrintf("File: %s was Read Error", file_path));
+                LOGE(String::StringPrintf("File: %s was Read Error", file_path.c_str()));
                 return false;
             }
 
@@ -10402,7 +10426,7 @@ namespace AI3D
 
             if (doc_blk.Parse(blkcontent.data()).HasParseError())
             {
-                LOGE(String::StringPrintf("%s :parse block file  error!", file_path));
+                LOGE(String::StringPrintf("%s :parse block file  error!", file_path.c_str()));
                 return false;
             }
 
@@ -10436,7 +10460,37 @@ namespace AI3D
 
             }
 
-
+            if (doc_blk.HasMember("block_task_category"))
+            {
+                block_task_category = doc_blk["block_task_category"].GetInt();
+            }
+            if (doc_blk.HasMember("gen_options"))
+            {
+                gen_options.ParseJson(doc_blk["gen_options"]);
+            }
+            if (doc_blk.HasMember("generations_info"))
+            {
+                const rapidjson::Value& genArr = doc_blk["generations_info"];
+                for (rapidjson::SizeType i = 0; i < genArr.Size(); i++)
+                {
+                    blk_generation_info_s info;
+                    info.ParseJson(genArr[i]);
+                    generations_info_.push_back(info);
+                }
+            }
+            if (doc_blk.HasMember("GenJobs"))
+            {
+                const rapidjson::Value& genJobsArr = doc_blk["GenJobs"];
+                for (rapidjson::SizeType i = 0; i < genJobsArr.Size(); i++)
+                {
+                    std::string combined = genJobsArr[i].GetString();
+                    size_t colonPos = combined.find(":");
+                    if (colonPos != std::string::npos)
+                    {
+                        generationjobs_[combined.substr(0, colonPos)] = combined.substr(colonPos + 1);
+                    }
+                }
+            }
 
             if (block_blk.HasMember("blockStatistics") )
             {
@@ -10652,6 +10706,26 @@ namespace AI3D
             
             hasstatisinfo = true;
             statisticinfo_.tiepointnum = bLKBinFile.tiepointNum;
+
+            block_task_category = bLKBinFile.gen_block_task_category;
+            gen_options.gen_params = GenTaskParams::CreateFromJsonString(bLKBinFile.gen_params_json);
+            generations_info_.clear();
+            if (!bLKBinFile.gen_info_json.empty()) {
+                rapidjson::Document doc;
+                if (!doc.Parse(bLKBinFile.gen_info_json.c_str()).HasParseError() && doc.IsArray()) {
+                    for (rapidjson::SizeType i = 0; i < doc.Size(); i++) {
+                        blk_generation_info_s info;
+                        info.ParseJson(doc[i]);
+                        generations_info_.push_back(info);
+                    }
+                }
+            }
+            generationjobs_.clear();
+            for (auto& job : bLKBinFile.genJobVec) {
+                size_t colonPos = job.find(":");
+                if (colonPos != std::string::npos)
+                    generationjobs_[job.substr(0, colonPos)] = job.substr(colonPos + 1);
+            }
 
             at_options.feature_num = bLKBinFile.atSetting.keyNum;
             at_options.maxthreads_num = bLKBinFile.atSetting.maxthreads_num;
@@ -11445,7 +11519,7 @@ namespace AI3D
                     if (!std::filesystem::exists(File::BoostPathFromUtf8(feedbackfile)))
                     {
 
-                        LOGW(String::StringPrintf("File: %s is not exists", (feedbackfile)));
+                        LOGW(String::StringPrintf("File: %s is not exists", feedbackfile.c_str()));
                         isfeedbackok = false;
                         
                         
@@ -11807,13 +11881,21 @@ namespace AI3D
                             recpath += productionobj->GetIDString();
                             productionobj->SetPath(recpath);
                             EIGEN_STL_UMAP(std::string, production_tileinfo_s) tilestemp;
-                            
+                            const std::string brp_prefix = "B" + std::to_string(id_) + "R"
+                                + std::to_string(object->GetId()) + "P" + std::to_string(iterproduction.id_);
+
                             for (auto iter : iterproduction.options_.tiles_)
                             {
                                 tilestemp[iter].name_ = iter;
+                                const std::string job_key = brp_prefix + iter;
+                                if (block_info_.reconstructionjobs_.count(job_key))
+                                {
+                                    tilestemp[iter].jobstr_ = block_info_.reconstructionjobs_.at(job_key);
+                                }
                             }
 
                             productionobj->SetTiles(tilestemp);
+                            ReconstructionCommandSet::SyncProductionTileJobStrs(this, object, productionobj);
                             object->AddProduction(productionobj);
                             
                             
@@ -11947,7 +12029,7 @@ namespace AI3D
                 {
                     if (!std::filesystem::create_directory(File::BoostPathFromUtf8(propath)))
                     {
-                        LOGI("create %s failed when save block %d ", propath, id_);
+                        LOGI("create" + propath + " failed when save block" +  std::to_string(id_));
                         return false;
                     }
                 }
@@ -12125,6 +12207,31 @@ namespace AI3D
             LOGI(msg);
             statisticinfo.AddMember("tiepointNum", rapidjson::Value(statisticinfo_.tiepointnum), allocator);
             root.AddMember("blockStatistics", statisticinfo, allocator);
+
+            // genration -begin
+            root.AddMember("block_task_category", rapidjson::Value(block_task_category), allocator);
+            rapidjson::Value genOptionsJson(rapidjson::kObjectType);
+            gen_options.WriteToJson(genOptionsJson, document);
+            root.AddMember("gen_options", genOptionsJson, allocator);
+
+            rapidjson::Value generationsInfo(rapidjson::kArrayType);
+            for (auto& gen : generations_info_)
+            {
+                rapidjson::Value genJson(rapidjson::kObjectType);
+                gen.CreateJson(genJson, document);
+                generationsInfo.PushBack(genJson, allocator);
+            }
+            root.AddMember("generations_info", generationsInfo, allocator);
+
+            rapidjson::Value genJobs(rapidjson::kArrayType);
+            for (auto& jobstr : generationjobs_)
+            {
+                std::string combined = jobstr.first + ":" + jobstr.second;
+                genJobs.PushBack(rapidjson::Value(combined.c_str(), allocator), allocator);
+            }
+            root.AddMember("GenJobs", genJobs, allocator);
+
+            // generation -end
             rapidjson::Value settings(rapidjson::kObjectType);
             at_options.WriteToJson(settings, document);                                                                                    
             
@@ -12251,6 +12358,25 @@ namespace AI3D
             LOGI(msg);
             bLKBinFile.tiepointNum = statisticinfo_.tiepointnum;
 
+            bLKBinFile.gen_block_task_category = block_task_category;
+            bLKBinFile.gen_params_json = gen_options.gen_params.ToJsonString();
+            {
+                rapidjson::Document doc;
+                doc.SetArray();
+                auto& allocator = doc.GetAllocator();
+                for (auto& gen : generations_info_) {
+                    rapidjson::Value genJson(rapidjson::kObjectType);
+                    gen.CreateJson(genJson, doc);
+                    doc.PushBack(genJson, allocator);
+                }
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                doc.Accept(writer);
+                bLKBinFile.gen_info_json = buffer.GetString();
+            }
+            bLKBinFile.genJobNum = generationjobs_.size();
+            for (auto& jobstr : generationjobs_)
+                bLKBinFile.genJobVec.push_back(jobstr.first + ":" + jobstr.second);
             
             bLKBinFile.atSetting.keyNum = at_options.feature_num;
             bLKBinFile.atSetting.maxthreads_num = at_options.maxthreads_num;

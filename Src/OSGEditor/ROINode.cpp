@@ -1,4 +1,4 @@
-
+﻿
 #include "OSGEditor/ROINode.h"
 #include "OSGEditor/EventManager.h"
 
@@ -324,8 +324,7 @@ void ROINode::Drag(const Vec3& dragPoint)
 
         std::vector<PolygonBox> vecCallback;
         vecCallback.push_back(m_stPolygonBoxInfo);
-        //回调联动信息
-        EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_POLYGON_DRAG, &vecCallback },m_pOsgEngine);
+        //回调联动信息 EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_POLYGON_DRAG, &vecCallback },m_pOsgEngine);
     }
     else
     {
@@ -374,8 +373,7 @@ void ROINode::DragEnd()
     std::vector<ST_CALLBACK_ELEMENT_INFO> vecCallback;
     vecCallback.push_back(CallbackInfo);
 
-    //回调联动信息
-    EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
+    //回调联动信息 EventManager::GetInstance()->notifyEvent({ CALL_BACK_ROI_BOX_DRAG, &vecCallback },m_pOsgEngine);
     std::cout << " drag  end notify=============" << std::endl;
 
     //Reset();

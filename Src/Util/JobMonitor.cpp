@@ -118,6 +118,41 @@ bool JobMonitor::CreateJobQueueDir(QString path)
 
 	return false;
 }
+
+bool JobMonitor::CreateGenJobQueueDir(QString path)
+{
+	QFileInfo file(path);
+	QDir dir(path);
+	if (file.exists())
+	{
+		QFileInfoList folder_list = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+		QString lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator;
+
+		int errorCode;
+		if(!CheckJobQueuePath(path, lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator, errorCode))
+		{
+
+			dir.mkdir(JOBCANCELLEDSTR);
+			dir.mkdir(JOBCOMPLETEDSTR);
+			dir.mkdir(JOBFAILEDSTR);
+			dir.mkdir(JOBPENDINGSTR);
+			dir.mkdir(JOBRUNNINGSTR);
+		}
+
+		if (!CheckJobQueuePath(path, lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator, errorCode))
+			return false;
+
+		return true;
+	}
+	else
+	{
+
+
+	}
+
+	return false;
+}
+
 bool JobMonitor::CreateDirs()
 {
 	if (!JobMonitor::CreateJobQueueDir(Settings::getMasterJobQueue()))
@@ -149,6 +184,16 @@ bool JobMonitor::CreateLocalJobQueueDir()
 	dir.mkpath(path);
 
 	return true;
+}
+
+bool JobMonitor::CreateLocalGenJobQueueDir()
+{
+	QString path = QCoreApplication::applicationDirPath();
+	path.append("/jobs_gen");
+	QDir dir;
+	bool ok = dir.mkpath(path);
+
+	return ok;
 }
 
 

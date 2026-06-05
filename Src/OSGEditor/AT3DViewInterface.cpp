@@ -6,6 +6,7 @@
 #include <Eigen/Core>
 #include <future>
 #include "OSGEditor/AT3DViewInterface.h"
+#include "Core/ReconPerfLog.h"
 
 namespace AI3D
 {
@@ -405,25 +406,19 @@ namespace AI3D
 
         void AT3DViewInterface::BuildATScene()
         {
-            LOGI("Init AT image node.");
-            clock_t t11, t21, t31;
-            t11 = clock();
-            BuildImagesNode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " BuildImagesNode " << t31 * 0.001 << std::endl;
-            t11 = clock();
-            LOGI("Init Tiepoints node.");
-            BuildTiepointsNode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " tiepointsNode " << t31 * 0.001 << std::endl;
-            LOGI("Init GCP  node.");
-            t11 = clock();
-            BuildGCPsNode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " GCPNode " << t31 * 0.001 << std::endl;
+            CORE::ReconPerfStage perf_total("RenderReconstruction", "BuildATScene");
+            {
+                CORE::ReconPerfStage perf_images("RenderReconstruction", "BuildImagesNode");
+                BuildImagesNode();
+            }
+            {
+                CORE::ReconPerfStage perf_tiepoints("RenderReconstruction", "BuildTiepointsNode");
+                BuildTiepointsNode();
+            }
+            {
+                CORE::ReconPerfStage perf_gcp("RenderReconstruction", "BuildGCPsNode");
+                BuildGCPsNode();
+            }
         }
         //显示；除了要把基本元素显示出来，还要把被选择的对象也显示出来
         void AT3DViewInterface::Init()
@@ -607,43 +602,30 @@ namespace AI3D
 
         Tile3DViewInterface::Tile3DViewInterface(ReconstructionObject* data, OsgEngine* osgEngine)
         {
-            static int index = 2000;
-            std::cout << "inside " << __FILE__ << " " << __LINE__ << " at " << (++index) << std::endl;
-            LOGI("Init 01.");
-            data_ = new AI3D::CORE::ReconstructionObject(*data);
-            LOGI("Init 02.");
+            data_ = data;
             engine_ = osgEngine;
-            LOGI("Init 03.");
         }
-        Tile3DViewInterface::~Tile3DViewInterface()      //modify by zhaobf
+        Tile3DViewInterface::~Tile3DViewInterface()
         {
-             if (data_)
-             {
-                 delete data_;                
-             }
-             data_ = nullptr;
+            data_ = nullptr;
         }
 
         void Tile3DViewInterface::BuildScene()
         {
+            CORE::ReconPerfStage perf_total("RenderReconstruction", "BuildScene");
             engine_->RemovePickedNode();  //modify zhaobf
-
-            clock_t t11, t21, t31;
-            t11 = clock();
-            BuildTilesNode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " BuildTilesNode " << t31 * 0.001 << std::endl;
-            t11 = clock();
-            BuildROINode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " BuildROINode " << t31 * 0.001 << std::endl;
-            t11 = clock();
-            BuildConstraintNode();
-            t21 = clock();
-            t31 = t21 - t11;
-            std::cout << t31 << " BuildConstraintNode " << t31 * 0.001 << std::endl;
+            {
+                CORE::ReconPerfStage perf_tiles("RenderReconstruction", "BuildTilesNode");
+                BuildTilesNode();
+            }
+            {
+                CORE::ReconPerfStage perf_roi("RenderReconstruction", "BuildROINode");
+                BuildROINode();
+            }
+            {
+                CORE::ReconPerfStage perf_constraint("RenderReconstruction", "BuildConstraintNode");
+                BuildConstraintNode();
+            }
         }
         void Tile3DViewInterface::BuildTilesNode()
         {
@@ -775,31 +757,26 @@ namespace AI3D
         }
         void Tile3DViewInterface::InitWithOutATScene(bool bSelectTiles)
         {
-            LOGI("Init 1.");
-           // ReconstructionObject localdata = *data_;
-            //把空三显示出来；
-            LOGI("Init 2.");
+            CORE::ReconPerfStage perf_total("RenderReconstruction", "InitWithOutATScene");
             if (engine_->IsATEmpty())
             {
-                AT3DViewInterface atinterface(data_->GetATData(), engine_, jobsta_e::STATUS_COMPLETE);;
-                LOGI("Init AT.");
+                CORE::ReconPerfStage perf_at("RenderReconstruction", "BuildATScene_if_empty");
+                AT3DViewInterface atinterface(data_->GetATData(), engine_, jobsta_e::STATUS_COMPLETE);
                 atinterface.BuildATScene();
-                LOGI("Init AT end.");
-                std::cout << " empty3 " << engine_->IsATEmpty() << std::endl;
             }
-            LOGI("Init Scene begin.");
+            else
+            {
+                ReconPerfLog("[ReconPerf] RenderReconstruction | BuildATScene_if_empty | skipped (AT scene cached)");
+            }
             BuildScene();
-            LOGI("Init Scene end.");
-
-
-
-            engine_->BuildAxis(data_->ComputeGlobalBoxCustom());
-            LOGI("Init 6.");
+            {
+                CORE::ReconPerfStage perf_axis("RenderReconstruction", "BuildAxis");
+                engine_->BuildAxis(data_->ComputeGlobalBoxCustom());
+            }
             if (bSelectTiles)
                 engine_->SetElementType(ELEMENT_LAYER_TYPE::ELEMENT_TILE);
             else
                 engine_->SetElementType(ELEMENT_LAYER_TYPE::ELEMENT_NONE);
-            LOGI("Init 7.");
         }
             //显示把所有的要素显示出来
         void Tile3DViewInterface::Init(bool bSelectTiles)

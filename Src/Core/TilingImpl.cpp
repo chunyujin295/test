@@ -194,19 +194,30 @@ namespace AI3D
                 tilenames[tilecount] = tile.first;
                 tilecount++;
             }
-            std::map<point3D_t, point3D_t> idx_to_id;
-            std::vector<point3D_t> points_vec(g_points.size());
-            point3D_t count= 0;
-            for (auto point : g_points)
+            std::vector<point3D_t> points_vec;
+            const std::set<point3D_t>& tiling_point_ids = data.GetPointsIDsTiling();
+            if (!tiling_point_ids.empty())
             {
-                idx_to_id[count] =  point.second.GetId();
-                points_vec[count] = point.second.GetId();
-                count++;
-
+                points_vec.reserve(tiling_point_ids.size());
+                for (point3D_t ptid : tiling_point_ids)
+                {
+                    if (g_points.count(ptid))
+                    {
+                        points_vec.push_back(ptid);
+                    }
+                }
+            }
+            else
+            {
+                points_vec.reserve(g_points.size());
+                for (const auto& point : g_points)
+                {
+                    points_vec.push_back(point.second.GetId());
+                }
             }
 
             auto paramdiv = param;
-            std::vector<point3D_t> belong_ids(g_points.size(), -1);
+            std::vector<int64_t> belong_ids(points_vec.size(), -1);
            
 #ifdef USE_OPENMP
 #pragma omp parallel  for
@@ -230,19 +241,19 @@ namespace AI3D
 
 
                     Eigen::Vector3i local_idx = global_idx.cast<int>() - paramdiv.tile_grid_.start;
-                    point3D_t belong_id;
+                    int64_t belong_id;
                   
                     if (paramdiv.divide_mode_ == ex_dividemode_e::REGULAR_PLANAR_GRID)
                     {
-                         belong_id = local_idx[1] * paramdiv.tile_grid_.dims[0] + local_idx[0];
+                         belong_id = static_cast<int64_t>(local_idx[1]) * paramdiv.tile_grid_.dims[0] + local_idx[0];
                     }
                     else
                     {
-                        belong_id = local_idx[2] * paramdiv.tile_grid_.dims[0] * paramdiv.tile_grid_.dims[1]
-                            + local_idx[1] * paramdiv.tile_grid_.dims[0] + local_idx[0];
+                        belong_id = static_cast<int64_t>(local_idx[2]) * paramdiv.tile_grid_.dims[0] * paramdiv.tile_grid_.dims[1]
+                            + static_cast<int64_t>(local_idx[1]) * paramdiv.tile_grid_.dims[0] + local_idx[0];
                     }
 
-                    if (belong_id >= 0 && belong_id < tilenames.size())
+                    if (belong_id >= 0 && belong_id < static_cast<int64_t>(tilenames.size()))
                     {
                         
                         if (!indexes.count(belong_id))
@@ -250,44 +261,24 @@ namespace AI3D
                             continue;
                         }
                         belong_ids[i] = belong_id;
-                        std::string name = indexes.at(belong_id);
-#ifdef USE_OPENMP
-#pragma omp critical
-#endif
-                        tiles.at(name).point_ids_.insert(ptid);
-                        for (auto& obs : point.GetTrack().GetElements())
-                        {
-                            tiles.at(name).image_ids_.insert(obs.image_id);
-                        }
                     }
                 }
                
                 
             }
-            if (0)
+            for (size_t i = 0; i < points_vec.size(); ++i)
             {
-                size_t coun = 0;
-                for (size_t i = 0; i < belong_ids.size(); i++)
-
+                if (belong_ids[i] < 0)
                 {
-                    coun++;
-                    std::cout << (int)i << " " << coun << " " << belong_ids.size() << std::endl;
-                    if (i == belong_ids.size() - 1)
-                    {
-                        std::cout << i << "-- " << belong_ids.size() << std::endl;
-                    }
-                    if (belong_ids[i] >= 0)
-                    {
-                        auto ptid = idx_to_id[i];
-                        auto point = g_points.at(ptid);
-                        std::string name = indexes.at(belong_ids[i]);
-
-                        
-                        for (auto& obs : point.GetTrack().GetElements())
-                        {
-                            tiles.at(name).image_ids_.insert(obs.image_id);
-                        }
-                    }
+                    continue;
+                }
+                const point3D_t ptid = points_vec[i];
+                const auto& point = g_points.at(ptid);
+                const std::string name = indexes.at(static_cast<int>(belong_ids[i]));
+                tiles.at(name).point_ids_.insert(ptid);
+                for (const auto& obs : point.GetTrack().GetElements())
+                {
+                    tiles.at(name).image_ids_.insert(obs.image_id);
                 }
             }
             float maxram = 0.f;

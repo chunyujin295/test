@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <QVector>
 #include <QDateTime>
 #include <QFile>
@@ -57,6 +57,7 @@ static void DumpQString(QString& str)
 	}
 }
 
+/** Narrow std::string is UTF-8 (matches MSVC /utf-8 and Core string literals). */
 static QString str2qstr(std::string str)
 {
 	return QString::fromUtf8(str.data(), static_cast<int>(str.size()));
@@ -1435,7 +1436,7 @@ struct JobFeedBack_s
 		nlohmann::json json_str;
 		json_str["Status"] = Status;
 		json_str["Percent"] = Percent;
-		json_str["Msg"] = AI3D::CORE::String::LocaleToUtf8(Msg);
+		json_str["Msg"] = Msg;
 		if (TaskRetVal != -1)
 		{
 			json_str["TaskRetVal"] = TaskRetVal;
@@ -1500,7 +1501,6 @@ struct JobFeedBack_s
 			jobinfo.TaskRetVal = json_str.at("TaskRetVal");
 		}
 		jobinfo.Msg = json_str.at("Msg").get<std::string>();
-		jobinfo.Msg =  AI3D::CORE::String::LocaleToUtf8(jobinfo.Msg);
 		return jobinfo;
 	}
 
@@ -1636,7 +1636,7 @@ struct JobFeedBack_s
 					Percent = feedbakinfo.Percent;
 
 					TaskRetVal = feedbakinfo.TaskRetVal;
-					Msg = AI3D::CORE::String::LocaleToUtf8(feedbakinfo.Msg);
+					Msg = feedbakinfo.Msg;
 				}
 				catch (std::exception ex)
 				{
@@ -1715,7 +1715,7 @@ struct JobFeedBack_s
 							Percent = feedbakinfo.Percent;
 
 							TaskRetVal = feedbakinfo.TaskRetVal;
-							Msg = AI3D::CORE::String::LocaleToUtf8(feedbakinfo.Msg);
+							Msg = feedbakinfo.Msg;
 						}
 						catch (std::exception ex)
 						{
@@ -1794,6 +1794,7 @@ struct JobFeedBack_s
 					bool result = LoadFeedbackBin(file);
 					if (!result) {
 						LOGE("Save feedback bin failed!");
+						goto load_with_retry_loop;
 					}
 				}
 				else {
@@ -1831,7 +1832,7 @@ struct JobFeedBack_s
 							Percent = feedbakinfo.Percent;
 
 							TaskRetVal = feedbakinfo.TaskRetVal;
-							Msg = AI3D::CORE::String::LocaleToUtf8(feedbakinfo.Msg);
+							Msg = feedbakinfo.Msg;
 						}
 						catch (std::exception ex)
 						{
@@ -2127,7 +2128,7 @@ struct Task_s
 		nlohmann::json json_str;
 		json_str["Status"] = Status;
 		json_str["Percent"] = Percent;
-		json_str["Msg"] = AI3D::CORE::String::LocaleToUtf8(Msg);
+		json_str["Msg"] = Msg;
 		json_str["Type"] = Type;
 		json_str["ProjectPath"] = ProjectPath;
 		json_str["ItemPath"] = ItemPath;
@@ -2281,7 +2282,6 @@ struct Task_s
 		jobinfo.Status = json_str.at("Status");
 		jobinfo.Percent = json_str.at("Percent");
 		jobinfo.Msg = json_str.at("Msg").get<std::string>();
-		jobinfo.Msg = AI3D::CORE::String::LocaleToUtf8(jobinfo.Msg);
 		jobinfo.ProjectPath = json_str.at("ProjectPath").get<std::string>();
 		jobinfo.ItemPath = json_str.at("ItemPath").get<std::string>();
 		jobinfo.Id = json_str.at("Id");

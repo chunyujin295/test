@@ -43,6 +43,18 @@ QString Settings::getEngineJobQueue()
 	return pSettings->value("engine", "").toString();
 }
 
+QString Settings::getGenEngineJobQueue()
+{
+	QString enginePath = Settings::getEngineJobQueue();
+	if (enginePath.isEmpty())
+	{
+		return "";
+	}
+		
+	QDir parent = QFileInfo(enginePath).dir();
+	return parent.absolutePath() + "/jobs_gen";
+}
+
 
 
 bool Settings::isEngine()

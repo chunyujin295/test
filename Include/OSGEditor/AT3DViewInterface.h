@@ -152,8 +152,9 @@ namespace AI3D
             
             tile_viewer_setting_s old_settings_;
             tile_viewer_setting_s now_settings_;
+            /** Non-owning; lifetime must exceed this interface (block-owned ReconstructionObject). */
             ReconstructionObject* data_ = nullptr;
-            OsgEngine* engine_;
+            OsgEngine* engine_ = nullptr;
         };
 
     }//CORE

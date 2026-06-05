@@ -2,7 +2,7 @@
 #include "Base.h"
 #include "CustomNode.h"
 
-class DLL_API Unitl
+class OSGEDITOR_INTERNAL_CLASS Unitl
 {
 public:
     Unitl();

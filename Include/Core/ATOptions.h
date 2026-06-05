@@ -256,7 +256,7 @@ namespace AI3D
                 return true;
             };
 
-                void WriteToJson(rapidjson::Value & metadata, rapidjson::Document & document)
+            void WriteToJson(rapidjson::Value & metadata, rapidjson::Document & document)
                 {
 
                     document.SetObject();

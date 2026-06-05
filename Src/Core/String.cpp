@@ -8,6 +8,9 @@
 
 #include <boost/algorithm/string.hpp>
 #include <openssl/sha.h>
+
+#include <string_view>
+
 namespace AI3D
 {
     namespace CORE
@@ -302,6 +305,20 @@ namespace AI3D
                 newstring = newstring + buf;
             }
             return newstring;
+        }
+
+        bool String::StringIsNullOrBlank(const std::string &str)
+        {
+            return std::find_if(str.begin(), str.end(), [](unsigned char ch)
+            {
+                // return !std::isspace(ch);
+                return ch != ' ' &&
+                       ch != '\t' &&
+                       ch != '\n' &&
+                       ch != '\r' &&
+                       ch != '\f' &&
+                       ch != '\v';
+            }) == str.end();
         }
     }
 } 

@@ -1,6 +1,7 @@
-#include "OSGEditor/PickEventHandler.h"
+﻿#include "OSGEditor/PickEventHandler.h"
 #include "OSGEditor/EventManager.h"
-#include "OSGEditor//OsgEngine.h"
+#include "OSGEditor/OsgEngine.h"
+#include "OSGEditor/PhotosNodeManager.h"
 
 static osg::Vec3 screenToWorld(osgViewer::Viewer* viewer, double dx, double dy)
 {
@@ -495,9 +496,7 @@ bool PickEventHandler::Photos(const osgGA::GUIEventAdapter& ea, osgGA::GUIAction
                 photo.ID = pPickedNode->at(0)->m_iID;
                 photo.name = pPickedNode->at(0)->m_strName;
                 std::vector<ST_CALLBACK_ELEMENT_INFO> vecCallback;
-                vecCallback.push_back(photo);
-
-                EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO_WINDOWS, &vecCallback }, m_pOsgEngine);
+                vecCallback.push_back(photo); EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO_WINDOWS, &vecCallback }, m_pOsgEngine);
             }
         }
 
@@ -567,9 +566,7 @@ bool PickEventHandler::Photos(const osgGA::GUIEventAdapter& ea, osgGA::GUIAction
                 photo.photoID = pCustomNode->m_iID;//20250507
                 photo.name = pCustomNode->m_strName;
                 std::vector<ST_CALLBACK_ELEMENT_INFO> vecCallback;
-                vecCallback.push_back(photo);
-
-                EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO, &vecCallback }, m_pOsgEngine);
+                vecCallback.push_back(photo); EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_PHOTO, &vecCallback }, m_pOsgEngine);
 
                 m_pOsgEngine->GetPickedNode()->push_back(pCustomNode);
 
@@ -707,8 +704,7 @@ bool PickEventHandler::Tile(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAd
                 photo.ID = 123;
                 photo.name = "test";
                 std::vector<ST_CALLBACK_ELEMENT_INFO> vecCallback;
-                vecCallback.push_back(photo);
-                EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
+                vecCallback.push_back(photo); EventManager::GetInstance()->notifyEvent({ CALL_BACK_SELECT_TILE, &vecCallback },m_pOsgEngine);
             }
         }
         m_bMouseLeft = m_bMouseRight = m_bMouseMid = false;

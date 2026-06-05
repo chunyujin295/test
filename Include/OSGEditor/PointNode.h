@@ -7,7 +7,7 @@
 
 class OsgEngine;
 
-class PointNode : public CustomNode
+class OSGEDITOR_INTERNAL_CLASS PointNode : public CustomNode
 {
 public:
     PointNode(OsgEngine* pOsgEngine = nullptr) :CustomNode() { m_pOsgEngine = pOsgEngine;  }

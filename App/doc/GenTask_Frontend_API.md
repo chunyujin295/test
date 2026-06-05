@@ -20,10 +20,10 @@ task.gen_options.gen_params.prompt        = "a red sports car";
 task.gen_options.gen_params.polygon_limit = 50000;
 task.gen_options.gen_params.texture_size  = 1024;
 
-// 3. 提交
-SubmitResult result = GenTaskAPI::SubmitGenTask(task, "user@example.com", pendingPath);
+// 3. 提交 (generation_id 内部自动推算, 无需传参)
+SubmitResult result = GenTaskAPI::SubmitGenTask(task, currentUserAccount, pendingPath);
 if (result.success) {
-    // 拿到 job_name, 在 generations_info_ 中匹配条目
+    // result.generation_id = 分配的 id, result.job_name 用于匹配
 }
 ```
 
@@ -36,8 +36,19 @@ int credits = GenTaskAPI::QueryCredits("user@example.com");
 ### 下载结果
 
 ```cpp
-// result_url 从 Block 的 generations_info_ 中读取
-GenTaskAPI::DownloadResult(result_url, savePath);
+// 方式 1: 通过 task_uuid 自动定位 result_dir 下载 (推荐)
+//         支持进度回调, 结果保存在 Generations/Generation_<id>/result.glb
+GenTaskAPI::DownloadResultByTaskUuid(task_uuid, blockInfo,
+    [](qint64 received, qint64 total) {
+        int pct = total > 0 ? (int)(received * 100 / total) : 0;
+        // 更新 UI 进度条
+    });
+
+// 方式 2: 通过 task_uuid 获取 result_dir
+std::string resultDir = GenTaskAPI::GetResultDir(task_uuid, blockInfo);
+
+// 方式 3: 指定 URL 和路径直接下载 (保留)
+GenTaskAPI::DownloadResult(result_url, customSavePath);
 ```
 
 ---
@@ -68,6 +79,7 @@ struct GenTaskParams {
     std::string negative_prompt;      // 反向提示词
     int         polygon_limit = 0;    // 面数限制 (0=不限制)
     int         texture_size = 0;     // 纹理分辨率 (0=默认)
+    int         provider_id = 0;      // 供应商类型 (默认 0)
     std::string model_version;        // 模型版本 (空=默认)
     std::string file_key;             // 已上传文件的 key (纯文字任务留空)
 };
@@ -77,10 +89,11 @@ struct GenTaskParams {
 
 ```cpp
 struct SubmitResult {
-    std::string task_uuid;   // 全局唯一, 取消任务时用
-    std::string job_name;    // J_BlockName_timestamp, 在 generations_info_ 中匹配
-    bool        success;     // 是否成功
-    std::string error_msg;   // 失败原因
+    std::string task_uuid;     // 全局唯一, 取消任务时用
+    std::string job_name;      // J_BlockName_timestamp, 在 generations_info_ 中匹配
+    int         generation_id; // 分配的 generation id (前端用于更新 Block)
+    bool        success;       // 是否成功
+    std::string error_msg;     // 失败原因
 };
 ```
 
@@ -122,18 +135,18 @@ for (auto& gen : blkInfo.generations_info_) {
     
     if (status == GenTaskStatus::PENDING || status == GenTaskStatus::IN_PROGRESS) {
         // 任务进行中, 读 feedback 获取进度
-        std::string fbPath = projectPath + "/" + blockName 
-            + "/JF_" + gen.job_name + ".bin";
+        // feedback 放在 Generations/Generation_<id>/ 下, result_dir 已包含完整路径
+        std::string fbPath = gen.result_dir + "/JF_" + gen.job_name + ".bin";
         JobFeedBack_s fb;
         fb.load_with_retry(fbPath, false);
         int progress = static_cast<int>(fb.Percent);
         // 更新 UI 进度条
     }
     
-    if (status == GenTaskStatus::COMPLETED) {
-        // 已完成, gen.result_url 有下载链接
-        // gen.preview_url 有预览图链接
-        // 可调用 DownloadResult
+    if (status == GenTaskStatus::COMPLETED && !gen.result_url.empty()) {
+        // 自动下载到 Generations/Generation_<id>/result.glb
+        GenTaskAPI::DownloadResultByTaskUuid(gen.task_uuid, blkInfo,
+            [](qint64 received, qint64 total) { /* 进度 */ });
     }
     
     if (status == GenTaskStatus::FAILED) {
@@ -158,11 +171,13 @@ if (static_cast<GenTaskStatus>(gen.status) == GenTaskStatus::COMPLETED) {
 ```cpp
 // 注册新的生成结果到 Block
 blk_generation_info_s genInfo;
-genInfo.task_uuid    = result.task_uuid;
-genInfo.job_name     = result.job_name;
-genInfo.sub_type     = static_cast<int>(params.sub_type);
-genInfo.status       = static_cast<int>(GenTaskStatus::PENDING);
-genInfo.created_time = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
+genInfo.generation_id = result.generation_id;
+genInfo.task_uuid     = result.task_uuid;
+genInfo.job_name      = result.job_name;
+genInfo.sub_type      = static_cast<int>(params.sub_type);
+genInfo.status        = static_cast<int>(GenTaskStatus::PENDING);
+genInfo.result_dir    = projectPath + "/" + blockName + "/" GENERATION_DIR "/" GENERATION_PREFIX + std::to_string(result.generation_id);
+genInfo.created_time  = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
 
 // 写入 Block
 blkInfo.generations_info_.push_back(genInfo);

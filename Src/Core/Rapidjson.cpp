@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <string>
+#include <cstdio>
 #include "Core/ReturnCode.h"
 #include "Core/File.h"
 
@@ -14,8 +15,10 @@ namespace AI3D
 
 		int RapidJsonCore::SaveFile(const std::string& path, const rapidjson::Document& document)
 		{
-			
-			FILE* fp = fopen(path.c_str(), "wb");
+			FILE* fp = File::FopenUtf8(path, "wb");
+			if (!fp)
+				return SAVE_FILE_FAILED;
+
 			char writeBuffer[65536];
 			rapidjson::FileWriteStream os(fp, writeBuffer, sizeof(writeBuffer));
 			rapidjson::PrettyWriter<rapidjson::FileWriteStream> writer(os);
