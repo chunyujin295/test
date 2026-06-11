@@ -1,9 +1,10 @@
-
 #ifndef _AI3D_CORE_RECONSTRUCTIONPIPELINE_H_
 #define _AI3D_CORE_RECONSTRUCTIONPIPELINE_H_
 #include <Constants.h>
 #include <glog/logging.h>
 #include <pugixml.hpp>
+
+#include "PointManager.h"
 #include "Core/ATData.h"
 #include "Core/BlockObject.h"
 #include "Core/Alignment.h"
@@ -13,6 +14,7 @@
 #include "Core/ReconstructionOptions.h"
 #include "Core/ProductionPurpose.h"
 #include "Core/ReconstructionObject.h"
+#include "Core/Types.h"
 
 
 
@@ -27,20 +29,23 @@ namespace AI3D
             
             
            
-            static int SubmitReconstruction(BlockObject* block, reconstruction_t& rid, const processing_settings_s& options = processing_settings_s());
+            static int SubmitReconstruction(BlockObject* block, reconstruction_t& rid,
+                                                     const processing_settings_s& options = processing_settings_s());
 
             /** Writes reconstruction SRS + RB.bin (deferred from SubmitReconstruction until first production). */
             static int ExportReconstructionViewBin(BlockObject* block, ReconstructionObject* reconstruction);
 
             static bool  CanSubmitProduction(const ReconstructionObject& object);
-            static int SubmitProduction(std::string hostname, std::string jobstr,std::string projectpath,
-                BlockObject* block, reconstruction_t reconstruction_id,  production_option_s options, production_t&production_id);
+            static SubmitResult SubmitProduction(std::string hostname, std::string jobstr, std::string projectpath,
+                                                 BlockObject* block, reconstruction_t reconstruction_id,
+                                                 production_option_s options, production_t& production_id);
            
             
             static bool CanResubmitProduction(const ReconstructionObject& object, production_t production_id);
             
-            static int ResubmitProductionJob(std::string hostname, std::string jobstr,
-                std::string projectpath, BlockObject* block, reconstruction_t reconstruction_id, production_t production_id);
+            static SubmitResult ResubmitProductionJob(std::string hostname, std::string jobstr,
+                                                      std::string projectpath, BlockObject* block,
+                                                      reconstruction_t reconstruction_id, production_t production_id);
            
             static void GetJobsToCancelled(const BlockObject& object, std::vector<std::pair<std::string, std::string> >& jobs_to_delete);
             static void GetJobsToCancelled(const ReconstructionObject& object, std::vector<std::pair<std::string, std::string> >& jobs_to_delete);
@@ -123,7 +128,8 @@ namespace AI3D
             
           
             static int CreateProductionJobFiles(std::string hostname, std::string jobpath, std::string projectpath,
-                BlockObject* block, reconstruction_t reconstruction_id, production_t production_id, std::vector<std::string> tiles_to_production);
+                                                BlockObject* block, reconstruction_t reconstruction_id, production_t production_id, std::vector<std::string> tiles_to_production, PointFreezeInfo
+                                                freezeResult);
 
             
             static int ResetBoudingBoxCalcMode(BlockObject* block, reconstruction_t reconstruction_id,  bbox_calc_mode_e mode);

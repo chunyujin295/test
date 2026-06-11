@@ -1342,7 +1342,7 @@ namespace AI3D
 					
 				}
 				
-				
+				LOGI("BLock Loading: " + block_filepath);
 				if (!block->Load(block_filepath))
 				{
 					std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;

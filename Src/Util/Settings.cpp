@@ -45,14 +45,12 @@ QString Settings::getEngineJobQueue()
 
 QString Settings::getGenEngineJobQueue()
 {
-	QString enginePath = Settings::getEngineJobQueue();
-	if (enginePath.isEmpty())
-	{
-		return "";
-	}
-		
-	QDir parent = QFileInfo(enginePath).dir();
-	return parent.absolutePath() + "/jobs_gen";
+    QString enginePath = getEngineJobQueue();
+    if (enginePath.isEmpty())
+        return "";
+
+    QDir parent = QFileInfo(enginePath).dir();
+    return parent.absolutePath() + "/jobs_gen";
 }
 
 

@@ -11,6 +11,8 @@
 #include "Core/KML.h"        
 #include "Core/VectorFile.h"
 #include <utility>
+
+#include "Core/PointManager.h"
 #ifdef USE_AI3D_PROJ
 #include "Core/Proj/CoordinateReferenceSystem.h"
 #endif
@@ -134,7 +136,8 @@ namespace AI3D
             return AI3D_SUCCESS;
         }
 
-        int ReconstructionCommandSet::SubmitReconstruction(BlockObject* block, reconstruction_t& rid, const struct processing_settings_s& options)
+        int ReconstructionCommandSet::SubmitReconstruction(BlockObject* block, reconstruction_t& rid,
+                                                                    const struct processing_settings_s& options)
         {
             ReconPerfStage perf_total("SubmitReconstruction", "total");
             if (block->GetCurrentAT() == nullptr)
@@ -1404,7 +1407,8 @@ if (0)
         }
 
         int ReconstructionCommandSet::CreateProductionJobFiles(std::string hostname, std::string jobpath, std::string projectpath,
-            BlockObject* block, reconstruction_t reconstruction_id, production_t production_id ,std::vector<std::string> tiles_to_production)
+                                                               BlockObject* block, reconstruction_t reconstruction_id, production_t production_id, std::vector<std::string> tiles_to_production, PointFreezeInfo
+                                                               freezeResult)
         {
            
             
@@ -1540,7 +1544,7 @@ if (0)
                 numoftileupdate++;
                 
                 TaskCommandSet::CreateJobAndFeedbackFiles(jobpath, projectpath, blockitem,
-                    hostname, datetime, productiontile_dir, job, true);
+                    hostname, datetime, productiontile_dir, job, freezeResult,true);
 
 #ifdef USE_OPENMP
 #pragma omp critical
@@ -1609,13 +1613,19 @@ if (0)
              
              return true;
          }
-         
-        int ReconstructionCommandSet::ResubmitProductionJob(std::string hostname, std::string jobstr,
-            std::string projectpath, BlockObject* block, reconstruction_t reconstruction_id, production_t production_id)
+
+         SubmitResult ReconstructionCommandSet::ResubmitProductionJob(std::string hostname, std::string jobstr,
+                                                                      std::string projectpath, BlockObject* block,
+                                                                      reconstruction_t reconstruction_id,
+                                                                      production_t production_id)
         {
+
+            SubmitResult result;
             if (!block->GetReconstructionsMutual().count(reconstruction_id))
             {
-                return AI3D_FAILURE;
+                result.success = false;
+                result.result_code = AI3D_FAILURE;
+                return result;
             }
 
             ReconstructionObject* reconstruction = block->GetReconstructionsMutual().at(reconstruction_id);
@@ -1628,17 +1638,112 @@ if (0)
             
             tiles_resubmit.insert(tiles_resubmit.end(), tiles_cancelled.begin(), tiles_cancelled.end());
             tiles_resubmit.insert(tiles_resubmit.end(), tiles_failed.begin(), tiles_failed.end());
+
+            int imageNum = block->GetNumImages();
+            int titleNum = production->GetTiles().size();//TODO CYJ 这里可能有坑
+            std::string businessType = "";
+            switch (production->GetFormat())
+            {
+            case PRODUCTION_4D_FORMAT_TDOMDSM:
+                businessType = BusinessType::DSM_DOM;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_OSGB:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_PLY:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_LAS:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_MESH_FORMAT_OSGB:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_OBJ:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_PLY:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_3DTILES:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_POINTCLOUD_BASEGS:
+                businessType = BusinessType::DGS_SELF;
+                break;
+            case PRODUCTION_POINTCLOUD_GDGS:
+                businessType = BusinessType::DGS_GAODE;
+                break;
+            default:
+                break;
+            }
+
+            rapidjson::Document doc;
+            doc.SetObject();
+            auto& alloc = doc.GetAllocator();
+
+            rapidjson::Value images(rapidjson::kObjectType);
+            images.AddMember("total_count", imageNum, alloc);
+            doc.AddMember("images", images, alloc);
+
+            rapidjson::Value tiles(rapidjson::kObjectType);
+            tiles.AddMember("total_count", titleNum, alloc);
+            doc.AddMember("tiles", tiles, alloc);
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            doc.Accept(writer);
+
+            PointFreezeInfo estimate = PointManager::EstimateTaskPoints(businessType, buffer.GetString());
+			if (!estimate.requestSucceeded)
+			{
+				result.success = false;
+				result.error_msg = "http request error";
+				return result;
+			}
+            result.estimate_points = estimate.estimate_points;
+
+            PointFreezeInfo balance = PointManager::QueryUserPoints();
+            if (!balance.requestSucceeded)
+            {
+                result.success = false;
+                result.point_check_passed = false;
+                result.result_code = balance.errorCode;
+                result.error_msg = "http request error";
+                return result;
+            }
+            result.available_points = balance.available_points;
+            result.total_balance = balance.total_balance;
+            if (result.estimate_points > result.available_points)
+            {
+                result.point_check_passed = false;
+                result.success = false;
+                result.result_code = AI3D_INSUFFICIENT_POINTS;
+                result.error_msg = "Insufficient points";
+                return result;
+            }
+
+            result.point_check_passed = true;
           
-            
+            PointFreezeInfo freezeResult = PointManager::CreatePointTask(businessType, buffer.GetString());
+            if (freezeResult.freeze_no.empty()) {
+                result.success = false;
+                result.error_msg = "Freeze failed";
+                return result;
+            }
+
           
             for (auto& iter : tiles_resubmit)
             {
-                CreateProductionJobFiles(hostname, jobstr, projectpath, block, reconstruction->GetId(), production->GetId(),tiles_resubmit);
-
+                CreateProductionJobFiles(hostname, jobstr, projectpath, block, reconstruction->GetId(), production->GetId(),tiles_resubmit, freezeResult);
             }
 
            
-            return AI3D_SUCCESS;
+            result.production_id = production->GetId();
+            result.success = true;
+            result.result_code = AI3D_SUCCESS;
+            result.job_name = jobstr;
+            return result;
         }
 
 
@@ -2104,15 +2209,20 @@ if (0)
             return AI3D_SUCCESS;
         }
 
-        
-        int ReconstructionCommandSet::SubmitProduction(std::string hostname, std::string jobstr,
-            std::string projectpath, BlockObject* block, reconstruction_t reconstruction_id,production_option_s options, production_t&production_id)
+
+        SubmitResult ReconstructionCommandSet::SubmitProduction(std::string hostname, std::string jobstr,
+                                                                std::string projectpath, BlockObject* block,
+                                                                reconstruction_t reconstruction_id,
+                                                                production_option_s options,
+                                                                production_t& production_id)
         {
-            
+            SubmitResult result;
             production_id = -1;
             if (!block->GetReconstructionsMutual().count(reconstruction_id))
             {
-                return AI3D_FAILURE;
+                result.success = false;
+                result.result_code = AI3D_FAILURE;
+                return result;
             }
           
             ReconstructionObject* reconstruction = block->GetReconstructionsMutual().at(reconstruction_id);
@@ -2129,10 +2239,99 @@ if (0)
                     if (ExportReconstructionViewBin(block, reconstruction) != AI3D_SUCCESS)
                     {
                         LOGE("SubmitProduction: ExportReconstructionViewBin failed");
-                        return AI3D_FAILURE;
+                        result.success = false;
+                        result.result_code = AI3D_FAILURE;
+                        result.error_msg = "SubmitProduction: ExportReconstructionViewBin failed";
+                        return result;
                     }
                 }
             }
+
+            int imageNum = block->GetNumImages();
+            int titleNum = options.tiles_.size();
+            std::string businessType = "";
+            switch (options.production_format_)
+            {
+            case PRODUCTION_4D_FORMAT_TDOMDSM:
+                businessType = BusinessType::DSM_DOM;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_OSGB:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_PLY:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_POINTCLOUD_FORMAT_LAS:
+                businessType = BusinessType::DENSE_POINTCLOUD;
+                break;
+            case PRODUCTION_MESH_FORMAT_OSGB:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_OBJ:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_PLY:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_MESH_FORMAT_3DTILES:
+                businessType = BusinessType::MESH;
+                break;
+            case PRODUCTION_POINTCLOUD_BASEGS:
+                businessType = BusinessType::DGS_SELF;
+                break;
+            case PRODUCTION_POINTCLOUD_GDGS:
+                businessType = BusinessType::DGS_GAODE;
+                break;
+            default:
+                break;
+            }
+
+            rapidjson::Document doc;
+            doc.SetObject();
+            auto& alloc = doc.GetAllocator();
+
+            rapidjson::Value images(rapidjson::kObjectType);
+            images.AddMember("total_count", imageNum, alloc);
+            doc.AddMember("images", images, alloc);
+
+            rapidjson::Value tiles(rapidjson::kObjectType);
+            tiles.AddMember("total_count", titleNum, alloc);
+            doc.AddMember("tiles", tiles, alloc);
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            doc.Accept(writer);
+
+            PointFreezeInfo estimate = PointManager::EstimateTaskPoints(businessType, buffer.GetString());
+			if (!estimate.requestSucceeded)
+			{
+				result.success = false;
+				result.error_msg = "http request error";
+				return result;
+			}
+            result.estimate_points = estimate.estimate_points;
+
+            PointFreezeInfo balance = PointManager::QueryUserPoints();
+            if (!balance.requestSucceeded)
+            {
+                result.success = false;
+                result.point_check_passed = false;
+                result.result_code = balance.errorCode;
+                result.error_msg = "http request error";
+                return result;
+            }
+            result.available_points = balance.available_points;
+            result.total_balance = balance.total_balance;
+            if (result.estimate_points > result.available_points)
+            {
+                result.point_check_passed = false;
+                result.success = false;
+                result.result_code = AI3D_INSUFFICIENT_POINTS;
+                result.error_msg = "Insufficient points";
+                return result;
+            }
+
+            result.point_check_passed = true;
 
             ProductionObject *production = new ProductionObject(options,reconstruction);
             
@@ -2165,9 +2364,38 @@ if (0)
           
 
             
-            
-          
-            CreateProductionJobFiles(hostname, jobstr, projectpath, block, reconstruction->GetId(), production->GetId(), options.tiles_);
+            PointFreezeInfo freezeResult = PointManager::CreatePointTask(businessType, buffer.GetString());
+            if (freezeResult.freeze_no.empty()) {
+                result.success = false;
+                result.error_msg = "Freeze failed";
+                return result;
+            }
+            {
+                std::string freezeNoPath = production->GetPath() + "/freeze_no.bin";
+                File::CreateDirIfNotExists(production->GetPath(), true);
+                std::ofstream ofs = File::OpenOfstreamUtf8(freezeNoPath, std::ios::binary);
+                if (ofs.is_open())
+                {
+                    unsigned char key = 0xAB;
+                    unsigned int len = (unsigned int)freezeResult.freeze_no.size();
+                    unsigned int encLen = len ^(key | (key << 8) | (key << 16) | (key << 24));
+                    ofs.write(reinterpret_cast<char*>(&encLen), sizeof(encLen));
+                    for (unsigned int i = 0; i < len; i++)
+                    {
+                        char c = freezeResult.freeze_no[i] ^ key;
+                        ofs.write(&c, 1);
+                    }
+                    ofs.close();
+                }
+                else
+                {
+                    result.success = false;
+                    result.error_msg = "Freeze_no.bin created failed";
+                    return result;
+                }
+            }
+
+            CreateProductionJobFiles(hostname, jobstr, projectpath, block, reconstruction->GetId(), production->GetId(), options.tiles_, freezeResult);
             auto& taskinfo = block->GetTaskInfoMutual();
 
             blk_reconst_production_info_s info;
@@ -2179,7 +2407,9 @@ if (0)
                 [&](blk_recontruction_info_s a) { return reconstruction->GetId() == a.id_; });
             if (recinfo == taskinfo.reconstructions_info_.end())
             {
-                return AI3D_FAILURE;
+                result.success = false;
+                result.result_code = AI3D_FAILURE;
+                return result;
 
             }
 
@@ -2201,8 +2431,11 @@ if (0)
             
            
             
-            
-            return AI3D_SUCCESS;
+            result.production_id = production->GetId();
+            result.success = true;
+            result.result_code = AI3D_SUCCESS;
+            result.job_name = jobstr;
+            return result;
         }
 
         void  ReconstructionCommandSet::GetProductionSetInformation(ProductionObject* production, std::vector<std::pair<std::string, std::string> >& infos,

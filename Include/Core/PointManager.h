@@ -1,8 +1,8 @@
 // ==================== Include/Core/PointManager.h ====================
 #pragma once
+#include <QString>
 #include <string>
 #include <Constants.h>
-#include <Util/HttpClient.h>
 
 namespace AI3D
 {
@@ -15,11 +15,13 @@ namespace AI3D
         /// @brief 积分冻结/查询/估算共用返回结构
         struct PointFreezeInfo
         {
-            std::string freeze_no; // 冻结单号 (仅 /point/freeze 有值)
+            std::string freeze_no = ""; // 冻结单号 (仅 /point/freeze 有值)
             int estimate_points = 0; // 预估消耗 (仅 /point/estimate 有值)
             int total_balance = 0; // 总积分
             int frozen_points = 0; // 冻结积分总额
             int available_points = 0; // 可用积分
+            bool requestSucceeded = false;
+            int errorCode = 20001;
         };
 
         /// @brief 积分结算返回结构
@@ -30,6 +32,8 @@ namespace AI3D
             int total_balance = 0; // 结算后总积分
             int frozen_points = 0; // 结算后冻结积分
             int available_points = 0; // 结算后可用积分
+            bool requestSucceeded = false;
+            int errorCode = 20001;
         };
 
         /// @brief 嵌入任务结构体的积分元信息
@@ -46,6 +50,7 @@ namespace AI3D
             int available_points = 0; // 可用积分
         };
 
+
         // ============================================================================
         // PointManager
         // ============================================================================
@@ -53,27 +58,21 @@ namespace AI3D
         class AI3D_API PointManager
         {
         public:
-            /// @brief 任务积分消耗预估 — POST /point/estimate
-            /// @return estimate_points; 失败返回 -1
-            static int EstimateTaskPoints(const std::string& business_type,
-                                          const std::string& task_param_json);
+            static PointFreezeInfo EstimateTaskPoints(const std::string& business_type,
+                                                      const std::string& task_param_json);
 
-            /// @brief 积分任务创建 (冻结) — POST /point/freeze
-            /// @return freeze_no + 余额快照; freeze_no 为空表示失败
+
             static PointFreezeInfo CreatePointTask(const std::string& business_type,
                                                    const std::string& task_param_json);
 
-            /// @brief 用户积分查询 — POST /point/outline
             static PointFreezeInfo QueryUserPoints();
 
-            /// @brief 积分结算 — POST /point/settle
-            /// @return consumed+refunded==0 表示失败
+
             static PointSettleInfo SettlePoints(const std::string& freeze_no,
                                                 const std::string& settle_status,
                                                 const std::string& task_param_json);
 
         private:
-            // ---- HTTP 实现 (复用 HttpClient::post, 不暴露给外部) ----
             static PointFreezeInfo postPointsOutline(int timeout_ms = 3000, int max_retries = 2);
             static PointFreezeInfo postPointsFreeze(const std::string& business_type,
                                                     const std::string& task_param_json,
@@ -81,12 +80,13 @@ namespace AI3D
             static PointFreezeInfo postPointsEstimate(const std::string& business_type,
                                                       const std::string& task_param_json,
                                                       int timeout_ms = 3000, int max_retries = 2);
+            static PointFreezeInfo postGenerationGetQuote(const std::string& task_param_json,
+                                                          int timeout_ms = 3000, int max_retries = 2);
             static PointSettleInfo postPointsSettle(const std::string& freeze_no,
                                                     const std::string& settle_status,
                                                     const std::string& task_param_json,
                                                     int timeout_ms = 3000, int max_retries = 3);
 
-            // ---- 鉴权工具 (与 GenHttpClient::BuildAuthHeader 逻辑一致) ----
             static QString buildAuthHeader(const QString& url, const QString& dataJson = "");
             static QString loadAccessToken();
         };

@@ -12,7 +12,6 @@ public:
     static void SearchUnnormalRunningJob();
 
 private:
-
     static void ProcessPendingJobs();
 
     static void ProcessRunningJobs();

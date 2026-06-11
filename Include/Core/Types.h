@@ -9,6 +9,8 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include "ReturnCode.h"
+
 #ifdef _MSC_VER
 #if _MSC_VER >= 1600
 #include <cstdint>
@@ -147,6 +149,9 @@ const bool STAT_USE_BIN = true;
 #define GEN_SERVER_URL "http://localhost:5000" // TODO CYJ
 #define GEN_API_PREFIX "/api/v1" // TODO CYJ
 
+#define GENERATION_DIR    "Generations"
+#define GENERATION_PREFIX "Generation_"
+
 namespace BusinessType
 {
     // ---- rebuild ----
@@ -165,18 +170,33 @@ namespace BusinessType
     const std::string TEXT_TO_MESH = "text-to-mesh";
     const std::string IMAGE_TO_MODEL = "image-to-model";
     const std::string IMAGE_TO_MESH = "image-to-mesh";
-} // namespace BusinessType
+}
 
-// ---------------------------------------------------------------------------
-// for /point/settle -  status
-// ---------------------------------------------------------------------------
 namespace SettleStatus
 {
     const std::string SUCCESS = "success";
     const std::string FAIL = "fail";
     const std::string PARTIAL = "partial";
     const std::string CANCEL = "cancel";
-} // namespace SettleStatus
+}
+
+struct SubmitResult
+{
+    bool success = false;
+    std::string error_msg;
+    int result_code = AI3D_FAILURE;
+
+    std::string task_uuid;
+    std::string job_name;
+    int generation_id = -1;
+    int reconstruction_id = -1;
+    int production_id = -1;
+
+    bool point_check_passed = false;
+    int estimate_points = 0;
+    int available_points = 0;
+    int total_balance = 0;
+};
 
 
 #define ATSTARTTYPE 1

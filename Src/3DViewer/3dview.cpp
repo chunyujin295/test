@@ -82,17 +82,25 @@ namespace AI3D
 					m_pChkGCP->setText("GCP");
 				}
 
-				if (!blockdata->GetCurrentAT()->HasControlPoints())
+				auto current_at = blockdata->GetCurrentAT();
+				if (current_at)
 				{
-					
-					
+					if (!current_at->HasControlPoints())
+					{
+						m_pChkGCP->setChecked(false);
+						m_pChkGCP->setEnabled(false);
+					}
+
+					if (!current_at->HasImages())
+					{
+						m_pChkPhotos->setChecked(false);
+						m_pChkPhotos->setEnabled(false);
+					}
+				}
+				else
+				{
 					m_pChkGCP->setChecked(false);
 					m_pChkGCP->setEnabled(false);
-				}
-				 
-				if (!blockdata->GetCurrentAT()->HasImages())
-				{
-					
 					m_pChkPhotos->setChecked(false);
 					m_pChkPhotos->setEnabled(false);
 				}

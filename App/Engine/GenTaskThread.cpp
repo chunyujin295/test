@@ -9,13 +9,14 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
-#include <QFile>                   // QFile::rename (job 文件在状态目录间移动)
+#include <QFile>
 #include <QDateTime>               // QDateTime::currentDateTime (SearchUnnormalRunningJob)
 #include <QHostInfo>
 #include <thread>
 #include <chrono>
 
 #include "Core/BlockObject.h"
+using namespace AI3D::CORE;
 
 // extern 声明
 extern bool bQuitingApplication; // 由 CallEngine.cpp 定义, Node 关闭时置 true
@@ -25,38 +26,18 @@ extern QString genCompletedJobPath;
 extern QString genFailedJobPath;
 extern QString genCancelledJobPath;
 
-using namespace AI3D::CORE;
-
-
-// ============================================================================
-// 文件工具函数 (文件作用域, 仅本 .cpp 可见)
-//
-// 注: job 文件的读写锁已由 GenJobFullInfo_s::save_with_retry / load_with_retry 封装
-//     (内部使用 FopenDenyWriteLockUtf8, 与 TaskProcess.h 的 JobFeedBack_s 一致),
-//     因此本文件无需手动管理锁, 直接调用 save_with_retry / load_with_retry 即可。
-// ============================================================================
-
-/// @brief 移动 job 文件到目标目录, 使用 QFile::rename
-///        对标项目中使用 QFile 操作文件的惯例 (而非 std::filesystem::rename)
-/// @param src    源文件完整路径
-/// @param dstDir 目标目录路径
-/// @return true=成功, false=失败
 static bool MoveJobFile(const std::string& src, const std::string& dstDir)
 {
+    // 0. 先删残留 .lock (对标 DoCleanupJobLockOnceWhileEngineStart)
     QString srcLock = QString::fromStdString(src) + ".lock";
     if (QFileInfo::exists(srcLock))
-    {
         QFile::remove(srcLock);
-    }
 
     QFileInfo fi(QString::fromStdString(src));
     QString dstPath = QString::fromStdString(dstDir) + "/" + fi.fileName();
-
     QString dstLock = dstPath + ".lock";
     if (QFileInfo::exists(dstLock))
-    {
         QFile::remove(dstLock);
-    }
 
     // 1. 尝试直接 rename (原子操作, 同盘高效)
     if (QFile::rename(QString::fromStdString(src), dstPath))
@@ -78,10 +59,9 @@ static bool MoveJobFile(const std::string& src, const std::string& dstDir)
 
 static std::string BuildFeedbackPath(const GenJobFullInfo_s& info)
 {
-    // feedback 放在项目目录下: project/BlockName/JF_<job_name>.bin (.json)
-    // 对标 CallEngine.cpp 中 MAKE_FEEDBAK_BIN_FILE / MAKE_FEEDBAK_JSON_FILE 宏
-    std::string base = info.job.project_path + "/" + info.job.block_item
-        + "/JF_" + info.job_name;
+    // feedback 放在结果目录下: Generations/Generation_<id>/JF_<job_name>.bin
+    //   对标重建式: Productions/Production_<id>/JF_<job_name>.bin
+    std::string base = info.job.result_dir + "/JF_" + info.job_name;
     if (JOB_FEEDBACK_USE_BIN)
     {
         return base + BINFILE_POSTFIX; // ".bin"
@@ -110,7 +90,7 @@ static void UpdateFeedback(GenJobFullInfo_s& info)
         break;
     case GenTaskStatus::IN_PROGRESS:
         fb.Status = jobsta_e::STATUS_RUNNING;
-        fb.Percent = job.progress;
+        fb.Percent = job.progress; // 由 ApplyResponse 从 resp.progress 回填
         break;
     case GenTaskStatus::COMPLETED:
         fb.Status = jobsta_e::STATUS_COMPLETE;
@@ -120,8 +100,8 @@ static void UpdateFeedback(GenJobFullInfo_s& info)
         fb.Status = jobsta_e::STATUS_FAILURE;
         fb.Msg = "generation task failed";
         break;
-    case GenTaskStatus::CANCELED:
-        fb.Status = jobsta_e::STATUS_CANCLE;
+    case GenTaskStatus::CANCELLED:
+        fb.Status = jobsta_e::STATUS_COMPLETE;
         break;
     }
 }
@@ -154,8 +134,11 @@ void GenTaskThread::Run()
 //   1. 遍历 jobs_gen/Pending/*.json
 //   2. deny-write 锁 → 加载 job → 检查崩溃恢复
 //   3. 上传本地文件 (FILE_PATH → FILE_KEY)
-//   4. HTTP POST submit → 回填 server_task_id → 保存 → 移到 Running/
-//   5. submit 失败不移动文件, 下轮重试
+//   4. HTTP POST submit → 回填 freeze_no
+//   5. HTTP POST /point/freeze → 回填 freeze_no         ← ★ 积分冻结 (详见 积分接口集成方案.md 第四章)
+//      失败不移文件, 下轮重试
+//   6. 保存 → 移到 Running/
+//   7. submit 失败不移动文件, 下轮重试
 // ============================================================================
 
 void GenTaskThread::ProcessPendingJobs()
@@ -182,8 +165,8 @@ void GenTaskThread::ProcessPendingJobs()
         std::string fbPath = BuildFeedbackPath(info);
         info.feedback.load_with_retry(fbPath, false);
 
-        // 2. 崩溃恢复: 已有 server_task_id 则直接移到 Running
-        if (!job.server_task_id.empty())
+        // 2. 崩溃恢复: 已有 freeze_no 则直接移到 Running
+        if (!job.point_info.freeze_no.empty())
         {
             LOGI("Crash recovery: " + job.task_uuid + " already submitted, moving to Running");
             MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
@@ -193,7 +176,7 @@ void GenTaskThread::ProcessPendingJobs()
         // 3. HTTP POST submit — GenTaskParams 自动序列化为 JSON
         //    前端已处理文件上传 (如有), engine 只负责透传参数
         GenTaskResponse resp = GenHttpClient::SubmitTask(
-            job.task_uuid, job.user_account, job.params);
+            job.task_uuid, job.params);
 
         // 4. 处理响应
         if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value())
@@ -203,7 +186,7 @@ void GenTaskThread::ProcessPendingJobs()
             continue;
         }
 
-        if (resp.status == GenTaskStatus::FAILED || resp.status == GenTaskStatus::CANCELED)
+        if (resp.status == GenTaskStatus::FAILED || resp.status == GenTaskStatus::CANCELLED)
         {
             // 服务端拒绝
             job.ApplyResponse(resp);
@@ -214,7 +197,7 @@ void GenTaskThread::ProcessPendingJobs()
             continue;
         }
 
-        // 5. 提交成功 → 回填 server_task_id → 注册到 Block → 移到 Running
+        // 5. 提交成功 → 回填 freeze_no → 注册到 Block → 移到 Running
         job.ApplyResponse(resp);
         job.status = GenTaskStatus::PENDING;
         info.save_with_retry(filePathStr);
@@ -229,10 +212,12 @@ void GenTaskThread::ProcessPendingJobs()
             if (blkInfo.ReadBlockInfoBin(blkPath))
             {
                 blk_generation_info_s genInfo;
+                genInfo.generation_id = job.generation_id;
                 genInfo.task_uuid = job.task_uuid;
                 genInfo.job_name = info.job_name;
                 genInfo.sub_type = static_cast<int>(job.params.sub_type);
                 genInfo.status = static_cast<int>(GenTaskStatus::PENDING);
+                genInfo.result_dir = job.result_dir;
                 genInfo.created_time = QDateTime::currentDateTime().toString("yyyyMMddhhmmss").toStdString();
                 blkInfo.generations_info_.push_back(genInfo);
                 blkInfo.generationjobs_[job.task_uuid] = info.job_name;
@@ -242,7 +227,7 @@ void GenTaskThread::ProcessPendingJobs()
 
         MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
 
-        LOGI("Submitted: " + job.task_uuid + " server_task_id=" + job.server_task_id);
+        LOGI("Submitted: " + job.task_uuid + " freeze_no=" + job.point_info.freeze_no);
     }
 }
 
@@ -252,9 +237,13 @@ void GenTaskThread::ProcessPendingJobs()
 // 流程:
 //   1. 遍历 jobs_gen/Running/J_*
 //   2. deny-write 锁 → 加载 job
-//   3. HTTP GET query 服务端状态
-//   4. 根据返回: COMPLETED → 移 Completed/, FAILED → 移 Failed/, IN_PROGRESS → 更新 feedback
-//   5. 连续 5 次网络超时 → 标记 FAILED
+//   3. 兜底: 无 freeze_no → 补 FreezeCredits                  ← ★ 积分冻结兜底
+//   4. HTTP GET query 服务端状态
+//   5. 根据返回处理 — 生成式后端 query 直接返回积分, 无需单独 settle:
+//      COMPLETED/FAILED → ApplyResponse (含积分) → 更新 feedback/Block → 移目录
+//      IN_PROGRESS → 更新 feedback (含积分余额)
+//      重建式不同: 需调 SettlePoints 再更新状态 (见 积分接口集成方案.md)
+//   6. 连续 5 次网络超时 → 标记 FAILED
 // ============================================================================
 
 void GenTaskThread::ProcessRunningJobs()
@@ -268,20 +257,26 @@ void GenTaskThread::ProcessRunningJobs()
         QString filePath = it.filePath();
         std::string filePathStr = filePath.toStdString();
 
+        // 1. 加载 job 文件 (load_with_retry 内部已处理 deny-write 锁)
         GenJobFullInfo_s info;
         if (!info.load_with_retry(filePathStr))
             continue;
         GenJobInfo_s& job = info.job;
-        if (!!job.server_task_id.empty())
+        if (job.point_info.freeze_no.empty())
         {
             continue;
         }
 
+        // 1.5. 加载 feedback 到内存
         std::string fbPath = BuildFeedbackPath(info);
         info.feedback.load_with_retry(fbPath, false);
+        // std::cout << "  [" << fbPath << "] status=" << (int)info.feedback.Status
+        //    << " percent=" << info.feedback.Percent << "%" << std::endl;
 
-        GenTaskResponse resp = GenHttpClient::QueryTaskStatus(job.server_task_id);
+        // 2. 查询服务端状态
+        GenTaskResponse resp = GenHttpClient::QueryTaskStatus(job.point_info.freeze_no, job.params.provider_id);
 
+        // 3. 网络超时 → 递增重试计数
         if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value())
         {
             job.query_retry_count++;
@@ -301,6 +296,7 @@ void GenTaskThread::ProcessRunningJobs()
             continue;
         }
 
+        // 4. 重置重试计数 (成功获取到响应)
         job.query_retry_count = 0;
 
         switch (resp.status)
@@ -311,6 +307,7 @@ void GenTaskThread::ProcessRunningJobs()
                 info.save_with_retry(filePathStr);
                 UpdateFeedback(info);
                 info.feedback.save_with_retry(fbPath, false);
+                // 更新 Block 中的状态和 result_url
                 {
                     std::string blkPath = job.project_path + "/" + job.block_item + ".blk";
                     BlockObject::Task_Info blkInfo;
@@ -323,6 +320,10 @@ void GenTaskThread::ProcessRunningJobs()
                                 gen.status = static_cast<int>(GenTaskStatus::COMPLETED);
                                 if (!job.result_url.empty()) gen.result_url = job.result_url;
                                 if (!job.preview_url.empty()) gen.preview_url = job.preview_url;
+                                gen.consumed = job.point_info.consumed;
+                                gen.refunded = job.point_info.refunded;
+                                gen.total_balance = job.point_info.total_balance;
+                                gen.available_points = job.point_info.available_points;
                                 break;
                             }
                         }
@@ -351,6 +352,10 @@ void GenTaskThread::ProcessRunningJobs()
                             if (gen.task_uuid == job.task_uuid)
                             {
                                 gen.status = static_cast<int>(GenTaskStatus::FAILED);
+                                gen.consumed = job.point_info.consumed;
+                                gen.refunded = job.point_info.refunded;
+                                gen.total_balance = job.point_info.total_balance;
+                                gen.available_points = job.point_info.available_points;
                                 break;
                             }
                         }
@@ -364,6 +369,8 @@ void GenTaskThread::ProcessRunningJobs()
 
         case GenTaskStatus::IN_PROGRESS:
             {
+                // 进度更新: ApplyResponse 回填 progress/result_url/preview_url 等
+                // 再 UpdateFeedback 写到 feedback 文件供前端轮询
                 job.ApplyResponse(resp);
                 info.save_with_retry(filePathStr);
                 UpdateFeedback(info);
@@ -371,10 +378,10 @@ void GenTaskThread::ProcessRunningJobs()
                 break;
             }
 
-        case GenTaskStatus::CANCELED:
+        case GenTaskStatus::CANCELLED:
             {
                 // 服务端返回取消 (用户可能通过其他渠道取消)
-                job.status = GenTaskStatus::CANCELED;
+                job.status = GenTaskStatus::CANCELLED;
                 if (resp.error_message.has_value())
                     job.error_message = resp.error_message.value();
                 info.save_with_retry(filePathStr);
@@ -390,7 +397,7 @@ void GenTaskThread::ProcessRunningJobs()
                         {
                             if (gen.task_uuid == job.task_uuid)
                             {
-                                gen.status = static_cast<int>(GenTaskStatus::CANCELED);
+                                gen.status = static_cast<int>(GenTaskStatus::CANCELLED);
                                 break;
                             }
                         }
@@ -422,10 +429,10 @@ bool GenTaskThread::CancelGenTask(const std::string& task_uuid)
     return false;
 }
 
+
 void GenTaskThread::SearchUnnormalRunningJob()
 {
-    while (true)
-    {
+    while (true) {
         if (bQuitingApplication)
             break;
 
@@ -433,8 +440,7 @@ void GenTaskThread::SearchUnnormalRunningJob()
         QDirIterator it(runningDir, {"J_*.bin"}, QDir::Files);
         QDateTime now = QDateTime::currentDateTime();
 
-        while (it.hasNext())
-        {
+        while (it.hasNext()) {
             it.next();
             QFileInfo fi(it.filePath());
             std::string filePathStr = fi.absoluteFilePath().toStdString();
@@ -442,19 +448,16 @@ void GenTaskThread::SearchUnnormalRunningJob()
             qint64 secsSinceMod = fi.lastModified().secsTo(now);
 
             // 1. 超过 24h 未更新 → 标记失败
-            if (secsSinceMod > 86400)
-            {
-                // 24 * 3600
+            if (secsSinceMod > 86400) {  // 24 * 3600
                 GenJobFullInfo_s info;
-                if (!info.load_with_retry(filePathStr))
-                {
+                if (!info.load_with_retry(filePathStr)) {
                     // 损坏文件, 直接删除
                     QFile::remove(fi.absoluteFilePath());
                     continue;
                 }
 
                 LOGE("UnnormalRunning: " + info.job.task_uuid
-                    + " stuck for " + std::to_string(secsSinceMod / 3600) + "h, moving to Failed");
+                     + " stuck for " + std::to_string(secsSinceMod / 3600) + "h, moving to Failed");
 
                 info.job.status = GenTaskStatus::FAILED;
                 info.job.error_message = "task stuck in Running for over 24h";
@@ -467,21 +470,19 @@ void GenTaskThread::SearchUnnormalRunningJob()
                 continue;
             }
 
-            // 2. 超过 1h 无更新 且无 server_task_id → submit 阶段残留, 移回 Pending 重试
-            if (secsSinceMod > 3600)
-            {
+            // 2. 超过 1h 无更新 且无 freeze_no → submit 阶段残留, 移回 Pending 重试
+            if (secsSinceMod > 3600) {
                 GenJobFullInfo_s info;
                 if (!info.load_with_retry(filePathStr))
                     continue;
-                if (!info.job.server_task_id.empty())
-                {
+                if (info.job.point_info.freeze_no.empty()) {
                     LOGW("UnnormalRunning: " + info.job.task_uuid
-                        + " no server_task_id for 1h, moving back to Pending");
+                         + " no freeze_no for 1h, moving back to Pending");
                     MoveJobFile(filePathStr, qstr2str(genPendingJobPath));
                 }
             }
         }
 
-        SleepMs(30000); // 30s 扫描间隔
+        SleepMs(30000);  // 30s 扫描间隔
     }
 }

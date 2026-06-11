@@ -65,6 +65,7 @@
 #include <Windows.h>
 
 #include "GenHttpClient.h"
+#include "Core/BlockObject.h"
 
 
 #define ENGINEJOBPATH Settings::getEngineJobQueue()
@@ -120,6 +121,137 @@ bool checkTaskInstanceStatus(QString& sTmpNewFileForRun);
 
 
 void PostQuitProcess();
+
+void OnTileJobFinished(const std::string& jobname, const std::string& projectFile, const std::string& blockItem, int imageCount)
+{
+	if (jobname.find("_TILE_") == std::string::npos)
+	{
+		return;
+	}
+	std::string projectDir = AICORE::File::GetParentDir(projectFile);
+	std::string tilePath = projectDir + "/" + blockItem;
+	std::string productionDir = AICORE::File::GetParentDir(tilePath);
+
+	//1.写哨兵文件
+	std::string sentinelDir = productionDir + "/sentinels/";
+	AICORE::File::CreateDirIfNotExists(sentinelDir, true);
+	std::string tileName = AICORE::File::GetFileName(blockItem);
+	{
+		std::ofstream ofs = AICORE::File::OpenOfstreamUtf8(sentinelDir + tileName + ".done", std::ios::out);
+	}
+
+
+	//2.数tile总数
+	int totalTiles = 0;
+	{
+		auto dirs = AICORE::File::GetDirList(productionDir);
+		for (auto& d : dirs)
+		{
+			if (d.find("Tile_") != std::string::npos)
+			{
+				totalTiles++;
+			}
+		}
+	}
+
+	//3.数哨兵数
+	int sentinelCount = 0;
+	{
+		auto files = AICORE::File::GetFileList(sentinelDir, "*.done");
+		sentinelCount = (int)files.size();
+	}
+
+	//4.判断是否全部完成，结算
+	if (sentinelCount >= totalTiles)
+	{
+		std::string settleLock = sentinelDir + "settle.lock";
+		FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(settleLock);
+		if (fp != NULL)
+		{
+			// 二次确认
+			auto files = AICORE::File::GetFileList(sentinelDir, "*.done");
+			if (static_cast<int>(files.size()) >= totalTiles)
+			{
+				std::string freeze_no;
+				{
+					std::ifstream ifs = AICORE::File::OpenIfstreamUtf8(productionDir + "/freeze_no.bin", std::ios::binary);
+					if (ifs.is_open())
+					{
+						unsigned char key = 0xAB;
+						unsigned int encLen = 0;
+						ifs.read(reinterpret_cast<char*>(&encLen), sizeof(encLen));
+						unsigned int len = encLen ^ (key | (key << 8) | (key << 16) | (key << 24));
+						freeze_no.resize(len);
+						for (unsigned int i = 0; i < len; i++)
+						{
+							char c;
+							ifs.read(&c, 1);
+							freeze_no[i] = c ^ key;
+						}
+					}
+				}
+
+				if (freeze_no.empty())
+				{
+					LOGE("freeze_no not found in" + productionDir);
+					fclose(fp);
+					return;
+				}
+
+				int completed = 0;
+				{
+					auto tileDirs = AICORE::File::GetDirList(productionDir);
+					for (auto& td: tileDirs)
+					{
+						if (td.find("Tile_") == std::string::npos)
+						{
+							continue;
+						}
+						std::string  tilePath = productionDir + "/" + td + "/";
+						auto fbFiles = AICORE::File::GetFileList(tilePath, "JF_*.bin");
+						for (auto& fb : fbFiles)
+						{
+							JobFeedBack_s feedback;
+							if (feedback.load_with_retry(tilePath + fb, false))
+							{
+								if (feedback.Status == jobsta_e::STATUS_COMPLETE)
+									completed++;
+							}
+							break;// 每个tile正常情况下只有一个JF文件
+						}
+					}
+				}
+
+				rapidjson::Document doc;
+				doc.SetObject();
+				auto& alloc = doc.GetAllocator();
+
+				rapidjson::Value images(rapidjson::kObjectType);
+				images.AddMember("total_count", imageCount, alloc);
+				doc.AddMember("images", images, alloc);
+
+				rapidjson::Value tiles(rapidjson::kObjectType);
+				tiles.AddMember("total_count", totalTiles, alloc);
+				tiles.AddMember("success_count", completed, alloc);
+				doc.AddMember("tiles", tiles, alloc);
+
+				rapidjson::StringBuffer buffer;
+				rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+				doc.Accept(writer);
+
+				// 结算
+				std::string settleStatus = (completed = totalTiles) ? "success" : "fail";
+				auto settleResult = PointManager::SettlePoints(freeze_no, settleStatus, buffer.GetString());
+
+				{
+					std::ofstream done = AICORE::File::OpenOfstreamUtf8(sentinelDir + "settled.don", std::ios::out);
+					done << "done";
+				}
+			}
+			fclose(fp);
+		}
+	}
+}
 
 
 
@@ -245,21 +377,18 @@ void DoCleanupJobLockOnceWhileEngineStart()
 		}
 	}
 
+	// ===== 新增: 生成式任务孤儿锁清理 =====
 	QString genPendingDir(genPendingJobPath);
 	QString genRunningDir(genRunningJobPath);
 
 	QDir pendingGenDir(genPendingDir);
-	if (pendingGenDir.exists())
-	{
-		QFileInfoList fileInfoList = pendingGenDir.entryInfoList((QDir::NoDotAndDotDot | QDir::Files));
-		foreach(QFileInfo fileInfo, fileInfoList)
-		{
-			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive))
-			{
+	if (pendingGenDir.exists()) {
+		QFileInfoList fileInfoList = pendingGenDir.entryInfoList(QDir::NoDotAndDotDot | QDir::Files);
+		foreach (QFileInfo fileInfo, fileInfoList) {
+			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive)) {
 				QString postFix = JOB_INFO_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX;
-				QString jobFile = fileInfo.absoluteFilePath() + pathSeperator + fileInfo.baseName() + postFix;
-				if (!QFileInfo(jobFile).exists())
-				{
+				QString jobFile = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + postFix;
+				if (!QFileInfo(jobFile).exists()) {
 					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
 				}
 			}
@@ -267,16 +396,15 @@ void DoCleanupJobLockOnceWhileEngineStart()
 	}
 
 	QDir runningGenDir(genRunningDir);
-	if (runningGenDir.exists())
-	{
+	if (runningGenDir.exists()) {
 		QFileInfoList fileInfoList = runningGenDir.entryInfoList(QDir::NoDotAndDotDot | QDir::Files);
-		foreach(QFileInfo fileInfo, fileInfoList)
-		{
-			QString postFix = JOB_INFO_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX;
-			QString jobFile = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + postFix;
-			if (!QFileInfo(jobFile).exists())
-			{
-				toBeRemovedFileList.append(fileInfo.absoluteFilePath());
+		foreach (QFileInfo fileInfo, fileInfoList) {
+			if (!fileInfo.suffix().compare("lock", Qt::CaseInsensitive)) {
+				QString postFix = JOB_INFO_USE_BIN ? BINFILE_POSTFIX : JSONFILE_POSTFIX;
+				QString jobFile = fileInfo.absolutePath() + pathSeperator + fileInfo.baseName() + postFix;
+				if (!QFileInfo(jobFile).exists()) {
+					toBeRemovedFileList.append(fileInfo.absoluteFilePath());
+				}
 			}
 		}
 	}
@@ -2709,25 +2837,21 @@ int ExecTaskFileV2()
 		return -1;
 	}
 
-	if (type == ATLASTTASKTYPE)
-	{					
-					int resultCode = AI3D_SUCCESS;
+	std::string blkPath = projectPath + "/" + block + BLOCKBINFILE;
+	BlockObject::Task_Info blkInfo;
+	if (!blkInfo.ReadBlockInfoBin(blkPath))
+	{
+		LOGE("Open blkFile failed: " + blkPath);
+		return -1;
+	}
+	else
+	{
+		int imageNum = blkInfo.statisticinfo_.imagenum;
 
-					std::string postFix = "";
-					if (JOB_INFO_USE_BIN) {
-						postFix = BINFILE_POSTFIX;
-					}
-					else {
-						postFix = JSONFILE_POSTFIX;
-					}
-					std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
+		if (type == ATLASTTASKTYPE)
+		{
+						int resultCode = AI3D_SUCCESS;
 
-
-					JobFullInfo_s jobinfo(jobdirstr);
-					if (jobinfo.tg.IsTaskComplete(taskid))
-					{
-
-						QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
 						std::string postFix = "";
 						if (JOB_INFO_USE_BIN) {
 							postFix = BINFILE_POSTFIX;
@@ -2736,984 +2860,62 @@ int ExecTaskFileV2()
 							postFix = JSONFILE_POSTFIX;
 						}
 						std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
+
+
 						JobFullInfo_s jobinfo(jobdirstr);
-						jobFilePathLock = str2qstr(jobdirstr) + ".lock";
-
-						
-						FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
-
-						if (fp != NULL)
+						JobInfo_s& job = jobinfo.tg.job;// TODO CYJ 引用的是否被修改了
+						if (jobinfo.tg.IsTaskComplete(taskid))
 						{
-
-							feadback.Status = job_status_e::STATUS_COMPLETE;
-							feadback.Percent = COMPLETE_PROGRESS;
-							QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
-
-							jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
-							jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
-							jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
-							feadback.Msg = GetTaskEndingString(jobinfo.JobName);
-
-							hasFinishedJobMap.insert(str2qstr(jobinfo.JobName), 2);
-
-							jobinfo.tg.feedback = feadback;
-
-							jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
-
-							QString jobFileName = str2qstr(jobdirstr);
-							QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
-							QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
-							bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
-
-							if (!bsave)
+							// 积分结算 - begin
+							if (!job.point_info.points_settled && !job.point_info.freeze_no.empty())
 							{
-								if (bSpecialLog)
+								std::string settleStatus = "success";
+								rapidjson::Document doc;
+								doc.SetObject();
+								auto& alloc = doc.GetAllocator();
+
+								rapidjson::Value images(rapidjson::kObjectType);
+								images.AddMember("total_count", imageNum, alloc);
+								doc.AddMember("images", images, alloc);
+
+								rapidjson::StringBuffer buffer;
+								rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+								doc.Accept(writer);
+
+								PointSettleInfo settleResult = PointManager::SettlePoints(
+									job.point_info.freeze_no, settleStatus, buffer.GetString());
+
+								if (settleResult.consumed == 0 && settleResult.refunded == 0)
 								{
-									std::ostringstream oss;
-									oss.clear();
-									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
-									LOGI(oss.str());
+									// 结算失败
+									LOGE("settle failed, retry next cycle");
+									init();
+									return -1;
 								}
+								job.point_info.consumed = settleResult.consumed;
+								job.point_info.refunded = settleResult.refunded;
+								job.point_info.frozen_points = settleResult.frozen_points;
+								job.point_info.total_balance = settleResult.total_balance;
+								job.point_info.available_points = settleResult.available_points;
+								job.point_info.points_settled = true;
 							}
-							std::ostringstream strLine;
-							strLine.clear();
-							strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
-							PrintTimeSum(strLine.str());
-							ExportTimeSum(jobinfo);
-
-							std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-							if (bSpecialLog)
-							{
-								LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+							// 积分结算 - begin
+							QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+							std::string postFix = "";
+							if (JOB_INFO_USE_BIN) {
+								postFix = BINFILE_POSTFIX;
 							}
-
-							
-							QFile(jobFileName).remove();
-
-							
-							if (!feadback.save_with_retry(feedback_file))
-							{
-								if (bSpecialLog)
-								{
-									std::ostringstream oss;
-									oss.clear();
-									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
-									LOGI(oss.str());
-								}
+							else {
+								postFix = JSONFILE_POSTFIX;
 							}
+							std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
+							JobFullInfo_s jobinfo(jobdirstr);
+							jobFilePathLock = str2qstr(jobdirstr) + ".lock";
 
-							LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
 
-							init();
-							fclose(fp);
-							
+							FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
 
-
-							return resultCode;
-						}
-						else
-						{
-
-						}
-					}
-					else
-					{
-						LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
-						init();
-						Sleep(30);
-						return -1;
-					}
-	}
-	else if (type == ATCOMPLETETYPE)
-	{
-		{
-			int resultCode = AI3D_SUCCESS;
-
-			std::string postFix = "";
-			if (JOB_INFO_USE_BIN) {
-				postFix = BINFILE_POSTFIX;
-			}
-			else {
-				postFix = JSONFILE_POSTFIX;
-			}
-			std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
-
-
-			JobFullInfo_s jobinfo(jobdirstr);
-			if (jobinfo.tg.IsTaskComplete(taskid))
-			{
-
-				QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
-				std::string postFix = "";
-				if (JOB_INFO_USE_BIN) {
-					postFix = BINFILE_POSTFIX;
-				}
-				else {
-					postFix = JSONFILE_POSTFIX;
-				}
-				std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
-				JobFullInfo_s jobinfo(jobdirstr);
-				jobFilePathLock = str2qstr(jobdirstr) + ".lock";
-
-				
-				FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
-
-				if (fp != NULL)
-				{
-					
-					
-					{
-						feadback.Msg = atparam.task_.msg_;
-						feadback.save_with_retry(feedback_file);
-
-						
-						jobinfo.tg.tasksmap.at(taskid).Status = jobsta_e::STATUS_COMPLETE;
-						jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
-						bool bsave = jobinfo.save(jobdirstr);
-						std::ostringstream strLine;
-						strLine.clear();
-						strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
-						PrintTimeSum(strLine.str());
-						ExportTimeSum(jobinfo);
-						init();
-
-						LOGI("save jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun) + " resultCode:" + std::to_string(resultCode));
-
-						fclose(fp);
-
-					}
-
-					return resultCode;
-				}
-
-			}
-			else
-			{
-				LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
-				init();
-				Sleep(30);
-				return -1;
-			}
-		}
-	}
-	else 
-	{
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << " " << qstr2str(NewFileForRun) << " type " << type;;
-			LOGI(oss.str());
-
-		}
-		
-		
-		QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << __FUNCTION__ << " LINE " << __LINE__ << " " << "[" << timenow.toStdString() << "] Engine: Run Task ";
-			LOGI(oss.str());
-		}
-
-
-		path.append("/MoldAITask.exe");
-
-		QStringList argumentList;
-
-		
-		argumentList << NewFileForRun;
-
-		QString currentFileForRun = NewFileForRun;
-
-		qint64 pid = -1;
-
-		QProcess process;
-
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << "start " << qstr2str(NewFileForRun);
-			LOGI(oss.str());
-			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
-		}
-		QObject::connect(&process, &QProcess::readyRead, [&] {
-			while (process.canReadLine())
-			{
-				QString strTaskOutput = process.readLine();
-				
-
-				if (strTaskOutput.contains("Exception:", Qt::CaseSensitive))
-				{
-					exceptionMsg = strTaskOutput;
-				}
-			}
-			});
-
-		hasFinishedJobMap.insert(str2qstr(jobname), 1);
-
-		process.start(path, argumentList);
-
-		int state = 0;
-		
-		bool suce = process.waitForStarted(-1);
-
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << " " << qstr2str(NewFileForRun) << " succ " << suce;
-			LOGI(oss.str());
-
-		}
-
-		if (!suce)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << " " << qstr2str(NewFileForRun) << " MoldAITask start failed. exe=" << qstr2str(path)
-				<< " err=" << process.errorString().toUtf8().constData();
-			LOGI(oss.str());
-			
-
-			
-
-			if (fpTaskLock != NULL)
-			{
-				fclose(fpTaskLock);
-				fpTaskLock = NULL;
-				LOGI(qstr2str(NewFileForRun) + "start failed,release task file lock.");
-			}
-
-			return -1;
-		}
-
-		
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			
-			oss << qstr2str(NewFileForRun) << " started successfully." << suce;
-
-
-			LOGI(oss.str());
-
-			
-		}
-
-
-		taskrunning = true;
-
-		
-		process.waitForFinished(-1);
-		int iTaskRetVal = -1;
-
-		if (process.exitStatus() == QProcess::NormalExit)
-		{
-
-			iTaskRetVal = process.exitCode();
-			if (iTaskRetVal == 1099)
-			{
-				if (exceptionMsg.isEmpty())
-				{
-					exceptionMsg = "MoldAITask Crashed.";
-				}
-			}
-
-			if (bSpecialLog)
-			{
-				std::ostringstream oss;
-				oss.clear();
-				
-							
-				oss << " task exit with code:" << process.exitCode();
-				LOGI(oss.str());
-			}
-
-			
-			if (iTaskRetVal < MOLDAI_SUCCESS)
-			{
-				
-				process.close();
-
-				
-				if (bSpecialLog)
-				{
-
-					std::ostringstream oss;
-					oss.clear();
-					
-								
-					oss << " task exit with code(less than 100000):" << process.exitCode();
-					LOGI(oss.str());
-				}
-
-				ATTaskInfo attask;
-				attask.load(qstr2str(NewFileForRun));
-				std::string postFix = "";
-				if (JOB_INFO_USE_BIN) {
-					postFix = BINFILE_POSTFIX;
-				}
-				else {
-					postFix = JSONFILE_POSTFIX;
-				}
-				std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + postFix;
-
-				JobFullInfo_s jobinfo(job_file);
-				QString jobFilePathLock = str2qstr(job_file) + ".lock";
-				FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
-
-				if (fp != NULL)
-				{
-					std::ostringstream strLine;
-					strLine.clear();
-					strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
-					PrintTimeSum(strLine.str());
-					
-					ExportTimeSum(jobinfo);
-					fclose(fp);
-
-					
-					LOGI("save job's time sum info::" + job_file);
-				}
-
-
-				if (fpTaskLock != NULL)
-				{
-					fclose(fpTaskLock);
-					fpTaskLock = NULL;
-					LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
-				}
-				std::string msg = fileName + " task value is less than 100000.";
-				std::cout << msg << std::endl;
-				LOGI(msg);
-
-
-				int postResult = ExecTaskPostHandle(currentFileForRun, path);
-                if (postResult != MOLDAI_USER_CANCEL && postResult != MOLDAI_SUCCESS) {
-					std::string errStr = "get post  handle error:" + std::to_string(postResult);
-					LOGI(errStr);
-					LogConsole(errStr);
-                }
-				return -1;
-				
-			}
-
-					
-
-		}
-		else
-		{
-			
-			
-			std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
-			if (bSpecialLog)
-			{
-				std::ostringstream oss;
-				oss.clear();
-				
-				
-				oss << qstr2str(NewFileForRun) << " task crashed:" << process.exitCode();
-				LOGI(oss.str());
-			}
-
-			process.close();
-
-			if (fpTaskLock != NULL)
-			{
-				fclose(fpTaskLock);
-				fpTaskLock = NULL;
-				LOGI("relase taskfile lock:" + qstr2str(NewFileForRun));
-			}
-
-			exceptionMsg = "MoldAITask Crashed.";
-			
-			
-			iTaskRetVal = 1099;
-		}
-		process.close();
-
-		bLoadFeedbackFileError = false;
-		bool readrtn = feadback.load_with_retry(feedback_file);
-		if (!readrtn)
-		{
-			bLoadFeedbackFileError = true;
-		}
-		if (iTaskRetVal == MOLDAI_SUCCESS && type == ATSTARTTYPE && fabs(feadback.Percent - 1.0) <= 0.0001)
-		{
-			
-			if (bSpecialLog)
-			{
-				std::ostringstream oss;
-				
-				
-				
-
-				oss.clear();
-				oss << qstr2str(NewFileForRun) << " gentask finish: " << feadback.Percent;
-				LOGI(oss.str());
-			}
-
-			
-		}
-
-		
-		timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
-
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "[" << timenow.toStdString() << "] Engine: End Task " << state;
-			LOGI(oss.str());
-		}
-
-		
-		Sleep(1000);
-
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << "to process complete " << gotNewPendingJobFile << " " << qstr2str(NewFileForRun);
-			LOGI(oss.str());
-		}
-
-		if (!gotNewPendingJobFile && NewFileForRun.isEmpty())
-		{
-			if (fpTaskLock != NULL)
-			{
-				fclose(fpTaskLock);
-				fpTaskLock = NULL;
-				LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
-			}
-			std::string msg = std::to_string(gotNewPendingJobFile) + " " + NewFileForRun.QString::toStdString() + " !gotNewPendingJobFile and NewFileForRun.isEmpty()";
-			
-			LOGI(msg);
-			return -1;
-		}
-		std::string postFix = "";
-		if (JOB_INFO_USE_BIN) {
-			postFix = BINFILE_POSTFIX;
-		}
-		else {
-			postFix = JSONFILE_POSTFIX;
-		}
-		std::string jobdirstr = qstr2str(ENGINEJOBPATH) + "/Running/" + atparam.job_ + postFix;
-		std::string jobdirstr_cancelled = qstr2str(ENGINEJOBPATH) + "/Cancelled/" + atparam.job_ + postFix;
-		std::string jobdirstr_failed = qstr2str(ENGINEJOBPATH) + "/Failed/" + atparam.job_ + postFix;
-
-		JobFullInfo_s jobinfo(jobdirstr);
-		QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
-
-		bLoadFeedbackFileError = false;
-		readrtn = feadback.load_with_retry(feedback_file);
-		if (!readrtn)
-		{
-			bLoadFeedbackFileError = true;
-		}
-
-		if (bSpecialLog)
-		{
-			std::ostringstream oss;
-			oss.clear();
-			oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete .read feadback " << (feedback_file) << " " << readrtn
-				<< " " << feadback.Status << " " << feadback.TaskRetVal << " " << feadback.Percent;
-			
-		}
-
-		
-		
-		if (bLoadFeedbackFileError)
-		{
-			if (bSpecialLog)
-			{
-				std::ostringstream oss;
-				oss.clear();
-				oss << "load feedback failed." << (feedback_file) << " " << readrtn
-					<< " " << feadback.Status << " " << iTaskRetVal << " " << feadback.Percent;
-				LOGI(oss.str());
-			}
-		}
-		
-
-		
-		
-		
-		
-		if (iTaskRetVal > MOLDAI_SUCCESS ||
-			!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE || feadback.Status == jobsta_e::STATUS_FAILURE))
-		{
-			
-			std::ostringstream oss;
-			oss.clear();
-			oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " save feedback with cancelled status failed." << " bLoadFeedbackFileError  " << bLoadFeedbackFileError <<
-				" feadback status " << feadback.Status << " task value " << iTaskRetVal;
-			LOGI(oss.str());
-			if ((iTaskRetVal == MOLDAI_USER_CANCEL) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
-			{
-				
-				
-				
-				hasFinishedJobMap.insert(str2qstr(jobname), 3);
-
-				if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
-				{
-				}
-				else
-				{
-					feadback.Status = jobsta_e::STATUS_CANCLE;
-					if (!feadback.save_with_retry(feedback_file))
-					{
-						if (bSpecialLog)
-						{
-							std::ostringstream oss;
-							oss.clear();
-							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with cancelled status failed.";
-							LOGI(oss.str());
-						}
-					}
-				}
-
-				
-				QFileInfo finfoRunning(str2qstr(jobdirstr));
-				QFileInfo finfoCancelled(str2qstr(jobdirstr_cancelled));
-
-				bool bCancelledExist = finfoCancelled.exists();
-				bool bRunningExist = finfoRunning.exists();
-
-				if (bCancelledExist)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " bCancelledExist";
-					
-					LOGI(msg);
-					return -1;
-				}
-
-				if (!bRunningExist)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " !bRunningExist";
-					std::cout << msg << std::endl;
-					LOGI(msg);
-					return -1;
-				}
-
-				
-				
-				
-				jobinfo.tg.feedback = feadback;
-				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
-				jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
-				jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
-
-				
-				bool bsave = jobinfo.save(jobdirstr_cancelled);
-				if (!bsave)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
-						LOGI(oss.str());
-					}
-				}
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-				if (bSpecialLog)
-				{
-					LOGI("remove jobfile:" + jobdirstr);
-				}
-
-				QFile(str2qstr(jobdirstr)).remove();
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-				QFileInfo finfoRunning2(str2qstr(jobdirstr));
-				QFileInfo finfoCancelled2(str2qstr(jobdirstr_cancelled));
-
-				
-				bCancelledExist = finfoCancelled2.exists();
-				bRunningExist = finfoRunning2.exists();
-
-				if (!bCancelledExist || bRunningExist)
-				{
-					if (bSpecialLog)
-					{
-						
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bCancelledExist << bRunningExist;
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " !bCancelledExist || bRunningExist";
-					
-					LOGI(msg);
-					return -1;
-				}
-
-				if (fpTaskLock != NULL)
-				{
-					fclose(fpTaskLock);
-					fpTaskLock = NULL;
-				}
-				std::string msg = __LINE__ + " more than 100000.";
-				
-				LOGI(msg);
-				return -1;
-			}
-			else if ((iTaskRetVal > MOLDAI_SUCCESS) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
-			{
-
-
-				hasFinishedJobMap.insert(str2qstr(jobname), 4);
-				
-				std::ostringstream oss;
-				oss.clear();
-				oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
-				LOGI(oss.str());
-				
-				if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
-				{
-					std::ostringstream oss;
-					oss.clear();
-					oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " !bLoadFeedbackFileError failure  ";
-					LOGI(oss.str());
-				}
-				else
-				{
-					if (!exceptionMsg.isEmpty())
-					{
-						feadback.Msg = qstr2str(exceptionMsg);
-						std::ostringstream oss;
-						oss.clear();
-						oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  "<< feadback.Msg;
-						LOGI(oss.str());
-					}
-
-					feadback.Status = jobsta_e::STATUS_FAILURE;
-					
-					std::ostringstream oss;
-					oss.clear();
-					oss << "====+++==" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
-					LOGI(oss.str());
-					if (!feadback.save_with_retry(feedback_file))
-					{
-						if (bSpecialLog)
-						{
-							std::ostringstream oss;
-							oss.clear();
-							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with failed status failed.";
-							LOGI(oss.str());
-						}
-					}
-				}
-
-				QFileInfo finfoRunning(str2qstr(jobdirstr));
-				QFileInfo finfoFailed(str2qstr(jobdirstr_failed));
-
-				bool bFailedExist = finfoFailed.exists();
-				bool bRunningExist = finfoRunning.exists();
-
-				if (bFailedExist)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in failed dir.";
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " bFailedExist.";
-					
-					LOGI(msg);
-					return -1;
-				}
-
-				if (!bRunningExist)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " !bRunningExist.";
-					
-					LOGI(msg);
-					return -1;
-				}
-
-
-				jobinfo.tg.feedback = feadback;
-				QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
-				jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
-				jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
-
-				
-				bool bsave = jobinfo.save(jobdirstr_failed);
-				if (!bsave)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
-						LOGI(oss.str());
-					}
-				}
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-				if (bSpecialLog)
-				{
-					LOGI("remove jobfile:" + jobdirstr);
-				}
-
-				QFile(str2qstr(jobdirstr)).remove();
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-				
-				QFileInfo finfoRunning2(str2qstr(jobdirstr));
-				QFileInfo finfoFailed2(str2qstr(jobdirstr_failed));
-
-				bFailedExist = finfoFailed2.exists();
-				bRunningExist = finfoRunning2.exists();
-
-				
-				
-
-				if (!bFailedExist || bRunningExist)
-				{
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bFailedExist << bRunningExist;
-						
-						LOGI(oss.str());
-					}
-
-					if (fpTaskLock != NULL)
-					{
-						fclose(fpTaskLock);
-						fpTaskLock = NULL;
-					}
-					std::string msg = __LINE__ + " !bFailedExist || bRunningExist.";
-					
-					LOGI(msg);
-					return -1;
-				}
-
-				if (fpTaskLock != NULL)
-				{
-					fclose(fpTaskLock);
-					fpTaskLock = NULL;
-				}
-				std::string msg = __LINE__ + " to check.";
-				
-				LOGI(msg);
-				return -1;
-			}
-		}
-
-		if (bLoadFeedbackFileError)
-		{
-			bLoadFeedbackFileError = false;
-			
-			feadback.Status = jobsta_e::STATUS_RUNNING;
-		}
-
-		if (!bLoadFeedbackFileError && feadback.Status == jobsta_e::STATUS_RUNNING)
-		{
-			if (bSpecialLog)
-			{
-				std::ostringstream oss;
-				oss.clear();
-				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 1";
-				LOGI(oss.str());
-			}
-
-			
-			
-			{
-				if (bSpecialLog)
-				{
-					std::ostringstream oss;
-					oss.clear();
-					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 2";
-					
-				}
-
-				{
-					if (type == ATLASTTASKTYPE)
-					{
-						if (bSpecialLog)
-						{
-							std::ostringstream oss;
-							oss.clear();
-							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete error";
-							LOGI(oss.str());
-						}
-
-						
-
-						if (fpTaskLock != NULL)
-						{
-							fclose(fpTaskLock);
-							fpTaskLock = NULL;
-							LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
-						}
-						std::string msg = __LINE__ + " complete progress.";
-						
-						LOGI(msg);
-						return -1;
-					}
-
-					if (bSpecialLog)
-					{
-						std::ostringstream oss;
-						oss.clear();
-						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 3";
-						LOGI(oss.str());
-					}
-					
-					FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
-
-					if (fp != NULL)
-					{
-						
-
-						if (type == ATSTARTTYPE) 
-						{
-							std::vector<std::string> taskList;
-							std::string dirPath = qstr2str(getATBlockJobPath(str2qstr(fileName)));
-
-							std::string dirnew = getATBlockJobPath(fileName);
-							getTaskList(dirPath, taskList);
-
-							int task_count = taskList.size();
-
-							QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
-
-							jobinfo.tg.tasksmap.at(0).runinfo.EndTime = datatime.toStdString();
-							jobinfo.tg.tasksmap.at(0).Status = int(job_status_e::STATUS_COMPLETE);
-							jobinfo.tg.tasksmap.at(0).Percent = 100.0;
-
-							// Rebuild mapping for current job
-							maptaskfunction.clear();
-							maptaskfunction[0] = StepAT_function.at(GenTasks);
-							
-							for (auto taskfile : taskList)
-							{
-								ATTaskInfo task;
-								task.load(taskfile);
-
-								Task_s newtask;
-								if (task.task_.depends_.size() > 0)
-									newtask.Depends.insert(task.task_.depends_.begin(), task.task_.depends_.end());
-								newtask.FatherId = task.task_.fatherId_;
-								newtask.Percent = 0;
-								newtask.Status = int(job_status_e::STATUS_PENDDING);
-								
-								newtask.Msg = task.task_.msg_;
-								newtask.Type = task.task_.type_;
-								newtask.Id = task.task_.id_;
-								if (bSpecialLog)
-								{
-									std::ostringstream oss;
-									oss.clear();
-									oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << task.task_.id_ << " " << "to process complete 24";
-									LOGI(oss.str());
-								}
-								newtask.ItemPath = jobinfo.tg.tasksmap.at(0).ItemPath;
-								newtask.ProjectPath = jobinfo.tg.tasksmap.at(0).ProjectPath;
-
-								newtask.ItemPath2 = jobinfo.tg.tasksmap.at(0).ItemPath2;
-								newtask.ProjectPath2 = jobinfo.tg.tasksmap.at(0).ProjectPath2;
-
-								LOGI("before add task:" + jobinfo.tg.tasksmap.size());
-								jobinfo.tg.tasksmap[newtask.Id] = newtask;
-								LOGI("after add task:" + jobinfo.tg.tasksmap.size());
-								maptaskfunction[newtask.Id] = task.task_.fun_name_;
-							}
-							if (bSpecialLog)
-							{
-								std::ostringstream oss;
-								oss.clear();
-								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << (jobdirstr) << " " << jobinfo.tg.tasksmap.at(taskid).Status << " "
-									<< jobinfo.tg.tasksmap.at(taskid).Percent << " " << datatime.toStdString() << " " << "to process complete 4";
-								LOGI(oss.str());
-							}
-							
-							jobinfo.save(jobdirstr);
-
-							LOGI("save jobfile:" + jobdirstr);
-
-
-							std::ostringstream strLine;
-							strLine.clear();
-							strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
-							PrintTimeSum(strLine.str());
-						
-							init();
-							
-							fclose(fp);
-						}
-						else
-						{
-							if (type == RECONSTRUCTIONSTARTTYPE) 
+							if (fp != NULL)
 							{
 
 								feadback.Status = job_status_e::STATUS_COMPLETE;
@@ -3759,10 +2961,10 @@ int ExecTaskFileV2()
 									LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
 								}
 
-								
+
 								QFile(jobFileName).remove();
 
-								
+
 								if (!feadback.save_with_retry(feedback_file))
 								{
 									if (bSpecialLog)
@@ -3780,19 +2982,941 @@ int ExecTaskFileV2()
 								fclose(fp);
 
 
-								
+
+								return resultCode;
 							}
 							else
 							{
-								jobinfo.tg.feedback = feadback;
-								Run_s runinfo;
+
+							}
+						}
+						else
+						{
+							LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
+							init();
+							Sleep(30);
+							return -1;
+						}
+		}
+		else if (type == ATCOMPLETETYPE)
+		{
+			{
+				int resultCode = AI3D_SUCCESS;
+
+				std::string postFix = "";
+				if (JOB_INFO_USE_BIN) {
+					postFix = BINFILE_POSTFIX;
+				}
+				else {
+					postFix = JSONFILE_POSTFIX;
+				}
+				std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
+
+
+				JobFullInfo_s jobinfo(jobdirstr);
+				JobInfo_s& job = jobinfo.tg.job;
+				int totalTilesNum = 0;
+				int completedTilesNum = 0;
+				for (const auto& kv : jobinfo.tg.tasksmap)
+				{
+					const Task_s& task = kv.second;
+					if (task.Type == ATCOMPLETETYPE || task.Type == ATCOMPLETETYPE)
+					{
+						continue;
+					}
+					totalTilesNum++;
+					if (task.Status == jobsta_e::STATUS_COMPLETE)
+					{
+						completedTilesNum++;
+					}
+
+				}
+				if (jobinfo.tg.IsTaskComplete(taskid))
+				{
+
+					// 积分结算 - begin
+					if (!job.point_info.points_settled && !job.point_info.freeze_no.empty())
+					{
+						std::string settleStatus = "success";
+						rapidjson::Document doc;
+						doc.SetObject();
+						auto& alloc = doc.GetAllocator();
+
+						rapidjson::Value images(rapidjson::kObjectType);
+						images.AddMember("total_count", imageNum, alloc);
+						doc.AddMember("images", images, alloc);
+
+						rapidjson::Value tiles(rapidjson::kObjectType);
+						tiles.AddMember("total_count", totalTilesNum, alloc);
+						tiles.AddMember("success_count", completedTilesNum, alloc);
+						doc.AddMember("tiles", tiles, alloc);
+
+						rapidjson::StringBuffer buffer;
+						rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+						doc.Accept(writer);
+
+						PointSettleInfo settleResult = PointManager::SettlePoints(
+							job.point_info.freeze_no, settleStatus, buffer.GetString());
+
+						if (settleResult.consumed == 0 && settleResult.refunded == 0)
+						{
+							// 结算失败
+							LOGE("settle failed, retry next cycle");
+							init();
+							return -1;
+						}
+						job.point_info.consumed = settleResult.consumed;
+						job.point_info.refunded = settleResult.refunded;
+						job.point_info.frozen_points = settleResult.frozen_points;
+						job.point_info.total_balance = settleResult.total_balance;
+						job.point_info.available_points = settleResult.available_points;
+						job.point_info.points_settled = true;
+					}
+					// 积分结算 - begin
+					QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+					std::string postFix = "";
+					if (JOB_INFO_USE_BIN) {
+						postFix = BINFILE_POSTFIX;
+					}
+					else {
+						postFix = JSONFILE_POSTFIX;
+					}
+					std::string jobdirstr = qstr2str(runningJobPath) + "/" + jobname + postFix;
+					JobFullInfo_s jobinfo(jobdirstr);
+					jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+
+
+					FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
+
+					if (fp != NULL)
+					{
+
+
+						{
+							feadback.Msg = atparam.task_.msg_;
+							feadback.save_with_retry(feedback_file);
+
+
+							jobinfo.tg.tasksmap.at(taskid).Status = jobsta_e::STATUS_COMPLETE;
+							jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+							bool bsave = jobinfo.save(jobdirstr);
+							std::ostringstream strLine;
+							strLine.clear();
+							strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+							PrintTimeSum(strLine.str());
+							ExportTimeSum(jobinfo);
+							init();
+
+							LOGI("save jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun) + " resultCode:" + std::to_string(resultCode));
+
+							fclose(fp);
+
+						}
+
+						return resultCode;
+					}
+
+				}
+				else
+				{
+					LOGI("jobfile:" + jobdirstr + " taskfile:" + qstr2str(NewFileForRun));
+					init();
+					Sleep(30);
+					return -1;
+				}
+			}
+		}
+		else
+		{
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << " " << qstr2str(NewFileForRun) << " type " << type;;
+				LOGI(oss.str());
+
+			}
+
+
+			QString timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << " " << "[" << timenow.toStdString() << "] Engine: Run Task ";
+				LOGI(oss.str());
+			}
+
+
+			path.append("/MoldAITask.exe");
+
+			QStringList argumentList;
+
+
+			argumentList << NewFileForRun;
+
+			QString currentFileForRun = NewFileForRun;
+
+			qint64 pid = -1;
+
+			QProcess process;
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << "start " << qstr2str(NewFileForRun);
+				LOGI(oss.str());
+				std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+			}
+			QObject::connect(&process, &QProcess::readyRead, [&] {
+				while (process.canReadLine())
+				{
+					QString strTaskOutput = process.readLine();
+
+
+					if (strTaskOutput.contains("Exception:", Qt::CaseSensitive))
+					{
+						exceptionMsg = strTaskOutput;
+					}
+				}
+				});
+
+			hasFinishedJobMap.insert(str2qstr(jobname), 1);
+
+			process.start(path, argumentList);
+
+			int state = 0;
+
+			bool suce = process.waitForStarted(-1);
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << " " << qstr2str(NewFileForRun) << " succ " << suce;
+				LOGI(oss.str());
+
+			}
+
+			if (!suce)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << " " << qstr2str(NewFileForRun) << " MoldAITask start failed. exe=" << qstr2str(path)
+					<< " err=" << process.errorString().toUtf8().constData();
+				LOGI(oss.str());
+
+
+
+
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+					LOGI(qstr2str(NewFileForRun) + "start failed,release task file lock.");
+				}
+
+				return -1;
+			}
+
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+
+				oss << qstr2str(NewFileForRun) << " started successfully." << suce;
+
+
+				LOGI(oss.str());
+
+
+			}
+
+
+			taskrunning = true;
+
+
+			process.waitForFinished(-1);
+			int iTaskRetVal = -1;
+
+			if (process.exitStatus() == QProcess::NormalExit)
+			{
+
+				iTaskRetVal = process.exitCode();
+				if (iTaskRetVal == 1099)
+				{
+					if (exceptionMsg.isEmpty())
+					{
+						exceptionMsg = "MoldAITask Crashed.";
+					}
+				}
+
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+
+
+					oss << " task exit with code:" << process.exitCode();
+					LOGI(oss.str());
+				}
+
+
+				if (iTaskRetVal < MOLDAI_SUCCESS)
+				{
+
+					process.close();
+
+
+					if (bSpecialLog)
+					{
+
+						std::ostringstream oss;
+						oss.clear();
+
+
+						oss << " task exit with code(less than 100000):" << process.exitCode();
+						LOGI(oss.str());
+					}
+
+					ATTaskInfo attask;
+					attask.load(qstr2str(NewFileForRun));
+					std::string postFix = "";
+					if (JOB_INFO_USE_BIN) {
+						postFix = BINFILE_POSTFIX;
+					}
+					else {
+						postFix = JSONFILE_POSTFIX;
+					}
+					std::string job_file = qstr2str(Settings::getEngineJobQueue()) + "/Running/" + attask.job_ + postFix;
+
+					JobFullInfo_s jobinfo(job_file);
+					QString jobFilePathLock = str2qstr(job_file) + ".lock";
+					FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
+
+					if (fp != NULL)
+					{
+						std::ostringstream strLine;
+						strLine.clear();
+						strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+						PrintTimeSum(strLine.str());
+
+						ExportTimeSum(jobinfo);
+						fclose(fp);
+
+
+						LOGI("save job's time sum info::" + job_file);
+					}
+
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+						LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
+					}
+					std::string msg = fileName + " task value is less than 100000.";
+					std::cout << msg << std::endl;
+					LOGI(msg);
+
+
+					int postResult = ExecTaskPostHandle(currentFileForRun, path);
+					if (postResult != MOLDAI_USER_CANCEL && postResult != MOLDAI_SUCCESS) {
+						std::string errStr = "get post  handle error:" + std::to_string(postResult);
+						LOGI(errStr);
+						LogConsole(errStr);
+					}
+					return -1;
+
+				}
+
+
+
+			}
+			else
+			{
+
+
+				std::cout << __FILE__ << " " << __FUNCTION__ << " " << __LINE__ << std::endl;
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+
+
+					oss << qstr2str(NewFileForRun) << " task crashed:" << process.exitCode();
+					LOGI(oss.str());
+				}
+
+				process.close();
+
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+					LOGI("relase taskfile lock:" + qstr2str(NewFileForRun));
+				}
+
+				exceptionMsg = "MoldAITask Crashed.";
+
+
+				iTaskRetVal = 1099;
+			}
+			process.close();
+
+			bLoadFeedbackFileError = false;
+			bool readrtn = feadback.load_with_retry(feedback_file);
+			if (!readrtn)
+			{
+				bLoadFeedbackFileError = true;
+			}
+			if (iTaskRetVal == MOLDAI_SUCCESS && type == ATSTARTTYPE && fabs(feadback.Percent - 1.0) <= 0.0001)
+			{
+
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+
+
+
+
+					oss.clear();
+					oss << qstr2str(NewFileForRun) << " gentask finish: " << feadback.Percent;
+					LOGI(oss.str());
+				}
+
+
+			}
+
+
+			timenow = (QDateTime::currentDateTime()).toString("yyyy-MM-dd hh:mm:ss.zzz");
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "[" << timenow.toStdString() << "] Engine: End Task " << state;
+				LOGI(oss.str());
+			}
+
+
+			Sleep(1000);
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << "to process complete " << gotNewPendingJobFile << " " << qstr2str(NewFileForRun);
+				LOGI(oss.str());
+			}
+
+			if (!gotNewPendingJobFile && NewFileForRun.isEmpty())
+			{
+				if (fpTaskLock != NULL)
+				{
+					fclose(fpTaskLock);
+					fpTaskLock = NULL;
+					LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
+				}
+				std::string msg = std::to_string(gotNewPendingJobFile) + " " + NewFileForRun.QString::toStdString() + " !gotNewPendingJobFile and NewFileForRun.isEmpty()";
+
+				LOGI(msg);
+				return -1;
+			}
+			std::string postFix = "";
+			if (JOB_INFO_USE_BIN) {
+				postFix = BINFILE_POSTFIX;
+			}
+			else {
+				postFix = JSONFILE_POSTFIX;
+			}
+			std::string jobdirstr = qstr2str(ENGINEJOBPATH) + "/Running/" + atparam.job_ + postFix;
+			std::string jobdirstr_cancelled = qstr2str(ENGINEJOBPATH) + "/Cancelled/" + atparam.job_ + postFix;
+			std::string jobdirstr_failed = qstr2str(ENGINEJOBPATH) + "/Failed/" + atparam.job_ + postFix;
+
+			JobFullInfo_s jobinfo(jobdirstr);
+			QString jobFilePathLock = str2qstr(jobdirstr) + ".lock";
+
+			bLoadFeedbackFileError = false;
+			readrtn = feadback.load_with_retry(feedback_file);
+			if (!readrtn)
+			{
+				bLoadFeedbackFileError = true;
+			}
+
+			if (bSpecialLog)
+			{
+				std::ostringstream oss;
+				oss.clear();
+				oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete .read feadback " << (feedback_file) << " " << readrtn
+					<< " " << feadback.Status << " " << feadback.TaskRetVal << " " << feadback.Percent;
+
+			}
+
+
+
+			if (bLoadFeedbackFileError)
+			{
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << "load feedback failed." << (feedback_file) << " " << readrtn
+						<< " " << feadback.Status << " " << iTaskRetVal << " " << feadback.Percent;
+					LOGI(oss.str());
+				}
+			}
+
+
+
+
+
+
+			if (iTaskRetVal > MOLDAI_SUCCESS ||
+				!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE || feadback.Status == jobsta_e::STATUS_FAILURE))
+			{
+
+				std::ostringstream oss;
+				oss.clear();
+				oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " save feedback with cancelled status failed." << " bLoadFeedbackFileError  " << bLoadFeedbackFileError <<
+					" feadback status " << feadback.Status << " task value " << iTaskRetVal;
+				LOGI(oss.str());
+				if ((iTaskRetVal == MOLDAI_USER_CANCEL) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
+				{
+
+
+
+					hasFinishedJobMap.insert(str2qstr(jobname), 3);
+
+					if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_CANCLE))
+					{
+					}
+					else
+					{
+						feadback.Status = jobsta_e::STATUS_CANCLE;
+						if (!feadback.save_with_retry(feedback_file))
+						{
+							if (bSpecialLog)
+							{
+								std::ostringstream oss;
+								oss.clear();
+								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with cancelled status failed.";
+								LOGI(oss.str());
+							}
+						}
+					}
+
+
+					QFileInfo finfoRunning(str2qstr(jobdirstr));
+					QFileInfo finfoCancelled(str2qstr(jobdirstr_cancelled));
+
+					bool bCancelledExist = finfoCancelled.exists();
+					bool bRunningExist = finfoRunning.exists();
+
+					if (bCancelledExist)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in cancelled dir.";
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " bCancelledExist";
+
+						LOGI(msg);
+						return -1;
+					}
+
+					if (!bRunningExist)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " !bRunningExist";
+						std::cout << msg << std::endl;
+						LOGI(msg);
+						return -1;
+					}
+
+
+
+
+					jobinfo.tg.feedback = feadback;
+					QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+					jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
+					jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+
+					bool bsave = jobinfo.save(jobdirstr_cancelled);
+					if (!bsave)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
+							LOGI(oss.str());
+						}
+					}
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+					if (bSpecialLog)
+					{
+						LOGI("remove jobfile:" + jobdirstr);
+					}
+
+					QFile(str2qstr(jobdirstr)).remove();
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+					QFileInfo finfoRunning2(str2qstr(jobdirstr));
+					QFileInfo finfoCancelled2(str2qstr(jobdirstr_cancelled));
+
+
+					bCancelledExist = finfoCancelled2.exists();
+					bRunningExist = finfoRunning2.exists();
+
+					if (!bCancelledExist || bRunningExist)
+					{
+						if (bSpecialLog)
+						{
+
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bCancelledExist << bRunningExist;
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " !bCancelledExist || bRunningExist";
+
+						LOGI(msg);
+						return -1;
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " more than 100000.";
+
+					LOGI(msg);
+					return -1;
+				}
+				else if ((iTaskRetVal > MOLDAI_SUCCESS) || !bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
+				{
+
+
+					hasFinishedJobMap.insert(str2qstr(jobname), 4);
+
+					std::ostringstream oss;
+					oss.clear();
+					oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
+					LOGI(oss.str());
+
+					if (!bLoadFeedbackFileError && (feadback.Status == jobsta_e::STATUS_FAILURE))
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << " !bLoadFeedbackFileError failure  ";
+						LOGI(oss.str());
+					}
+					else
+					{
+						if (!exceptionMsg.isEmpty())
+						{
+							feadback.Msg = qstr2str(exceptionMsg);
+							std::ostringstream oss;
+							oss.clear();
+							oss << "======" << __FUNCTION__ << " LINE " << __LINE__ << "  "<< feadback.Msg;
+							LOGI(oss.str());
+						}
+
+						feadback.Status = jobsta_e::STATUS_FAILURE;
+
+						std::ostringstream oss;
+						oss.clear();
+						oss << "====+++==" << __FUNCTION__ << " LINE " << __LINE__ << "  ";
+						LOGI(oss.str());
+						if (!feadback.save_with_retry(feedback_file))
+						{
+							if (bSpecialLog)
+							{
+								std::ostringstream oss;
+								oss.clear();
+								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "save feedback with failed status failed.";
+								LOGI(oss.str());
+							}
+						}
+					}
+
+					QFileInfo finfoRunning(str2qstr(jobdirstr));
+					QFileInfo finfoFailed(str2qstr(jobdirstr_failed));
+
+					bool bFailedExist = finfoFailed.exists();
+					bool bRunningExist = finfoRunning.exists();
+
+					if (bFailedExist)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile already in failed dir.";
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " bFailedExist.";
+
+						LOGI(msg);
+						return -1;
+					}
+
+					if (!bRunningExist)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "jobfile why not exists in running dir???";
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " !bRunningExist.";
+
+						LOGI(msg);
+						return -1;
+					}
+
+
+					jobinfo.tg.feedback = feadback;
+					QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+					jobinfo.tg.tasksmap.at(taskid).Status = int(feadback.Status);
+					jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+
+					bool bsave = jobinfo.save(jobdirstr_failed);
+					if (!bsave)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!";
+							LOGI(oss.str());
+						}
+					}
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+					if (bSpecialLog)
+					{
+						LOGI("remove jobfile:" + jobdirstr);
+					}
+
+					QFile(str2qstr(jobdirstr)).remove();
+
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+
+					QFileInfo finfoRunning2(str2qstr(jobdirstr));
+					QFileInfo finfoFailed2(str2qstr(jobdirstr_failed));
+
+					bFailedExist = finfoFailed2.exists();
+					bRunningExist = finfoRunning2.exists();
+
+
+
+
+					if (!bFailedExist || bRunningExist)
+					{
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into failed dir!!!" << bFailedExist << bRunningExist;
+
+							LOGI(oss.str());
+						}
+
+						if (fpTaskLock != NULL)
+						{
+							fclose(fpTaskLock);
+							fpTaskLock = NULL;
+						}
+						std::string msg = __LINE__ + " !bFailedExist || bRunningExist.";
+
+						LOGI(msg);
+						return -1;
+					}
+
+					if (fpTaskLock != NULL)
+					{
+						fclose(fpTaskLock);
+						fpTaskLock = NULL;
+					}
+					std::string msg = __LINE__ + " to check.";
+
+					LOGI(msg);
+					return -1;
+				}
+			}
+
+			if (bLoadFeedbackFileError)
+			{
+				bLoadFeedbackFileError = false;
+
+				feadback.Status = jobsta_e::STATUS_RUNNING;
+			}
+
+			if (!bLoadFeedbackFileError && feadback.Status == jobsta_e::STATUS_RUNNING)
+			{
+				if (bSpecialLog)
+				{
+					std::ostringstream oss;
+					oss.clear();
+					oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 1";
+					LOGI(oss.str());
+				}
+
+
+
+				{
+					if (bSpecialLog)
+					{
+						std::ostringstream oss;
+						oss.clear();
+						oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 2";
+
+					}
+
+					{
+						if (type == ATLASTTASKTYPE)
+						{
+							if (bSpecialLog)
+							{
+								std::ostringstream oss;
+								oss.clear();
+								oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete error";
+								LOGI(oss.str());
+							}
+
+
+
+							if (fpTaskLock != NULL)
+							{
+								fclose(fpTaskLock);
+								fpTaskLock = NULL;
+								LOGI("unlock taskfile lock:" + qstr2str(NewFileForRun));
+							}
+							std::string msg = __LINE__ + " complete progress.";
+
+							LOGI(msg);
+							return -1;
+						}
+
+						if (bSpecialLog)
+						{
+							std::ostringstream oss;
+							oss.clear();
+							oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "to process complete 3";
+							LOGI(oss.str());
+						}
+
+						FILE* fp = AICORE::File::FopenDenyWriteLockUtf8(qstr2str(jobFilePathLock));
+
+						if (fp != NULL)
+						{
+
+
+							if (type == ATSTARTTYPE)
+							{
+								std::vector<std::string> taskList;
+								std::string dirPath = qstr2str(getATBlockJobPath(str2qstr(fileName)));
+
+								std::string dirnew = getATBlockJobPath(fileName);
+								getTaskList(dirPath, taskList);
+
+								int task_count = taskList.size();
 
 								QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
 
-								jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
-								jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
-								jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+								jobinfo.tg.tasksmap.at(0).runinfo.EndTime = datatime.toStdString();
+								jobinfo.tg.tasksmap.at(0).Status = int(job_status_e::STATUS_COMPLETE);
+								jobinfo.tg.tasksmap.at(0).Percent = 100.0;
 
+								// Rebuild mapping for current job
+								maptaskfunction.clear();
+								maptaskfunction[0] = StepAT_function.at(GenTasks);
+
+								for (auto taskfile : taskList)
+								{
+									ATTaskInfo task;
+									task.load(taskfile);
+
+									Task_s newtask;
+									if (task.task_.depends_.size() > 0)
+										newtask.Depends.insert(task.task_.depends_.begin(), task.task_.depends_.end());
+									newtask.FatherId = task.task_.fatherId_;
+									newtask.Percent = 0;
+									newtask.Status = int(job_status_e::STATUS_PENDDING);
+
+									newtask.Msg = task.task_.msg_;
+									newtask.Type = task.task_.type_;
+									newtask.Id = task.task_.id_;
+									if (bSpecialLog)
+									{
+										std::ostringstream oss;
+										oss.clear();
+										oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << task.task_.id_ << " " << "to process complete 24";
+										LOGI(oss.str());
+									}
+									newtask.ItemPath = jobinfo.tg.tasksmap.at(0).ItemPath;
+									newtask.ProjectPath = jobinfo.tg.tasksmap.at(0).ProjectPath;
+
+									newtask.ItemPath2 = jobinfo.tg.tasksmap.at(0).ItemPath2;
+									newtask.ProjectPath2 = jobinfo.tg.tasksmap.at(0).ProjectPath2;
+
+									LOGI("before add task:" + jobinfo.tg.tasksmap.size());
+									jobinfo.tg.tasksmap[newtask.Id] = newtask;
+									LOGI("after add task:" + jobinfo.tg.tasksmap.size());
+									maptaskfunction[newtask.Id] = task.task_.fun_name_;
+								}
 								if (bSpecialLog)
 								{
 									std::ostringstream oss;
@@ -3801,54 +3925,159 @@ int ExecTaskFileV2()
 										<< jobinfo.tg.tasksmap.at(taskid).Percent << " " << datatime.toStdString() << " " << "to process complete 4";
 									LOGI(oss.str());
 								}
-								
+
 								jobinfo.save(jobdirstr);
 
 								LOGI("save jobfile:" + jobdirstr);
-
 
 
 								std::ostringstream strLine;
 								strLine.clear();
 								strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
 								PrintTimeSum(strLine.str());
-								ExportTimeSum(jobinfo);
+
 								init();
-								
+
 								fclose(fp);
 							}
+							else
+							{
+								if (type == RECONSTRUCTIONSTARTTYPE)
+								{
+
+									feadback.Status = job_status_e::STATUS_COMPLETE;
+									feadback.Percent = COMPLETE_PROGRESS;
+									QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+									jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+									jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+									jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+									feadback.Msg = GetTaskEndingString(jobinfo.JobName);
+
+									hasFinishedJobMap.insert(str2qstr(jobinfo.JobName), 2);
+
+									jobinfo.tg.feedback = feadback;
+
+									jobinfo.tg.runinfo.runninginfo.EndTime = datatime.toStdString();
+
+									QString jobFileName = str2qstr(jobdirstr);
+									QString lsRunningJobFileName = QFileInfo(jobFileName).fileName();
+									QString lsCompletedJobFile = completedJobPath + pathSeperator + lsRunningJobFileName;;
+									bool bsave = jobinfo.save(qstr2str(lsCompletedJobFile));
+
+									if (!bsave)
+									{
+										if (bSpecialLog)
+										{
+											std::ostringstream oss;
+											oss.clear();
+											oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save jobfile into completed dir.";
+											LOGI(oss.str());
+										}
+									}
+									std::ostringstream strLine;
+									strLine.clear();
+									strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+									PrintTimeSum(strLine.str());
+									ExportTimeSum(jobinfo);
+
+									std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+									if (bSpecialLog)
+									{
+										LOGI("remove " + qstr2str(jobFileName) + " for completion status.");
+									}
+
+
+									QFile(jobFileName).remove();
+
+
+									if (!feadback.save_with_retry(feedback_file))
+									{
+										if (bSpecialLog)
+										{
+											std::ostringstream oss;
+											oss.clear();
+											oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << "failed to save feedback with complete status.";
+											LOGI(oss.str());
+										}
+									}
+
+									LOGI("after remove jobfile:" + qstr2str(jobFileName) + " taskfile:" + qstr2str(NewFileForRun));
+
+									OnTileJobFinished(jobname, projectfilefullpath, block, blkInfo.statisticinfo_.imagenum);
+									init();
+									fclose(fp);
 
 
 
-							
+								}
+								else
+								{
+									jobinfo.tg.feedback = feadback;
+									Run_s runinfo;
+
+									QString datatime = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+
+									jobinfo.tg.tasksmap.at(taskid).runinfo.EndTime = datatime.toStdString();
+									jobinfo.tg.tasksmap.at(taskid).Status = int(job_status_e::STATUS_COMPLETE);
+									jobinfo.tg.tasksmap.at(taskid).Percent = float(COMPLETE_PROGRESS);
+
+									if (bSpecialLog)
+									{
+										std::ostringstream oss;
+										oss.clear();
+										oss << __FUNCTION__ << " LINE " << __LINE__ << "  " << (jobdirstr) << " " << jobinfo.tg.tasksmap.at(taskid).Status << " "
+											<< jobinfo.tg.tasksmap.at(taskid).Percent << " " << datatime.toStdString() << " " << "to process complete 4";
+										LOGI(oss.str());
+									}
+
+									jobinfo.save(jobdirstr);
+
+									LOGI("save jobfile:" + jobdirstr);
+
+
+
+									std::ostringstream strLine;
+									strLine.clear();
+									strLine << "print time sum now " << __FUNCTION__ << " LINE " << __LINE__;
+									PrintTimeSum(strLine.str());
+									ExportTimeSum(jobinfo);
+									init();
+
+									fclose(fp);
+								}
+
+
+
+
+							}
+							return AI3D_SUCCESS;
 						}
-						return AI3D_SUCCESS;
-					}
-					else
-					{
-						if (fpTaskLock != NULL)
+						else
 						{
-							fclose(fpTaskLock);
-							fpTaskLock = NULL;
-							LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
-						}
-						std::string msg = __LINE__ + " fopen.";
-						
-						LOGI(msg);
-						return -1;
-					}
+							if (fpTaskLock != NULL)
+							{
+								fclose(fpTaskLock);
+								fpTaskLock = NULL;
+								LOGI("release taskfile lock:" + qstr2str(NewFileForRun));
+							}
+							std::string msg = __LINE__ + " fopen.";
 
+							LOGI(msg);
+							return -1;
+						}
+
+
+					}
 
 				}
-				
 			}
+
+
+			Sleep(100);
 		}
-
-
-		Sleep(100);
 	}
-	
-	
 
 	LOGI("jobfile taskfile:" + qstr2str(NewFileForRun));
 

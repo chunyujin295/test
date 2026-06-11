@@ -9,6 +9,8 @@
 #include <rapidjson/filewritestream.h>
 #include "Core/DataStruct.h"
 #include "Core/File.h"
+#include "Core/PointManager.h"
+
 namespace AI3D
 {
     namespace CORE
@@ -545,7 +547,7 @@ namespace AI3D
 				int num_photogroups = atBinFile.num_photogroups;
 				if (num_photogroups > std::numeric_limits<uint8_t>::max())
 				{
-					LOGW(String::StringPrintf("Invalid SCSFR.bin(%s),too many photogroups!", AT_filepath));
+					LOGW(String::StringPrintf("Invalid SCSFR.bin(%s),too many photogroups!", AT_filepath.c_str()));
 					return false;
 				}
 				std::set<image_t> image_ids;
@@ -2652,10 +2654,64 @@ namespace AI3D
 			return AI3D_SUCCESS;
 		}
 
-		bool  ATCommandSet::CreateATTaskInfo(std::string hostname, std::string jobpath, 
-			std::string blockpath, const AI3D::CORE::BlockObject::Task_Info& taskinfo, std::string& jobstr)
+		SubmitResult ATCommandSet::CreateATTaskInfo(std::string hostname, std::string jobpath,
+		                                            std::string blockpath,
+		                                            const AI3D::CORE::BlockObject::Task_Info& taskinfo,
+		                                            std::string& jobstr)
 		{
-			
+			SubmitResult result;
+			int imageNum = taskinfo.statisticinfo_.imagenum;
+
+			rapidjson::Document doc;
+			doc.SetObject();
+			auto& alloc = doc.GetAllocator();
+
+			rapidjson::Value images(rapidjson::kObjectType);
+			images.AddMember("total_count", imageNum, alloc);
+			doc.AddMember("images", images, alloc);
+
+			rapidjson::Value tiles(rapidjson::kObjectType);
+			tiles.AddMember("total_count", static_cast<int>(0), alloc);
+			doc.AddMember("tiles", tiles, alloc);
+
+			rapidjson::StringBuffer buffer;
+			rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+			doc.Accept(writer);
+
+			PointFreezeInfo estimate = PointManager::EstimateTaskPoints(BusinessType::SC, buffer.GetString());
+			if (!estimate.requestSucceeded)
+			{
+				result.success = false;
+				result.error_msg = "http request error";
+				return result;
+			}
+			result.estimate_points = estimate.estimate_points;
+
+			PointFreezeInfo balance = PointManager::QueryUserPoints();
+			if (!balance.requestSucceeded)
+			{
+				result.success = false;
+				result.point_check_passed = false;
+				result.result_code = balance.errorCode;
+				result.error_msg = "http request error";
+				return result;
+			}
+			result.available_points = balance.available_points;
+			result.total_balance = balance.total_balance;
+			if (result.estimate_points > result.available_points)
+			{
+				result.point_check_passed = false;
+				result.success = false;
+				result.result_code = AI3D_INSUFFICIENT_POINTS;
+				result.error_msg = "Insufficient points";
+				return result;
+			}
+
+			result.point_check_passed = true;
+
+
+
+
 			std::string datetime = GetCurrentTimeStr();
 			jobstr = JOB_PREFIX + datetime + SC_POSTFIX;
 			
@@ -2748,13 +2804,20 @@ namespace AI3D
 			
 
 			LOGI("Writing Taskdef0.json Finished!");
+
+			PointFreezeInfo freezeResult = PointManager::CreatePointTask(BusinessType::SC, buffer.GetString());
+			if (freezeResult.freeze_no.empty()) {
+				result.success = false;
+				result.error_msg = "Freeze failed";
+				return result;
+			}
+
+			TaskCommandSet::CreateJobAndFeedbackFiles(jobpath, projectfile, itempath, hostname, datetime, blockpath, job,freezeResult, true);
+
 			
-
-			TaskCommandSet::CreateJobAndFeedbackFiles(jobpath, projectfile, itempath, hostname, datetime, blockpath, job,true);
-
-			
-
-			return true;
+			result.success = true;
+			result.result_code = AI3D_SUCCESS;
+			return result;
 		}
     }
 }

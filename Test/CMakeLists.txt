@@ -82,3 +82,20 @@ endif()
 if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testGenTaskFullFlow)
 	add_subdirectory(testGenTaskFullFlow)
 endif()
+
+#if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testPoints)
+#	add_subdirectory(testPointManager)
+#endif()
+#
+#if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testPoints)
+#	add_subdirectory(testFreezeSubmit)
+#endif()
+#
+#if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testPoints)
+#	add_subdirectory(testSettleEngine)
+#endif()
+#
+#if(EXISTS  ${CMAKE_CURRENT_SOURCE_DIR}/testPoints)
+#	add_subdirectory(testPointsDistributed)
+#endif()
+

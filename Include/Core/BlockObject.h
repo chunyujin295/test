@@ -58,7 +58,7 @@ namespace AI3D
 
             struct StatisticInfo_s
             {
-                int  imagenum = 0;
+                int imagenum = 0;
                 int regisimagenum = 0;
                 int gcpnum = 0;
                 int tiepointnum = 0;
@@ -81,6 +81,13 @@ namespace AI3D
 
             struct AI3D_API Task_Info
             {
+                Task_Info() = default;
+                Task_Info(const Task_Info&) = default;
+                Task_Info& operator=(const Task_Info&) = default;
+                Task_Info(Task_Info&&) = default;
+                Task_Info& operator=(Task_Info&&) = default;
+                ~Task_Info() = default;
+
                 int block_task_category = 0;
                 GenTaskOptions gen_options;
 
@@ -142,8 +149,10 @@ namespace AI3D
                 std::vector<blk_recontruction_info_s> reconstructions_info_;
                 std::map<std::string, std::string> reconstructionjobs_;
 
-                std::vector<blk_generation_info_s> generations_info_;
-                std::map<std::string, std::string> generationjobs_;
+                std::vector<blk_generation_info_s> generations_info_;        // 生成结果元数据列表
+                std::map<std::string, std::string> generationjobs_;         // task_uuid → job_name
+
+                int next_generation_id = 1;
 
                 static int WriteLocalJson(const srs_s& srs, const std::string& file);
                 static int LoadLocalJson(srs_s& srs, const std::string& file);

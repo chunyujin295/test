@@ -158,6 +158,140 @@ namespace AI3D
             
         };
 
+        /** BaseGS scene scale (场景规模), maps to backend --percent_dense. */
+        enum basegs_scene_scale_e
+        {
+            BASEGS_SCENE_SCALE_SMALL = 0,  // 小型场景
+            BASEGS_SCENE_SCALE_AUTO = 1,   // 自动
+            BASEGS_SCENE_SCALE_LARGE = 2,  // 大型场景
+        };
+
+        /** BaseGS quality preset (低 / 中 / 高). */
+        enum basegs_quality_mode_e
+        {
+            BASEGS_QUALITY_FAST = 0,       // 低：快速模式
+            BASEGS_QUALITY_BALANCED = 1,   // 中：均衡模式
+            BASEGS_QUALITY_HIGH = 2,       // 高：高精模式
+        };
+
+        /** BaseGS compute device: only "GPU" or "CPU" (JSON / CLI value). */
+        enum basegs_data_device_e
+        {
+            BASEGS_DATA_DEVICE_GPU = 0,
+            BASEGS_DATA_DEVICE_CPU = 1,
+        };
+
+        inline const char* BaseGsDataDeviceToString(basegs_data_device_e device)
+        {
+            return device == BASEGS_DATA_DEVICE_CPU ? "CPU" : "GPU";
+        }
+
+        inline basegs_data_device_e BaseGsDataDeviceFromString(const std::string& value)
+        {
+            if (value == "CPU" || value == "cpu")
+                return BASEGS_DATA_DEVICE_CPU;
+            return BASEGS_DATA_DEVICE_GPU;
+        }
+
+        /** BaseGS training parameters (backend CLI field names). */
+        struct basegs_params_s
+        {
+            int iterations_ = 15000;
+            int resolution_ = 2048;
+            basegs_scene_scale_e scene_scale_ = BASEGS_SCENE_SCALE_AUTO;
+            basegs_data_device_e data_device_ = BASEGS_DATA_DEVICE_GPU;
+            bool antialiasing_ = true;
+            int densify_from_iter_ = 500;
+            int densify_until_iter_ = 12000;
+            int densification_interval_ = 100;
+            float densify_grad_threshold_ = 0.0008f;
+            int opacity_reset_interval_ = 3000;
+            float lambda_dssim_ = 0.15f;
+            int sh_degree_ = 3;
+
+            float GetPercentDense() const
+            {
+                switch (scene_scale_)
+                {
+                case BASEGS_SCENE_SCALE_SMALL:
+                    return 0.02f;
+                case BASEGS_SCENE_SCALE_LARGE:
+                    return 0.005f;
+                case BASEGS_SCENE_SCALE_AUTO:
+                default:
+                    return 0.01f;
+                }
+            }
+        };
+
+        inline basegs_params_s GetBaseGsParamsFast()
+        {
+            basegs_params_s p;
+            p.iterations_ = 7000;
+            p.resolution_ = 1024;
+            p.scene_scale_ = BASEGS_SCENE_SCALE_SMALL;
+            p.data_device_ = BASEGS_DATA_DEVICE_GPU;
+            p.antialiasing_ = false;
+            p.densify_from_iter_ = 500;
+            p.densify_until_iter_ = 5000;
+            p.densification_interval_ = 300;
+            p.densify_grad_threshold_ = 0.0015f;
+            p.opacity_reset_interval_ = 3000;
+            p.lambda_dssim_ = 0.1f;
+            p.sh_degree_ = 2;
+            return p;
+        }
+
+        inline basegs_params_s GetBaseGsParamsBalanced()
+        {
+            basegs_params_s p;
+            p.iterations_ = 15000;
+            p.resolution_ = 2048;
+            p.scene_scale_ = BASEGS_SCENE_SCALE_AUTO;
+            p.data_device_ = BASEGS_DATA_DEVICE_GPU;
+            p.antialiasing_ = true;
+            p.densify_from_iter_ = 500;
+            p.densify_until_iter_ = 12000;
+            p.densification_interval_ = 100;
+            p.densify_grad_threshold_ = 0.0008f;
+            p.opacity_reset_interval_ = 3000;
+            p.lambda_dssim_ = 0.15f;
+            p.sh_degree_ = 3;
+            return p;
+        }
+
+        inline basegs_params_s GetBaseGsParamsHigh()
+        {
+            basegs_params_s p;
+            p.iterations_ = 30000;
+            p.resolution_ = 4096;
+            p.scene_scale_ = BASEGS_SCENE_SCALE_LARGE;
+            p.data_device_ = BASEGS_DATA_DEVICE_GPU;
+            p.antialiasing_ = true;
+            p.densify_from_iter_ = 500;
+            p.densify_until_iter_ = 25000;
+            p.densification_interval_ = 100;
+            p.densify_grad_threshold_ = 0.0002f;
+            p.opacity_reset_interval_ = 3000;
+            p.lambda_dssim_ = 0.2f;
+            p.sh_degree_ = 3;
+            return p;
+        }
+
+        inline basegs_params_s GetBaseGsParamsPreset(basegs_quality_mode_e mode)
+        {
+            switch (mode)
+            {
+            case BASEGS_QUALITY_FAST:
+                return GetBaseGsParamsFast();
+            case BASEGS_QUALITY_HIGH:
+                return GetBaseGsParamsHigh();
+            case BASEGS_QUALITY_BALANCED:
+            default:
+                return GetBaseGsParamsBalanced();
+            }
+        }
+
 
         
         struct production_advance_opt_s

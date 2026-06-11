@@ -15,7 +15,11 @@ namespace AI3D
             production_t id_;
             production_option_s options_;
             std::string name_;
-           
+
+            int consumed = 0;        // 实际消耗积分
+            int refunded = 0;        // 返还积分
+            int total_balance = 0;   // 结算后余额
+            int available_points = 0;//可用积分
 
             void CreateJson(rapidjson::Value& jstr, rapidjson::Document& doc) 
             {
@@ -31,6 +35,11 @@ namespace AI3D
                 rapidjson::Value optionjson(rapidjson::kObjectType);
                 options_.CreateJson(optionjson, doc);
                 jstr.AddMember("settings", optionjson, allocator);
+                jstr.AddMember("consumed", rapidjson::Value(consumed), allocator);
+                jstr.AddMember("refunded", rapidjson::Value(refunded), allocator);
+                jstr.AddMember("total_balance", rapidjson::Value(total_balance), allocator);
+                jstr.AddMember("available_points", rapidjson::Value(available_points), allocator);
+
 
             }
             void ParseJson(const rapidjson::Value& jstr) 
@@ -52,6 +61,10 @@ namespace AI3D
                 {
                    options_.ParseJson(jstr["settings"]);
                 }
+                if (jstr.HasMember("consumed")) consumed = jstr["consumed"].GetInt();
+                if (jstr.HasMember("refunded")) refunded = jstr["refunded"].GetInt();
+                if (jstr.HasMember("total_balance")) total_balance = jstr["total_balance"].GetInt();
+                if (jstr.HasMember("available_points")) available_points = jstr["available_points"].GetInt();
 
 
             }

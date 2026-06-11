@@ -738,8 +738,10 @@ namespace AI3D
             }
 
 
-            promanager->GetBlockManaget(block_data_->GetId())->ChangeTab(ATFlag, block_data_->GetCurrentAT()->HasImages(), \
-                block_data_->GetCurrentAT()->HasControlPoints(), tabvec);
+            auto current_at = block_data_->GetCurrentAT();
+            const bool has_images = current_at && current_at->HasImages();
+            const bool has_control_points = current_at && current_at->HasControlPoints();
+            promanager->GetBlockManaget(block_data_->GetId())->ChangeTab(ATFlag, has_images, has_control_points, tabvec);
 
             UpdateTabPaper(tabvec);
 
@@ -758,10 +760,9 @@ namespace AI3D
                 }
                 show.progreesvalue = 100.0;
                 //加入是否是relative的判断
-                auto definition = block_data_->GetCurrentAT()->GetLocalSrs();
-                if (block_data_->GetCurrentAT()->HasRegImages())
+                if (current_at && current_at->HasRegImages())
                 {
-
+                    auto definition = current_at->GetLocalSrs();
                     std::string relatstr, absstr;
                     if (BlockObject::isChineseVersion())
                     {
@@ -784,8 +785,6 @@ namespace AI3D
                         modestr = "Photo positioning level: " + modestr;
                     }
                     show.ATStatustext = QString::fromStdString(modestr);
-
-
                 }
 
                 UpdateATTabLabel(show);

@@ -762,6 +762,8 @@ int execTaskFile2Only(std::string fileName)
 		
 		do
 		{
+
+
 			FILE* fpLock = AI3D::CORE::File::FopenDenyWriteLockUtf8(current_feedback_file + ".lock");
 			if (fpLock == NULL)
 			{

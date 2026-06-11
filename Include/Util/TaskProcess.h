@@ -25,6 +25,7 @@
 
 #include "Core/StringResource.h"
 #include "Core/Logging.h"
+#include "Core/PointManager.h"
 
 #include "Util/OTA.h"
 #include "Core/TaskDef.h"
@@ -271,6 +272,7 @@ struct JobInfo_s
 
 	std::string ProjectPath2 = "";
 	std::string ItemPath2 = "";
+	AI3D::CORE::PointInfoBase point_info;
 
 	JobInfo_s() {};
 	
@@ -4930,6 +4932,14 @@ struct JobFullInfo_s
 			jobListFile.taskVec.push_back(taskItemData);
 		}
 
+		jobListFile.jobInfoData.freeze_no        = tg.job.point_info.freeze_no;
+		jobListFile.jobInfoData.frozen_points    = tg.job.point_info.frozen_points;
+		jobListFile.jobInfoData.consumed         = tg.job.point_info.consumed;
+		jobListFile.jobInfoData.refunded         = tg.job.point_info.refunded;
+		jobListFile.jobInfoData.total_balance    = tg.job.point_info.total_balance;
+		jobListFile.jobInfoData.available_points = tg.job.point_info.available_points;
+		jobListFile.jobInfoData.points_settled   = tg.job.point_info.points_settled;
+
 		jobListFile.Serialize(out);
 
 		out.close();
@@ -5007,6 +5017,13 @@ struct JobFullInfo_s
 
 			tg.tasksmap[tastItem.Id] = tastItem;
 		}
+		tg.job.point_info.freeze_no        = jobListFile.jobInfoData.freeze_no;
+		tg.job.point_info.frozen_points    = jobListFile.jobInfoData.frozen_points;
+		tg.job.point_info.consumed         = jobListFile.jobInfoData.consumed;
+		tg.job.point_info.refunded         = jobListFile.jobInfoData.refunded;
+		tg.job.point_info.total_balance    = jobListFile.jobInfoData.total_balance;
+		tg.job.point_info.available_points = jobListFile.jobInfoData.available_points;
+		tg.job.point_info.points_settled   = jobListFile.jobInfoData.points_settled;
 
 		in.close();
 		return true;

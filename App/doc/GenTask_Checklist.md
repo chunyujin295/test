@@ -22,7 +22,7 @@ Phase 1 + 2 可以并行开工
 | ---------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
 | `GenTaskProcess.h`           | `Util/TaskProcess.h`                          | 和 `TaskProcess.h` 一样定义 Job 调度结构体。`TaskProcess.h` 是重建式（`JobInfo_s`、`JobFeedBack_s`），`GenTaskProcess.h` 是生成式（`GenJobInfo_s` + 枚举 + API 类型） |
 | `DataStruct.h` (修改)        | `JobListFile` / `FeedBackFile` / `BLKBinFile` | 新增 `GenJobInfoData`/`GenJobFile`（精简指针字段, 对标 `JobInfoData`/`JobListFile`）；完整任务数据由 `GenJobFullInfo_s::WriteToBin` 直接序列化 |
-| `GenJobInfo_s`               | `JobInfo_s`                                   | 纯数据结构体 — `JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo_s` 存 `task_uuid/GenTaskParams/server_task_id/result_url`。I/O 由 GenJobFullInfo_s 负责 (BIN 加密, params 序列化为 JSON 字符串存储) |
+| `GenJobInfo_s`               | `JobInfo_s`                                   | 纯数据结构体 — `JobInfo_s` 存 `ProjectPath/ItemPath`，`GenJobInfo_s` 存 `task_uuid/GenTaskParams/freeze_no/result_url`。I/O 由 GenJobFullInfo_s 负责 (BIN 加密, params 序列化为 JSON 字符串存储) |
 | `GenJobFullInfo_s`           | `JobFullInfo_s`                               | 文件级结构体 — 持有 `job_name` + `GenJobInfo_s job` + `JobFeedBack_s feedback`（对标 TaskGraph_s 持有 JobFeedBack_s），提供 `save`/`load` (BIN 加密) + `WriteToBin`/`LoadFromBin`。feedback 序列化到 BIN (对标 JobListFile::feedBackData) |
 | `GenTaskResponse`            | 无现成对标                                    | HTTP 响应体。服务端返回的 task status/progress/result_url    |
 | `GenTaskStatus`              | `jobsta_e`（局部类似）                        | 生成式任务的状态枚举。`jobsta_e` 是重建式 job 状态（PENDING/RUNNING/COMPLETE...），`GenTaskStatus` 多了 IDLE + 服务端状态 |
@@ -118,14 +118,15 @@ namespace AI3D {
         // ============================================================================
         struct GenTaskResponse {
             std::string                task_id;              // 回显客户端的 task_uuid
-            std::optional<std::string> server_task_id;        // 服务端分配的任务ID (即 Triverse 的 triverse_task_uuid)
+            std::optional<std::string> freeze_no;             // 冻结单号 (/generation/create3DTask 返回, 同时也是任务查询标识)
             GenTaskStatus              status = GenTaskStatus::IDLE;  // 任务状态
             int                        progress = 0;          // 进度百分比 0-100
-            std::optional<std::string> result_url;            // 结果文件下载链接 (COMPLETED 时有值)
-            std::optional<std::string> preview_url;           // 预览图链接
+            std::optional<std::string> result_url;            // 结果文件 URL (COMPLETED 时服务端返回, 纹理模型)
+            std::optional<std::string> preview_url;           // 预览图 URL (COMPLETED 时服务端返回)
             std::optional<std::string> error_message;         // 错误详情 (FAILED 时有值)
-            // 注: cost_credits / points_balance 已删除,
-            //     积分数据统一由 PointInfoBase 管理 (详见 积分接口集成方案.md)
+            int                        available_points = 0;  // 可用积分 (submit/query 均返回)
+            int                        frozen_points = 0;     // 冻结积分 (submit/query 均返回)
+            int                        total_balance = 0;     // 总积分 (submit/query 均返回)
         };
 
         // ============================================================================
@@ -159,12 +160,12 @@ namespace AI3D {
             // --- 运行时状态 (由 GenTaskThread 从 HTTP 响应回填) ---
             int generation_id = 0;           // Generation_<id>, SubmitGenTask 推算并写入
             GenTaskStatus status = GenTaskStatus::IDLE;
-            std::string server_task_id;    // 服务端返回的任务ID (非空 = 已 submit)
-            std::string result_url;         // 结果下载链接 (COMPLETED 时服务端返回)
-            std::string preview_url;        // 预览图链接 (COMPLETED 时服务端返回)
-            std::string result_path;        // 结果本地保存路径 (下载后)
-            std::string preview_path;       // 预览图本地保存路径 (下载后)
-            std::string result_dir;         // 结果目录: Generations/Generation_<id>/
+            std::string freeze_no;          // 冻结单号 = 任务查询标识 (服务端返回)
+            std::string result_url;          // 结果文件 URL (COMPLETED 时服务端返回)
+            std::string preview_url;         // 预览图 URL (COMPLETED 时服务端返回)
+            std::string result_dir;         // 下载目标目录: Generations/Generation_<id>/ (结果和预览共用)
+            std::string result_path;        // 结果完整路径 (前端下载完成后回填)
+            std::string preview_path;       // 预览完整路径 (前端下载完成后回填)
             std::string error_message;      // 详细错误信息 (FAILED 时填充)
             int query_retry_count = 0;      // 连续轮询失败次数 (>= 5 则标记失败)
             int progress = 0;               // 进度百分比 0-100 (IN_PROGRESS 时由 resp.progress 回填)
@@ -172,16 +173,18 @@ namespace AI3D {
             // --- 积分相关 (详见 App/doc/积分接口集成方案.md) ---
             PointInfoBase point_info;       // 替代旧 cost_credits/points_balance, 统一管理所有积分数据
 
-            /// @brief 将 HTTP 响应回填到自身 (消除 ProcessRunningJobs 逐字段拷贝)
-            ///        optional 字段只在有值时覆盖, 避免空响应冲掉已有数据
-            ///        注: 积分字段不通过 ApplyResponse 回填, 由 FreezePoints/SettlePoints 单独处理
+            /// @brief 将 HTTP 响应回填到自身
+            ///        optional 字段只在有值时覆盖; 积分字段直接覆盖 (后端返回值更准确)
             void ApplyResponse(const GenTaskResponse& resp) {
-                if (resp.server_task_id) server_task_id = *resp.server_task_id;
-                if (resp.result_url)        result_url     = *resp.result_url;
-                if (resp.preview_url)       preview_url    = *resp.preview_url;
-                if (resp.error_message)     error_message  = *resp.error_message;
-                status         = resp.status;
-                progress       = resp.progress;
+                if (resp.freeze_no)      freeze_no      = *resp.freeze_no;
+                if (resp.result_url)     result_url     = *resp.result_url;
+                if (resp.preview_url)    preview_url    = *resp.preview_url;
+                if (resp.error_message)  error_message  = *resp.error_message;
+                status           = resp.status;
+                progress         = resp.progress;
+                point_info.frozen_points    = resp.frozen_points;
+                point_info.total_balance    = resp.total_balance;
+                point_info.available_points = resp.available_points;
             }
         };
 
@@ -240,11 +243,11 @@ namespace AI3D {
                 t.user_account   = job.user_account;
                 t.params_json    = job.params.ToJsonString();
                 t.status         = static_cast<int>(job.status);
-                t.server_task_id = job.server_task_id;
-                t.result_url     = job.result_url;
-                t.preview_url    = job.preview_url;
-                t.result_path    = job.result_path;
-                t.preview_path   = job.preview_path;
+                t.freeze_no = job.freeze_no;
+                t.result_url  = job.result_url;
+                t.preview_url = job.preview_url;
+                t.result_path = job.result_path;
+                t.preview_path = job.preview_path;
                 t.result_dir     = job.result_dir;
                 t.error_message  = job.error_message;
                 t.query_retry_count = job.query_retry_count;
@@ -294,11 +297,11 @@ namespace AI3D {
                 job.block_item     = f.genJobInfoData.block_item;
                 job.params         = GenTaskParams::CreateFromJsonString(t.params_json);
                 job.status         = static_cast<GenTaskStatus>(t.status);
-                job.server_task_id = t.server_task_id;
-                job.result_url     = t.result_url;
-                job.preview_url    = t.preview_url;
-                job.result_path    = t.result_path;
-                job.preview_path   = t.preview_path;
+                job.freeze_no = t.freeze_no;
+                job.result_url  = t.result_url;
+                job.preview_url = t.preview_url;
+                job.result_path = t.result_path;
+                job.preview_path = t.preview_path;
                 job.result_dir     = t.result_dir;
                 job.error_message  = t.error_message;
                 job.query_retry_count = t.query_retry_count;
@@ -467,18 +470,17 @@ struct GenJobTaskData {
     std::string user_account;
     std::string params_json;
     int status;
-    std::string server_task_id;
+    std::string freeze_no;
     std::string result_url;
     std::string preview_url;
     std::string result_path;
     std::string preview_path;
-    std::string result_dir;          // 结果目录: Generations/Generation_<id>/
+    std::string result_dir;
     std::string error_message;
     int query_retry_count;
     int progress;
 
-    // PointInfoBase 字段
-    std::string freeze_no;
+    // PointInfoBase 字段 (freeze_no 已在上方 GenJobInfo_s 字段中, 不重复)
     int frozen_points;
     int consumed;
     int refunded;
@@ -492,7 +494,7 @@ struct GenJobTaskData {
         generation_id = 0;
         task_uuid = ""; engine_id = ""; user_account = "";
         params_json = ""; status = 0;
-        server_task_id = ""; result_url = ""; preview_url = "";
+        freeze_no = ""; result_url = ""; preview_url = "";
         result_path = ""; preview_path = ""; result_dir = ""; error_message = "";
         query_retry_count = 0; progress = 0;
         freeze_no = ""; frozen_points = 0; consumed = 0; refunded = 0;
@@ -512,11 +514,11 @@ struct GenJobTaskData {
         wi(generation_id);
         ws(task_uuid); ws(engine_id); ws(user_account);
         ws(params_json); wi(status);
-        ws(server_task_id); ws(result_url); ws(preview_url);
+        ws(freeze_no); ws(result_url); ws(preview_url);
         ws(result_path); ws(preview_path); ws(result_dir); ws(error_message);
         wi(query_retry_count); wi(progress);
 
-        ws(freeze_no); wi(frozen_points); wi(consumed); wi(refunded);
+        wi(frozen_points); wi(consumed); wi(refunded);
         wi(total_balance); wi(available_points); wi(points_settled ? 1 : 0);
 
         return true;
@@ -536,11 +538,11 @@ struct GenJobTaskData {
         ri(generation_id);
         rs(task_uuid); rs(engine_id); rs(user_account);
         rs(params_json); ri(status);
-        rs(server_task_id); rs(result_url); rs(preview_url);
+        rs(freeze_no); rs(result_url); rs(preview_url);
         rs(result_path); rs(preview_path); rs(result_dir); rs(error_message);
         ri(query_retry_count); ri(progress);
 
-        rs(freeze_no); ri(frozen_points); ri(consumed); ri(refunded);
+        ri(frozen_points); ri(consumed); ri(refunded);
         ri(total_balance); ri(available_points);
         int settledInt = 0; ri(settledInt); points_settled = (settledInt != 0);
 
@@ -762,8 +764,8 @@ namespace AI3D {
             int         texture_size = 0;  // 纹理分辨率
             int         provider_id = 0;   // 供应商类型 (默认 0, 前端根据服务商列表选择)
             std::string model_version;     // 模型版本 (字符串: 服务端可能新增版本)
-            std::string file_key;          // 已上传文件的 key。前端先调用 UploadFile 上传本地素材
-                                          // (图片/模型), 服务端返回 file_key 后填入此处。
+            std::string upload_file_key;          // 已上传文件的 key。前端先调用 UploadFile 上传本地素材
+                                          // (图片/模型), 服务端返回 upload_file_key 后填入此处。
                                           // IMAGE_TO_MODEL / TEXTURE_MODEL 等需要输入素材时必填,
                                           // TEXT_TO_MODEL 等纯文字任务保持空字符串。
 
@@ -784,8 +786,8 @@ namespace AI3D {
                     metadata.AddMember("provider_id", rapidjson::Value(provider_id), allocator);
                 if (!StringIsNullOrBlank(model_version))
                     metadata.AddMember("model_version", rapidjson::Value(model_version.c_str(), allocator), allocator);
-                if (!StringIsNullOrBlank(file_key))
-                    metadata.AddMember("file_key", rapidjson::Value(file_key.c_str(), allocator), allocator);
+                if (!StringIsNullOrBlank(upload_file_key))
+                    metadata.AddMember("upload_file_key", rapidjson::Value(upload_file_key.c_str(), allocator), allocator);
             }
 
             std::string ToJsonString() const {
@@ -813,8 +815,8 @@ namespace AI3D {
                     provider_id = metadata["provider_id"].GetInt();
                 if (metadata.HasMember("model_version"))
                     model_version = metadata["model_version"].GetString();
-                if (metadata.HasMember("file_key"))
-                    file_key = metadata["file_key"].GetString();
+                if (metadata.HasMember("upload_file_key"))
+                    upload_file_key = metadata["upload_file_key"].GetString();
             }
 
             static GenTaskParams CreateFromJsonString(const std::string& jsonStr) {
@@ -858,12 +860,17 @@ namespace AI3D {
             std::string job_name;            // job 文件名
             int         sub_type = -1;       // GenTaskSubType 枚举值
             int         status = -1;         // GenTaskStatus 枚举值
-            std::string preview_url;         // 预览图链接
-            std::string result_url;          // 结果下载链接
-            std::string result_path;         // 结果本地保存路径 (下载后)
-            std::string preview_path;        // 预览图本地保存路径 (下载后)
-            std::string result_dir;          // 结果目录: Generations/Generation_<id>/
+            std::string result_url;          // 结果文件 URL (COMPLETED 时服务端返回)
+            std::string preview_url;         // 预览图 URL (COMPLETED 时服务端返回)
+            std::string result_path;         // 结果完整路径 (前端下载后回填)
+            std::string preview_path;        // 预览完整路径 (前端下载后回填)
+            std::string result_dir;          // 结果下载目录
             std::string created_time;        // 创建时间 "yyyyMMddhhmmss"
+            // --- 积分摘要 (前端无需读 job 文件, Block 中直接获取) ---
+            int         consumed = 0;        // 实际消耗 (GenTask: 后端不返回, 恒为 0; 重建式: SettlePoints 后填充)
+            int         refunded = 0;        // 返还积分 (同上)
+            int         total_balance = 0;   // 总积分余额 (query/submit 均返回)
+            int         available_points = 0; // 可用积分 (query/submit 均返回)
 
             void CreateJson(rapidjson::Value& value, rapidjson::Document& doc) const {
                 auto& allocator = doc.GetAllocator();
@@ -872,10 +879,10 @@ namespace AI3D {
                 value.AddMember("job_name", rapidjson::Value(job_name.c_str(), allocator), allocator);
                 value.AddMember("sub_type", rapidjson::Value(sub_type), allocator);
                 value.AddMember("status", rapidjson::Value(status), allocator);
-                if (!preview_url.empty())
-                    value.AddMember("preview_url", rapidjson::Value(preview_url.c_str(), allocator), allocator);
                 if (!result_url.empty())
                     value.AddMember("result_url", rapidjson::Value(result_url.c_str(), allocator), allocator);
+                if (!preview_url.empty())
+                    value.AddMember("preview_url", rapidjson::Value(preview_url.c_str(), allocator), allocator);
                 if (!result_path.empty())
                     value.AddMember("result_path", rapidjson::Value(result_path.c_str(), allocator), allocator);
                 if (!preview_path.empty())
@@ -884,6 +891,10 @@ namespace AI3D {
                     value.AddMember("result_dir", rapidjson::Value(result_dir.c_str(), allocator), allocator);
                 if (!created_time.empty())
                     value.AddMember("created_time", rapidjson::Value(created_time.c_str(), allocator), allocator);
+                value.AddMember("consumed", rapidjson::Value(consumed), allocator);
+                value.AddMember("refunded", rapidjson::Value(refunded), allocator);
+                value.AddMember("total_balance", rapidjson::Value(total_balance), allocator);
+                value.AddMember("available_points", rapidjson::Value(available_points), allocator);
             }
 
             void ParseJson(const rapidjson::Value& value) {
@@ -892,12 +903,16 @@ namespace AI3D {
                 if (value.HasMember("job_name"))      job_name = value["job_name"].GetString();
                 if (value.HasMember("sub_type"))      sub_type = value["sub_type"].GetInt();
                 if (value.HasMember("status"))        status = value["status"].GetInt();
-                if (value.HasMember("preview_url"))   preview_url = value["preview_url"].GetString();
-                if (value.HasMember("result_url"))    result_url = value["result_url"].GetString();
+                if (value.HasMember("result_url"))  result_url  = value["result_url"].GetString();
+                if (value.HasMember("preview_url")) preview_url = value["preview_url"].GetString();
                 if (value.HasMember("created_time"))  created_time = value["created_time"].GetString();
                 if (value.HasMember("result_path"))   result_path = value["result_path"].GetString();
                 if (value.HasMember("preview_path"))  preview_path = value["preview_path"].GetString();
                 if (value.HasMember("result_dir"))    result_dir = value["result_dir"].GetString();
+                if (value.HasMember("consumed"))      consumed = value["consumed"].GetInt();
+                if (value.HasMember("refunded"))      refunded = value["refunded"].GetInt();
+                if (value.HasMember("total_balance"))    total_balance = value["total_balance"].GetInt();
+                if (value.HasMember("available_points")) available_points = value["available_points"].GetInt();
             }
         };
 
@@ -1056,7 +1071,7 @@ for (auto& job : bLKBinFile.genJobVec) {
 >
 > **持有关系**: `GenJobFullInfo_s` 新增 `JobFeedBack_s feedback` 成员（对标 `TaskGraph_s` 持有 `JobFeedBack_s`），在调度线程中加载 job 时同步加载 feedback 到内存，`UpdateFeedback()` 直接修改内存中的 `feedback` 成员，调用者负责写回独立 `JF_*` 文件。避免了每次更新 feedback 都要 `load_with_retry` + `save_with_retry` 的额外 I/O。
 >
-> **结果数据**（`result_url`/`preview_url`/`server_task_id`/`error_message`）存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。积分数据统一在 `PointInfoBase point_info` 中，由 FreezePoints/SettlePoints 回填。
+> **结果数据**（`result_url`/`preview_url`/`freeze_no`/`error_message`）存在 `GenJobInfo_s` 自身中，不做为 feedback 的扩展字段。积分数据统一在 `PointInfoBase point_info` 中，由 FreezePoints/SettlePoints 回填。
 
 ### 1.5 编译验证与 CMake 修改
 
@@ -1081,7 +1096,7 @@ FILE(GLOB HEADER_LIST RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 ```
 
-> `GenHttpClient.h/cpp` 和 `GenTaskThread.h/cpp` 放在 `App/Engine/` 目录下，被 GLOB 自动拾取，**不需要**显式添加。
+> `GenHttpClient.h/cpp` 和 `GenTaskThread.h/cpp` 放在 `App/Engine/` 目录下。`FILE(GLOB SRC_LIST ... "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")` 在 CMake configure 时自动拾取，但为防止未 re-configure 导致的遗漏，建议在 `set(SRC_FILES ...)` 中**显式列出**。
 
 #### Src/Core/CMakeLists.txt — 无需修改
 
@@ -1191,7 +1206,7 @@ static void TestGenTaskParamsRoundtrip()
     p.polygon_limit  = 50000;
     p.texture_size   = 2048;
     p.model_version  = "v2";
-    p.file_key       = "fk-abc123";
+    p.upload_file_key       = "fk-abc123";
 
     // 1b. WriteToJson → rapidjson::Document
     rapidjson::Document doc;
@@ -1223,7 +1238,7 @@ static void TestGenTaskParamsRoundtrip()
     TEST_ASSERT(p2.polygon_limit == 50000, "polygon_limit roundtrip failed");
     TEST_ASSERT(p2.texture_size == 2048, "texture_size roundtrip failed");
     TEST_ASSERT(p2.model_version == "v2", "model_version roundtrip failed");
-    TEST_ASSERT(p2.file_key == "fk-abc123", "file_key roundtrip failed");
+    TEST_ASSERT(p2.upload_file_key == "fk-abc123", "upload_file_key roundtrip failed");
 
     // 1e. UNKNOWN sub_type 不应写入
     // 1e. UNKNOWN sub_type should not be written
@@ -1296,7 +1311,7 @@ static void TestGenJobFullInfoBinRoundtrip()
     info.job.params.polygon_limit = 20000;
     info.job.params.texture_size  = 1024;
     info.job.status              = GenTaskStatus::IN_PROGRESS;
-    info.job.server_task_id      = "trv-abc123def456";
+    info.job.freeze_no      = "trv-abc123def456";
     info.job.result_url          = "https://cdn.example.com/result.glb";
     info.job.preview_url         = "https://cdn.example.com/preview.png";
     info.job.result_path         = "/local/path/result.glb";
@@ -1342,8 +1357,8 @@ static void TestGenJobFullInfoBinRoundtrip()
     TEST_ASSERT(loaded.job.params.texture_size == info.job.params.texture_size,
                 "params.texture_size mismatch");
     TEST_ASSERT(loaded.job.status == info.job.status, "status mismatch");
-    TEST_ASSERT(loaded.job.server_task_id == info.job.server_task_id,
-                "server_task_id mismatch");
+    TEST_ASSERT(loaded.job.freeze_no == info.job.freeze_no,
+                "freeze_no mismatch");
     TEST_ASSERT(loaded.job.result_url == info.job.result_url, "result_url mismatch");
     TEST_ASSERT(loaded.job.preview_url == info.job.preview_url, "preview_url mismatch");
     TEST_ASSERT(loaded.job.result_path == info.job.result_path, "result_path mismatch");
@@ -2050,27 +2065,28 @@ namespace AI3D {
         class GenHttpClient
         {
             public:
-            /// @brief POST /api/v1/tasks/<type> — 提交生成任务(端点由 sub_type 决定)
-            ///        如 TEXT_TO_MODEL → POST /api/v1/tasks/text-to-model
+            /// @brief POST /generation/create3DTask — 提交生成任务 (含积分冻结)
+            ///        后端同时完成任务创建和积分冻结, 返回 freeze_no
             ///        genParams: 生成参数结构体, 通过 ToJsonString() 序列化后作为 QMap value
+            /// @brief POST /generation/create3DTask — user 由 Authorization header (token) 识别
             static GenTaskResponse SubmitTask(const std::string& task_uuid,
-                                              const std::string& user_account,
                                               const GenTaskParams& genParams,
                                               int timeout_ms = 5000,
                                               int max_retries = 3);
 
-            /// @brief GET /api/v1/task/status?task_id=<server_task_id> — 查询任务状态
+            /// @brief POST /generation/getTaskStatus — 查询任务状态 (用 freeze_no)
             ///        通过 headers 参数手动传入 Authorization 头 (HttpClient::get 不带鉴权)
-            static GenTaskResponse QueryTaskStatus(const std::string& server_task_id,
+            static GenTaskResponse QueryTaskStatus(const std::string& freeze_no,
+                                                   int provider_id,
                                                    int timeout_ms = 3000,
                                                    int max_retries = 3);
 
             /// @brief POST /api/v1/task/cancel — 取消任务
-            static bool CancelTask(const std::string& server_task_id,
+            static bool CancelTask(const std::string& freeze_no,
                                    int timeout_ms = 3000,
                                    int max_retries = 3);
 
-            /// @brief POST /api/v1/upload — 上传本地文件, 返回 file_key (失败返回空字符串)
+            /// @brief POST /api/v1/upload — 上传本地文件, 返回 upload_file_key (失败返回空字符串)
             ///        multipart/form-data, HttpClient 不支持, 自建 QHttpMultiPart
             static std::string UploadFile(const std::string& local_path,
                                           int timeout_ms = 10000,
@@ -2185,20 +2201,19 @@ namespace CORE {
         // ============================================================================
 
         GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
-                                                  const std::string& user_account,
                                                   const GenTaskParams& genParams,
                                                   int timeout_ms,
                                                   int max_retries)
         {
-            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/tasks/" + QString::fromUtf8(ToString(genParams.sub_type));
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/generation/create3DTask" + QString::fromUtf8(ToString(genParams.sub_type));
 
             // 构造扁平 QMap — GenTaskParams 通过 ToJsonString() 序列化后作为字符串值
             QMap<QString, QString> params;
-            params["task_id"]      = QString::fromStdString(task_uuid);
-            params["user_account"] = QString::fromStdString(user_account);
-            params["params"]       = QString::fromStdString(genParams.ToJsonString());
+            params["task_id"] = QString::fromStdString(task_uuid);
+            params["param"]  = QString::fromStdString(genParams.ToJsonString());
 
             QMap<QString, QString> headers;
+            headers["Authorization"] = BuildAuthHeader(url, params["param"]);
 
             for (int attempt = 0; attempt <= max_retries; attempt++) {
                 GenTaskResponse response;
@@ -2206,19 +2221,35 @@ namespace CORE {
 
                 HttpClient client(nullptr);
                 client.post(url, params, headers, [&](int, int errorCode, QString errorMsg, QJsonObject doc) {
-                    if (errorCode == 0) {
+                    if (errorCode == 0 && doc.contains("data")) {
+                        QJsonObject data = doc["data"].toObject();
                         response.task_id = task_uuid;
-                        if (doc.contains("triverse_task_uuid"))
-                            response.server_task_id = doc["triverse_task_uuid"].toString().toStdString();
-                        response.status   = static_cast<GenTaskStatus>(doc.value("status").toInt());
-                        response.progress = doc.value("progress").toInt();
-                        if (doc.contains("result_url"))
-                            response.result_url = doc["result_url"].toString().toStdString();
-                        if (doc.contains("preview_url"))
-                            response.preview_url = doc["preview_url"].toString().toStdString();
-                        if (doc.contains("error_message"))
-                            response.error_message = doc["error_message"].toString().toStdString();
-                        // 积分字段已迁移到 PointInfoBase, 不再从 Task API 响应中解析
+                        if (data.contains("freeze_no"))
+                            response.freeze_no = data["freeze_no"].toString().toStdString();
+                        response.status   = static_cast<GenTaskStatus>(data.value("status").toInt());
+                        response.progress = data.value("progress").toInt();
+                        response.available_points = data.value("available_points").toInt();
+                        response.frozen_points    = data.value("frozen_points").toInt();
+                        response.total_balance    = data.value("total_balance").toInt();
+                        // output 仅 QueryTaskStatus 返回, SubmitTask 为 null
+                        if (data.contains("output") && !data["output"].isNull()) {
+                            QJsonObject output = data["output"].toObject();
+                            if (output.contains("preview_url"))
+                                response.preview_url = output["preview_url"].toString().toStdString();
+                            // result_url: 优先 textured_model_url[0], 为空则取 geometry_model_url[0]
+                            if (output.contains("textured_model_url")) {
+                                QJsonArray arr = output["textured_model_url"].toArray();
+                                if (arr.size() > 0 && !arr[0].toString().isEmpty())
+                                    response.result_url = arr[0].toString().toStdString();
+                            }
+                            if (response.result_url.empty() && output.contains("geometry_model_url")) {
+                                QJsonArray arr = output["geometry_model_url"].toArray();
+                                if (arr.size() > 0 && !arr[0].toString().isEmpty())
+                                    response.result_url = arr[0].toString().toStdString();
+                            }
+                        }
+                        if (data.contains("error_message"))
+                            response.error_message = data["error_message"].toString().toStdString();
                         ok = true;
                     } else {
                         response.task_id = task_uuid;
@@ -2247,14 +2278,17 @@ namespace CORE {
         //                   手动计算 Authorization 头 (HttpClient::get 不带鉴权)
         // ============================================================================
 
-        GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
+        GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& freeze_no,
+                                                       int provider_id,
                                                        int timeout_ms,
                                                        int max_retries)
         {
-            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/status?task_id="
-                + QString::fromStdString(server_task_id);
+            QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/generation/getTaskStatus";
 
-            // HttpClient::get 不带鉴权, 手动计算并通过 headers 传入
+            QMap<QString, QString> params;
+            params["freeze_no"]   = QString::fromStdString(freeze_no);
+            params["provider_id"] = QString::number(provider_id);
+
             QMap<QString, QString> headers;
             headers["Authorization"] = BuildAuthHeader(url, "");
 
@@ -2267,13 +2301,11 @@ namespace CORE {
                     if (errorCode == 0) {
                         response.task_id = doc.value("task_id").toString().toStdString();
                         if (doc.contains("triverse_task_uuid"))
-                            response.server_task_id = doc["triverse_task_uuid"].toString().toStdString();
+                            response.freeze_no = doc["triverse_task_uuid"].toString().toStdString();
                         response.status   = static_cast<GenTaskStatus>(doc.value("status").toInt());
                         response.progress = doc.value("progress").toInt();
                         if (doc.contains("result_url"))
                             response.result_url = doc["result_url"].toString().toStdString();
-                        if (doc.contains("preview_url"))
-                            response.preview_url = doc["preview_url"].toString().toStdString();
                         if (doc.contains("error_message"))
                             response.error_message = doc["error_message"].toString().toStdString();
                         // 积分字段已迁移到 PointInfoBase, 不再从 Task API 响应中解析
@@ -2302,14 +2334,14 @@ namespace CORE {
         // CancelTask — POST /api/v1/task/cancel (委托 HttpClient::post)
         // ============================================================================
 
-        bool GenHttpClient::CancelTask(const std::string& server_task_id,
+        bool GenHttpClient::CancelTask(const std::string& freeze_no,
                                        int timeout_ms,
                                        int max_retries)
         {
             QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/cancel";
 
             QMap<QString, QString> params;
-            params["task_id"] = QString::fromStdString(server_task_id);
+            params["task_id"] = QString::fromStdString(freeze_no);
 
             QMap<QString, QString> headers;
 
@@ -2405,7 +2437,7 @@ namespace CORE {
                 if (!raw.isEmpty()) {
                     QJsonObject doc = QJsonDocument::fromJson(raw).object();
                     if (doc.value("errorCode").toInt() == 0) {
-                        return doc.value("file_key").toString().toStdString();
+                        return doc.value("upload_file_key").toString().toStdString();
                     }
                 }
 
@@ -2446,33 +2478,35 @@ GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     GenTaskResponse resp;
     resp.task_id       = task_uuid;
-    resp.server_task_id = "mock-trv-" + task_uuid.substr(0, 8);
+    resp.freeze_no = "mock-trv-" + task_uuid.substr(0, 8);
     resp.status        = GenTaskStatus::IN_PROGRESS;
     resp.progress      = 0;
     return resp;
 }
 
 // ===== QueryTaskStatus mock (模拟 3 次进度 → 完成) =====
-GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
+GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& freeze_no,
                                                 int, int)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     GenTaskResponse resp;
-    resp.server_task_id = server_task_id;
+    resp.freeze_no = freeze_no;
     resp.status         = GenTaskStatus::IN_PROGRESS;
 
     // mock 计数器: 调用 3 次后标记完成
     static std::map<std::string, int> pollCount;
-    int& count = pollCount[server_task_id];
+    int& count = pollCount[freeze_no];
     count++;
     resp.progress = count * 33;
 
     if (count >= 3) {
         resp.status     = GenTaskStatus::COMPLETED;
         resp.progress   = 100;
-        resp.result_url = "https://mock-cdn.example.com/" + server_task_id + "/result.glb";
-        resp.preview_url = "https://mock-cdn.example.com/" + server_task_id + "/preview.png";
-        // 积分字段已迁移到 PointInfoBase, mock 中不再设置
+        resp.result_url  = "https://mock-cdn.example.com/" + freeze_no + "/result.glb";
+        resp.preview_url = "https://mock-cdn.example.com/" + freeze_no + "/preview.png";
+        resp.available_points = 450;
+        resp.frozen_points    = 0;
+        resp.total_balance    = 450;
     }
     return resp;
 }
@@ -2501,9 +2535,9 @@ std::string GenHttpClient::UploadFile(const std::string&, int, int) { return "mo
 
 ### 设计决策说明
 
-**为什么 ProcessPendingJobs 不解析 GenTaskParams？** 引擎只透传参数，上传、解析、校验全由前端和服务端负责。前端通过 GenTaskParams 结构体填入参数 (包括 file_key)；引擎调用 GenHttpClient::SubmitTask 时自动序列化为 JSON；服务端收到 submit 后解析 params 并调度 GPU。引擎在这一层是纯粹的 "消息代理"。
+**为什么 ProcessPendingJobs 不解析 GenTaskParams？** 引擎只透传参数，上传、解析、校验全由前端和服务端负责。前端通过 GenTaskParams 结构体填入参数 (包括 upload_file_key)；引擎调用 GenHttpClient::SubmitTask 时自动序列化为 JSON；服务端收到 submit 后解析 params 并调度 GPU。引擎在这一层是纯粹的 "消息代理"。
 
-**为什么崩溃恢复路径是检查 server_task_id 而非额外标记？** submit 成功回包后立即 `save_with_retry` 写入 server_task_id。如果 Node 在此写入与文件移动到 Running 之间的窗口期崩溃，重启后 ProcessPendingJobs 发现 job 文件仍在 Pending/ 但 server_task_id 非空，直接跳过 HTTP submit 移到 Running。
+**为什么崩溃恢复路径是检查 freeze_no 而非额外标记？** submit 成功回包后立即 `save_with_retry` 写入 freeze_no。如果 Node 在此写入与文件移动到 Running 之间的窗口期崩溃，重启后 ProcessPendingJobs 发现 job 文件仍在 Pending/ 但 freeze_no 非空，直接跳过 HTTP submit 移到 Running。
 
 **为什么连续 5 次超时才标记 FAILED 而非立即失败？** 5 次 * 2s 间隔 = 10s 容忍窗口，足够覆盖暂时的网络中断或服务端重启。
 
@@ -2553,15 +2587,15 @@ namespace AI3D {
 // GenTaskThread.cpp 实现要点 (详见 Phase 4.1 完整代码):
 //   ProcessPendingJobs():
 //     1. 遍历 jobs_gen/Pending/J_*
-//     2. load_with_retry → 检查 server_task_id 是否已存在 (崩溃恢复)
+//     2. load_with_retry → 检查 freeze_no 是否已存在 (崩溃恢复)
 //        - 已存在: 直接 MoveJobFile → Running/ (跳过重复 submit)
 //        - 不存在: GenHttpClient::SubmitTask(task_uuid, user_account, job.params)
 //                   注意: GenTaskParams 通过 ToJsonString() 序列化后发给服务端
-//     3. submit 成功 → save server_task_id → MoveJobFile → Running/
+//     3. submit 成功 → save freeze_no → MoveJobFile → Running/
 //
 //   ProcessRunningJobs():
 //     1. 遍历 jobs_gen/Running/J_*
-//     2. GenHttpClient::QueryTaskStatus(server_task_id)
+//     2. GenHttpClient::QueryTaskStatus(freeze_no)
 //     3. 根据 status 处理: COMPLETED/FAILED → MoveJobFile → 终态目录
 //        IN_PROGRESS → 更新 feedback Percent
 //     4. 连续 5 次超时 → 标记 FAILED
@@ -2775,7 +2809,7 @@ namespace AI3D {
         //   1. 遍历 jobs_gen/Pending/*.json
         //   2. deny-write 锁 → 加载 job → 检查崩溃恢复
         //   3. 上传本地文件 (FILE_PATH → FILE_KEY)
-        //   4. HTTP POST submit → 回填 server_task_id
+        //   4. HTTP POST submit → 回填 freeze_no
         //   5. HTTP POST /point/freeze → 回填 freeze_no         ← ★ 积分冻结 (详见 积分接口集成方案.md 第四章)
         //      失败不移文件, 下轮重试
         //   6. 保存 → 移到 Running/
@@ -2804,8 +2838,8 @@ namespace AI3D {
                 std::string fbPath = BuildFeedbackPath(info);
                 info.feedback.load_with_retry(fbPath, false);
 
-                // 2. 崩溃恢复: 已有 server_task_id 则直接移到 Running
-                if (!job.server_task_id.empty()) {
+                // 2. 崩溃恢复: 已有 freeze_no 则直接移到 Running
+                if (!job.freeze_no.empty()) {
                     LOGI("Crash recovery: " + job.task_uuid + " already submitted, moving to Running");
                     MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
                     continue;
@@ -2814,7 +2848,7 @@ namespace AI3D {
                 // 3. HTTP POST submit — GenTaskParams 自动序列化为 JSON
                 //    前端已处理文件上传 (如有), engine 只负责透传参数
                 GenTaskResponse resp = GenHttpClient::SubmitTask(
-                    job.task_uuid, job.user_account, job.params);
+                    job.task_uuid, job.params);
 
                 // 4. 处理响应
                 if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value()) {
@@ -2833,7 +2867,7 @@ namespace AI3D {
                     continue;
                 }
 
-                // 5. 提交成功 → 回填 server_task_id → 注册到 Block → 移到 Running
+                // 5. 提交成功 → 回填 freeze_no → 注册到 Block → 移到 Running
                 job.ApplyResponse(resp);
                 job.status = GenTaskStatus::PENDING;
                 info.save_with_retry(filePathStr);
@@ -2862,7 +2896,7 @@ namespace AI3D {
 
                 MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
 
-                LOGI("Submitted: " + job.task_uuid + " server_task_id=" + job.server_task_id);
+                LOGI("Submitted: " + job.task_uuid + " freeze_no=" + job.freeze_no);
             }
         }
 
@@ -2874,11 +2908,10 @@ namespace AI3D {
         //   2. deny-write 锁 → 加载 job
         //   3. 兜底: 无 freeze_no → 补 FreezeCredits                  ← ★ 积分冻结兜底
         //   4. HTTP GET query 服务端状态
-        //   5. 根据返回处理 — 终态时**先 settle 再更新状态**:
-        //      COMPLETED/FAILED/CANCELLED → 先 POST /point/settle (详见 积分接口集成方案.md 第四章)
-        //        ├─ settle 成功 → 更新状态/feedback/Block → 移目录
-        //        └─ settle 失败 → break (不更新任何状态, 下轮重试)
-        //      IN_PROGRESS → 更新 feedback
+        //   5. 根据返回处理 — 生成式后端 query 直接返回积分, 无需单独 settle:
+        //      COMPLETED/FAILED → ApplyResponse (含积分) → 更新 feedback/Block → 移目录
+        //      IN_PROGRESS → 更新 feedback (含积分余额)
+        //      重建式不同: 需调 SettlePoints 再更新状态 (见 积分接口集成方案.md)
         //   6. 连续 5 次网络超时 → 标记 FAILED
         // ============================================================================
 
@@ -2897,7 +2930,7 @@ namespace AI3D {
                 if (!info.load_with_retry(filePathStr))
                     continue;
                 GenJobInfo_s& job = info.job;
-                if (!!job.server_task_id.empty()) {
+                if (!!job.freeze_no.empty()) {
                     continue;
                 }
 
@@ -2906,7 +2939,7 @@ namespace AI3D {
                 info.feedback.load_with_retry(fbPath, false);
 
                 // 2. 查询服务端状态
-                GenTaskResponse resp = GenHttpClient::QueryTaskStatus(job.server_task_id);
+                GenTaskResponse resp = GenHttpClient::QueryTaskStatus(job.freeze_no, job.params.provider_id);
 
                 // 3. 网络超时 → 递增重试计数
                 if (resp.status == GenTaskStatus::IDLE && resp.error_message.has_value()) {
@@ -2944,6 +2977,10 @@ namespace AI3D {
                                         gen.status = static_cast<int>(GenTaskStatus::COMPLETED);
                                         if (!job.result_url.empty())  gen.result_url  = job.result_url;
                                         if (!job.preview_url.empty()) gen.preview_url = job.preview_url;
+                                        gen.consumed          = job.point_info.consumed;
+                                        gen.refunded          = job.point_info.refunded;
+                                        gen.total_balance     = job.point_info.total_balance;
+                                        gen.available_points  = job.point_info.available_points;
                                         break;
                                     }
                                 }
@@ -2968,6 +3005,10 @@ namespace AI3D {
                                 for (auto& gen : blkInfo.generations_info_) {
                                     if (gen.task_uuid == job.task_uuid) {
                                         gen.status = static_cast<int>(GenTaskStatus::FAILED);
+                                        gen.consumed          = job.point_info.consumed;
+                                        gen.refunded          = job.point_info.refunded;
+                                        gen.total_balance     = job.point_info.total_balance;
+                                        gen.available_points  = job.point_info.available_points;
                                         break;
                                     }
                                 }
@@ -3059,7 +3100,7 @@ namespace AI3D {
 
 | 场景 | 后果 | 需要 |
 |------|------|------|
-| Node 在 HTTP submit **回包前**崩溃 | job 在 Pending/，但 `server_task_id` 已回填 → 重启后被 ProcessPendingJobs 的崩溃恢复路径处理 | 已有 |
+| Node 在 HTTP submit **回包前**崩溃 | job 在 Pending/，但 `freeze_no` 已回填 → 重启后被 ProcessPendingJobs 的崩溃恢复路径处理 | 已有 |
 | Node 在轮询期间崩溃 | job 在 Running/，重启后 ProcessRunningJobs 会继续轮询 | 已有 |
 | 服务端任务被管理员删除/过期 | job 在 Running/ 永久轮询，永远拿不到终态 | **需兜底** |
 | 网络长时间中断 (>5 次轮询) | ProcessRunningJobs 会标记 FAILED | 已有 |
@@ -3087,7 +3128,7 @@ static void SearchUnnormalRunningJob();
 //   1. 遍历所有 job 文件
 //   2. 检查 job 最后修改时间 (QFileInfo::lastModified)
 //   3. 超过 24h 无更新 → 标记 FAILED 并移到 Failed/
-//   4. 超过 1h 无更新 且 server_task_id 为空 → 移除 (submit 阶段残留)
+//   4. 超过 1h 无更新 且 freeze_no 为空 → 移除 (submit 阶段残留)
 //
 // 与 ProcessRunningJobs 的分工:
 //   ProcessRunningJobs  — 2s 间隔, 正常轮询服务端状态
@@ -3134,14 +3175,14 @@ void GenTaskThread::SearchUnnormalRunningJob()
                 continue;
             }
 
-            // 2. 超过 1h 无更新 且无 server_task_id → submit 阶段残留, 移回 Pending 重试
+            // 2. 超过 1h 无更新 且无 freeze_no → submit 阶段残留, 移回 Pending 重试
             if (secsSinceMod > 3600) {
                 GenJobFullInfo_s info;
                 if (!info.load_with_retry(filePathStr))
                     continue;
-                if (info.!!job.server_task_id.empty()) {
+                if (info.!!job.freeze_no.empty()) {
                     LOGW("UnnormalRunning: " + info.job.task_uuid
-                         + " no server_task_id for 1h, moving back to Pending");
+                         + " no freeze_no for 1h, moving back to Pending");
                     MoveJobFile(filePathStr, qstr2str(genPendingJobPath));
                 }
             }
@@ -3246,14 +3287,8 @@ namespace CORE {
 class AI3D_API GenTaskAPI
 {
 public:
-    struct SubmitResult {
-        std::string task_uuid;       // 全局唯一, 取消任务时用
-        std::string job_name;        // J_BlockName_timestamp, 在 generations_info_ 中匹配
-        int         generation_id = -1;  // 分配的 generation id (前端用于更新 Block)
-        bool        success = false;
-        std::string error_msg;
-    };
-
+    /// @brief 提交生成式任务 (含积分预检)
+    ///        内部: EstimateTaskPoints → 余额检查 → 不够则返回 success=false
     static SubmitResult SubmitGenTask(
         BlockObject::Task_Info& blockInfo,       // 非 const: 内部递增 next_generation_id
         const std::string& user_account,
@@ -3328,8 +3363,39 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
 
     if (blockInfo.block_task_category != 1) {
         result.success = false;
+        result.result_code = AI3D_FAILURE;
         result.error_msg = "Block does not support generative tasks";
         return result;
+    }
+
+    // ================================================================
+    // ★ 积分预检 (提交前必须通过)
+    // ================================================================
+    {
+        std::string businessType = ToString(blockInfo.gen_options.gen_params.sub_type);
+        std::string taskParamJson = blockInfo.gen_options.gen_params.ToJsonString();
+
+        result.estimate_points = PointManager::EstimateTaskPoints(businessType, taskParamJson);
+        if (result.estimate_points < 0) {
+            result.success = false;
+            result.result_code = AI3D_FAILURE;
+            result.error_msg = "Failed to estimate task points";
+            return result;
+        }
+
+        PointFreezeInfo balance = PointManager::QueryUserPoints();
+        result.available_points = balance.available_points;
+        result.total_balance   = balance.total_balance;
+
+        if (result.estimate_points > result.available_points) {
+            result.point_check_passed = false;
+            result.success = false;
+            result.result_code = AI3D_FAILURE;
+            result.error_msg = "Insufficient points: need " + std::to_string(result.estimate_points)
+                             + ", have " + std::to_string(result.available_points);
+            return result;
+        }
+        result.point_check_passed = true;
     }
 
     // 从持久化计数器取 generation_id, 取后自增 (只增不复用)
@@ -3359,6 +3425,7 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
     std::string jobFilePath = pendingJobPath + fullInfo.job_name + ".bin";
     if (!fullInfo.save_with_retry(jobFilePath)) {
         result.success = false;
+        result.result_code = AI3D_FAILURE;
         result.error_msg = "Failed to write job file: " + jobFilePath;
         return result;
     }
@@ -3371,8 +3438,9 @@ GenTaskAPI::SubmitResult GenTaskAPI::SubmitGenTask(
 
     job.generation_id = generation_id;  // 存入 job, 引擎后续使用
 
-    result.success   = true;
-    result.task_uuid = job.task_uuid;
+    result.success     = true;
+    result.result_code = AI3D_SUCCESS;
+    result.task_uuid   = job.task_uuid;
     result.job_name  = fullInfo.job_name;
     result.generation_id = generation_id;
     return result;
@@ -3600,9 +3668,9 @@ int main(int argc, char** argv)
 //
 // Step 1: 提交一个任务, 拿到 task_uuid
 // Step 2: 观察 jobs_gen/Pending/ 确认 job 文件存在
-// Step 3: 等待 GenTaskThread 的 HTTP submit 返回 (日志: "Submitted: xxx server_task_id=...")
+// Step 3: 等待 GenTaskThread 的 HTTP submit 返回 (日志: "Submitted: xxx freeze_no=...")
 // Step 4: 在 job 文件被移动到 Running 之前 (2s 窗口), 立即 kill Node 进程
-// Step 5: 检查 Pending 中的 job 文件内容 — server_task_id 应该已被回填 (has_value)
+// Step 5: 检查 Pending 中的 job 文件内容 — freeze_no 应该已被回填 (has_value)
 // Step 6: 重启 Node
 // Step 7: 观察 GenTaskThread 日志:
 //         "Crash recovery: xxx already submitted, moving to Running"
@@ -3614,7 +3682,7 @@ void SimulateCrashRecoveryTest()
     // 此测试需要配合服务端 mock, 验证逻辑:
     //
     // 1. GenTaskThread::ProcessPendingJobs() 中:
-    //    if (!job.server_task_id.empty()) {  ← 崩溃恢复路径
+    //    if (!job.freeze_no.empty()) {  ← 崩溃恢复路径
     //        MoveJobFile(filePathStr, qstr2str(genRunningJobPath));
     //        continue;  ← 跳过 HTTP submit
     //    }
@@ -3625,8 +3693,8 @@ void SimulateCrashRecoveryTest()
 }
 ```
 
-- [ ] **验证点**: crash 前 `server_task_id` has_value
-- [ ] **验证点**: Node 重启后识别已有 `server_task_id`，直接移到 Running，不重复 submit
+- [ ] **验证点**: crash 前 `freeze_no` has_value
+- [ ] **验证点**: Node 重启后识别已有 `freeze_no`，直接移到 Running，不重复 submit
 - [ ] **验证点**: 服务端仅收到 1 次 submit 请求
 
 ### 6.3 网络异常测试
@@ -3735,7 +3803,7 @@ def submit(task_type):
     data = request.get_json()
     client_task_id = data.get('task_id', '')
 
-    # 幂等: 相同 task_id 返回已有 server_task_id
+    # 幂等: 相同 task_id 返回已有 freeze_no
     for triverse_id, task in tasks.items():
         if task.get('client_task_id') == client_task_id:
             return jsonify({
@@ -3795,8 +3863,8 @@ def submit(task_type):
                         def upload():
                             file = request.files.get('file')
                             if file:
-                                file_key = 'fk-' + uuid.uuid4().hex[:8]
-                                return jsonify({'file_key': file_key, 'filename': file.filename})
+                                upload_file_key = 'fk-' + uuid.uuid4().hex[:8]
+                                return jsonify({'upload_file_key': upload_file_key, 'filename': file.filename})
                             return jsonify({'error': 'no file'}), 400
 
                         @app.route('/api/v1/download/<task_id>')
@@ -3820,9 +3888,27 @@ def submit(task_type):
 // 生成式任务目录常量 (对标 PRODUCTION_DIR / PRODUCTION_PREFIX)
 #define GENERATION_DIR    "Generations"
 #define GENERATION_PREFIX "Generation_"
+
+// 统一提交返回结构 (生成式 + 重建式共用)
+struct AI3D_API SubmitResult {
+    bool        success = false;
+    std::string error_msg;
+    int         result_code = AI3D_SUCCESS;
+    std::string task_uuid;
+    std::string job_name;
+    int         generation_id = -1;
+    int         reconstruction_id = -1;
+    int         production_id = -1;
+    bool        point_check_passed = false;
+    int         estimate_points = 0;
+    int         available_points = 0;
+    int         total_balance = 0;
+};
 ```
 
 > Mock Server 不需要鉴权 → accessToken 为空, 签名不含 token。
+
+> `SubmitResult` 放在 Types.h 而非 GenTaskAPI.h 中，供 `GenTaskAPI`、`ReconstructionCommandSet` 等所有提交入口共用。
 
 服务端地址由 `Core/Types.h` 中的宏定义控制 (`GEN_SERVER_URL` / `GEN_API_PREFIX`)，无需 INI 配置或 Init 调用。
 
@@ -4022,3 +4108,5 @@ int main(int argc, char** argv)
 ### 不动
 
 `JobFeedBack_s` 不扩展 — 生成式复用 Status/Percent/Msg/TaskRetVal 做进度反馈，结果数据存 GenJobInfo_s。`GenJobFullInfo_s` 新增 `JobFeedBack_s feedback` 成员（对标 TaskGraph_s 持有 JobFeedBack_s），序列化到 BIN（对标 JobListFile::feedBackData）并独立持久化到 JF_* 文件。`TaskGraph_s`、`Task_s`、`ATTaskInfo`、`ExecTaskFileV2`、`GetPendingJob`、`Src/Core/CMakeLists.txt` — 全部不动。
+
+> 积分系统测试用例已移至 **[积分系统测试用例.md](积分系统测试用例.md)**

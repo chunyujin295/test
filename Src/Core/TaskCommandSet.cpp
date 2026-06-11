@@ -1,6 +1,7 @@
 
 #include "Core/TaskCommandSet.h"
-#include "Core/File.h"      
+#include "Core/File.h"
+#include "Core/PointManager.h"
 #include "Core/TaskDef.h"
 #include "Core/Types.h"
 #include "Util/TaskProcess.h"
@@ -16,8 +17,8 @@ namespace AI3D
         };
 
 
-        bool TaskCommandSet::CreateJobAndFeedbackFiles(std::string jobpath,std::string projectpath, std::string itempath,
-            std::string hostname,std::string datetime,std::string dir, std::string job,bool bUseTimeSummary)
+        bool TaskCommandSet::CreateJobAndFeedbackFiles(std::string jobpath, std::string projectpath, std::string itempath,
+        std::string hostname, std::string datetime, std::string dir, std::string job, PointFreezeInfo freezeResult, bool bUseTimeSummary)
         {
             File::CreateDirIfNotExists(jobpath,true);
             JobFeedBack_s feedback;
@@ -51,6 +52,12 @@ namespace AI3D
 
             jobinfo.SetPendingInfo(GetTypeId(job), job, projectpath, itempath,
                 RunInfo_s(hostname, userName, datetime));
+
+            jobinfo.tg.job.point_info.freeze_no = freezeResult.freeze_no;
+            jobinfo.tg.job.point_info.frozen_points = freezeResult.frozen_points;
+            jobinfo.tg.job.point_info.total_balance = freezeResult.total_balance;
+            jobinfo.tg.job.point_info.available_points = freezeResult.available_points;
+
             std::string postFix = "";
             if (JOB_INFO_USE_BIN) {
                 postFix = BINFILE_POSTFIX;

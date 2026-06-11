@@ -20,11 +20,17 @@ task.gen_options.gen_params.prompt        = "a red sports car";
 task.gen_options.gen_params.polygon_limit = 50000;
 task.gen_options.gen_params.texture_size  = 1024;
 
-// 3. 提交 (generation_id 内部自动推算, 无需传参)
+// 3. 提交 (内部完成积分预检 + generation_id 分配)
 SubmitResult result = GenTaskAPI::SubmitGenTask(task, currentUserAccount, pendingPath);
-if (result.success) {
-    // result.generation_id = 分配的 id, result.job_name 用于匹配
+if (!result.success) {
+    // result.point_check_passed → 积分不足
+    // result.error_msg → "Insufficient points: need X, have Y"
+    return;
 }
+// result.estimate_points  → 预估消耗
+// result.available_points → 当前可用
+// result.total_balance    → 总余额
+// result.generation_id    → 分配的 id
 ```
 
 ### 查询积分
@@ -147,10 +153,15 @@ for (auto& gen : blkInfo.generations_info_) {
         // 自动下载到 Generations/Generation_<id>/result.glb
         GenTaskAPI::DownloadResultByTaskUuid(gen.task_uuid, blkInfo,
             [](qint64 received, qint64 total) { /* 进度 */ });
+        // 积分信息已随 generations_info_ 从 Block 读取
+        // gen.total_balance     → 总积分余额
+        // gen.available_points  → 可用积分
+        // gen.consumed          → 本次消耗 (生成式恒为 0, 后端自动结算)
     }
     
     if (status == GenTaskStatus::FAILED) {
         // 失败, gen.error_message 可能有错误信息
+        // 积分: gen.total_balance / gen.available_points 同已读取
     }
 }
 ```

@@ -24,7 +24,11 @@ FILE(GLOB SRC_LIST RELATIVE_PATH	"${CMAKE_CURRENT_SOURCE_DIR}"
 #"${CMAKE_CURRENT_SOURCE_DIR}/Core/*.cc"	 _adjustment
 								)
 
-set(SRC_FILES ${SRC_FILES} ${HEADER_LIST} ${SRC_LIST})
+set(SRC_FILES ${SRC_FILES} ${HEADER_LIST} ${SRC_LIST}
+        ../testPoints/testPointManager.cpp
+		../testPoints/testFreezeSubmit.cpp
+		../testPoints/testSettleEngine.cpp
+		../testPoints/testPointsDistributed.cpp)
 
 add_executable(${TARGET_NAME} ${SRC_FILES} )
 

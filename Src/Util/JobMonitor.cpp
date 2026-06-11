@@ -119,38 +119,17 @@ bool JobMonitor::CreateJobQueueDir(QString path)
 	return false;
 }
 
-bool JobMonitor::CreateGenJobQueueDir(QString path)
+bool JobMonitor::CreateGenJobQueueDir(const QString& path)
 {
-	QFileInfo file(path);
 	QDir dir(path);
-	if (file.exists())
-	{
-		QFileInfoList folder_list = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
-		QString lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator;
-
-		int errorCode;
-		if(!CheckJobQueuePath(path, lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator, errorCode))
-		{
-
-			dir.mkdir(JOBCANCELLEDSTR);
-			dir.mkdir(JOBCOMPLETEDSTR);
-			dir.mkdir(JOBFAILEDSTR);
-			dir.mkdir(JOBPENDINGSTR);
-			dir.mkdir(JOBRUNNINGSTR);
-		}
-
-		if (!CheckJobQueuePath(path, lsPendingJobPath, lsRunningJobPath, lsCancelledJobPath, lsFailedJobPath, lsCompletedJobPath, lsPathSeperator, errorCode))
-			return false;
-
-		return true;
-	}
-	else
-	{
-
-
-	}
-
-	return false;
+	if (!dir.exists())
+		dir.mkpath(".");
+	dir.mkdir(JOBPENDINGSTR);
+	dir.mkdir(JOBRUNNINGSTR);
+	dir.mkdir(JOBCOMPLETEDSTR);
+	dir.mkdir(JOBFAILEDSTR);
+	dir.mkdir(JOBCANCELLEDSTR);
+	return true;
 }
 
 bool JobMonitor::CreateDirs()
@@ -188,14 +167,8 @@ bool JobMonitor::CreateLocalJobQueueDir()
 
 bool JobMonitor::CreateLocalGenJobQueueDir()
 {
-	QString path = QCoreApplication::applicationDirPath();
-	path.append("/jobs_gen");
-	QDir dir;
-	bool ok = dir.mkpath(path);
-
-	return ok;
+	return CreateGenJobQueueDir(Settings::getGenEngineJobQueue());
 }
-
 
 bool JobMonitor::GetJobListsInfo(std::map<std::string, EngineInfo_s>& info, std::map<job_status_e, std::vector<std::string>>& joblistsmap)
 {

@@ -48,8 +48,10 @@ namespace AI3D
             static bool SaveSourceDataBinary(ATData& Atdata, const std::string file_path, Eigen::Vector3d possigma = { -1.0,-1.0,-1.0 });
             static bool CreateATFiles(ATData& atdata,std::string path, ATOptions& options);
             
-            static bool CreateATTaskInfo(std::string hostname, std::string jobpath,
-                 std::string blockpath, const AI3D::CORE::BlockObject::Task_Info& taskinfo,std::string& jobstr);
+            static SubmitResult CreateATTaskInfo(std::string hostname, std::string jobpath,
+                                                 std::string blockpath,
+                                                 const AI3D::CORE::BlockObject::Task_Info& taskinfo,
+                                                 std::string& jobstr);
 
             static AT_complete_status_e  GetATCompleteStatus(const ATData& Atdata);
             static void GetBlockInformation();

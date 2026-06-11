@@ -1271,40 +1271,20 @@ namespace AI3D
         
         std::shared_ptr<ATData> BlockObject::GetCurrentATMutual()
         {
-
-            if (status_ == STATUS_COMPLETE)
+            if (status_ == STATUS_COMPLETE && ATGroups_.count(0))
             {
-                if (ATGroups_.count(0))
-                {
-                    return ATGroups_.at(0).GetATDataMutual();
-                }
-                else
-                {
-                    LOGF("no atdata when complete.");
-                    return std::shared_ptr<ATData>();
-                }
+                return ATGroups_.at(0).GetATDataMutual();
             }
-            else
-            {
-                return ATData_;
-
-            }
-
-        };
+            return ATData_;
+        }
 
         const std::shared_ptr<ATData> BlockObject::GetCurrentAT()const
         {
-            if (status_ == STATUS_COMPLETE)
+            if (status_ == STATUS_COMPLETE && ATGroups_.count(0))
             {
-                
                 return ATGroups_.at(0).GetATData();
-
             }
-            else
-            {
-                return ATData_;
-
-            }
+            return ATData_;
         }
         
 
@@ -3273,7 +3253,12 @@ namespace AI3D
 
         const ATGroup& BlockObject::GetAT0() const
         {
-            return ATGroups_.at(0);
+            if (ATGroups_.count(0))
+            {
+                return ATGroups_.at(0);
+            }
+            static ATGroup s_empty;
+            return s_empty;
         }
         ATGroup& BlockObject::GetAT0()
         {
@@ -10460,37 +10445,34 @@ namespace AI3D
 
             }
 
+            // generation begin
+            // 读取 GenTaskOptions (对标 at_options.ParseJson, 在 settings 读取之后)
             if (doc_blk.HasMember("block_task_category"))
-            {
                 block_task_category = doc_blk["block_task_category"].GetInt();
-            }
             if (doc_blk.HasMember("gen_options"))
-            {
                 gen_options.ParseJson(doc_blk["gen_options"]);
-            }
-            if (doc_blk.HasMember("generations_info"))
-            {
+
+            // 读取生成结果列表 (对标 reconstructions_info_)
+            if (doc_blk.HasMember("generations_info")) {
                 const rapidjson::Value& genArr = doc_blk["generations_info"];
-                for (rapidjson::SizeType i = 0; i < genArr.Size(); i++)
-                {
+                for (rapidjson::SizeType i = 0; i < genArr.Size(); i++) {
                     blk_generation_info_s info;
                     info.ParseJson(genArr[i]);
                     generations_info_.push_back(info);
                 }
             }
-            if (doc_blk.HasMember("GenJobs"))
-            {
+
+            // 读取生成任务映射 (对标 BRPJobs / GenJobs)
+            if (doc_blk.HasMember("GenJobs")) {
                 const rapidjson::Value& genJobsArr = doc_blk["GenJobs"];
-                for (rapidjson::SizeType i = 0; i < genJobsArr.Size(); i++)
-                {
+                for (rapidjson::SizeType i = 0; i < genJobsArr.Size(); i++) {
                     std::string combined = genJobsArr[i].GetString();
                     size_t colonPos = combined.find(":");
                     if (colonPos != std::string::npos)
-                    {
                         generationjobs_[combined.substr(0, colonPos)] = combined.substr(colonPos + 1);
-                    }
                 }
             }
+            // generation end
 
             if (block_blk.HasMember("blockStatistics") )
             {
@@ -10707,8 +10689,12 @@ namespace AI3D
             hasstatisinfo = true;
             statisticinfo_.tiepointnum = bLKBinFile.tiepointNum;
 
+            // generation begin
             block_task_category = bLKBinFile.gen_block_task_category;
+            next_generation_id = bLKBinFile.gen_next_generation_id;
             gen_options.gen_params = GenTaskParams::CreateFromJsonString(bLKBinFile.gen_params_json);
+
+            // generations_info_ ← JSON array string
             generations_info_.clear();
             if (!bLKBinFile.gen_info_json.empty()) {
                 rapidjson::Document doc;
@@ -10720,12 +10706,15 @@ namespace AI3D
                     }
                 }
             }
+
+            // generationjobs_
             generationjobs_.clear();
             for (auto& job : bLKBinFile.genJobVec) {
                 size_t colonPos = job.find(":");
                 if (colonPos != std::string::npos)
                     generationjobs_[job.substr(0, colonPos)] = job.substr(colonPos + 1);
             }
+            // generation end
 
             at_options.feature_num = bLKBinFile.atSetting.keyNum;
             at_options.maxthreads_num = bLKBinFile.atSetting.maxthreads_num;
@@ -12209,23 +12198,24 @@ namespace AI3D
             root.AddMember("blockStatistics", statisticinfo, allocator);
 
             // genration -begin
+            // 写入 GenTaskOptions (对标 at_options.WriteToJson)
             root.AddMember("block_task_category", rapidjson::Value(block_task_category), allocator);
             rapidjson::Value genOptionsJson(rapidjson::kObjectType);
             gen_options.WriteToJson(genOptionsJson, document);
             root.AddMember("gen_options", genOptionsJson, allocator);
 
+            // 写入生成结果列表 (对标 reconstructions_info_)
             rapidjson::Value generationsInfo(rapidjson::kArrayType);
-            for (auto& gen : generations_info_)
-            {
+            for (auto& gen : generations_info_) {
                 rapidjson::Value genJson(rapidjson::kObjectType);
                 gen.CreateJson(genJson, document);
                 generationsInfo.PushBack(genJson, allocator);
             }
             root.AddMember("generations_info", generationsInfo, allocator);
 
+            // 写入生成任务映射 (对标 BRPJobs)
             rapidjson::Value genJobs(rapidjson::kArrayType);
-            for (auto& jobstr : generationjobs_)
-            {
+            for (auto& jobstr : generationjobs_) {
                 std::string combined = jobstr.first + ":" + jobstr.second;
                 genJobs.PushBack(rapidjson::Value(combined.c_str(), allocator), allocator);
             }
@@ -12358,8 +12348,12 @@ namespace AI3D
             LOGI(msg);
             bLKBinFile.tiepointNum = statisticinfo_.tiepointnum;
 
+            // generation begin
             bLKBinFile.gen_block_task_category = block_task_category;
-            bLKBinFile.gen_params_json = gen_options.gen_params.ToJsonString();
+            bLKBinFile.gen_next_generation_id = next_generation_id;
+            bLKBinFile.gen_params_json         = gen_options.gen_params.ToJsonString();
+
+            // generations_info_ → JSON array string
             {
                 rapidjson::Document doc;
                 doc.SetArray();
@@ -12374,10 +12368,13 @@ namespace AI3D
                 doc.Accept(writer);
                 bLKBinFile.gen_info_json = buffer.GetString();
             }
+
+            // generationjobs_
             bLKBinFile.genJobNum = generationjobs_.size();
             for (auto& jobstr : generationjobs_)
                 bLKBinFile.genJobVec.push_back(jobstr.first + ":" + jobstr.second);
-            
+            // generation end
+
             bLKBinFile.atSetting.keyNum = at_options.feature_num;
             bLKBinFile.atSetting.maxthreads_num = at_options.maxthreads_num;
             bLKBinFile.atSetting.minOverlap = at_options.saveoptions.min_overlap;

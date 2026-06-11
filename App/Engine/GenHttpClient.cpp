@@ -21,11 +21,6 @@
 
 using namespace AI3D::CORE;
 
-// ============================================================================
-// LoadAccessToken — 从注册表读取 token (复制自 HttpClient::post())
-// ============================================================================
-
-#define MOCK_GEN_HTTP // TODO CYJ
 QString GenHttpClient::LoadAccessToken()
 {
     QSettings settings(SETTINGS_PREFIX + "\\User", QSettings::NativeFormat);
@@ -35,10 +30,6 @@ QString GenHttpClient::LoadAccessToken()
     QString tokenKey = TOKEN_PREFIX + currentUser;
     return settings.value(tokenKey, "").toString();
 }
-
-// ============================================================================
-// BuildAuthHeader — 计算签名 (算法与 HttpClient::calSign() 完全一致)
-// ============================================================================
 
 QString GenHttpClient::BuildAuthHeader(const QString& url,
                                        const QString& dataJson)
@@ -65,37 +56,37 @@ QString GenHttpClient::BuildAuthHeader(const QString& url,
     return authHeader;
 }
 
-
+#define MOCK_GEN_HTTP // TODO CYJ
 // GenHttpClient.cpp — 在 SubmitTask / QueryTaskStatus / CancelTask / UploadFile 函数体开头:
 
 #ifdef MOCK_GEN_HTTP // TODO CYJ
 // ===== SubmitTask mock =====
 GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
-                                          const std::string& user_account,
                                           const GenTaskParams& genParams,
                                           int, int)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     GenTaskResponse resp;
-    resp.task_id = task_uuid;
-    resp.server_task_id = "mock-trv-" + task_uuid.substr(0, 8);
+    resp.task_uuid = task_uuid;
     resp.status = GenTaskStatus::IN_PROGRESS;
     resp.progress = 0;
+    resp.freeze_no = "123123-test-test";
     return resp;
 }
 
 // ===== QueryTaskStatus mock (模拟 3 次进度 → 完成) =====
-GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
-                                               int, int)
+GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& freeze_no,
+                                int provider_id,
+                                int timeout_ms,
+                                int max_retries)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     GenTaskResponse resp;
-    resp.server_task_id = server_task_id;
     resp.status = GenTaskStatus::IN_PROGRESS;
 
     // mock 计数器: 调用 3 次后标记完成
     static std::map<std::string, int> pollCount;
-    int& count = pollCount[server_task_id];
+    int& count = pollCount[freeze_no];
     count++;
     resp.progress = count * 33;
 
@@ -103,14 +94,14 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
     {
         resp.status = GenTaskStatus::COMPLETED;
         resp.progress = 100;
-        resp.result_url = "https://mock-cdn.example.com/" + server_task_id + "/result.glb";
-        resp.preview_url = "https://mock-cdn.example.com/" + server_task_id + "/preview.png";
+        resp.result_url = "https://mock-cdn.example.com/" + freeze_no + "/result.glb";
     }
+    resp.freeze_no = freeze_no;
     return resp;
 }
 
 // ===== CancelTask mock =====
-bool GenHttpClient::CancelTask(const std::string&, int, int) { return true; }
+// bool GenHttpClient::CancelTask(const std::string&, int, int) { return true; }
 
 // ===== UploadFile mock =====
 // std::string GenHttpClient::UploadFile(const std::string&, int, int) { return "mock-fk-12345"; }
@@ -122,20 +113,20 @@ bool GenHttpClient::CancelTask(const std::string&, int, int) { return true; }
 // ============================================================================
 
 GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
-                                          const std::string& user_account,
                                           const GenTaskParams& genParams,
                                           int timeout_ms,
                                           int max_retries)
 {
-    QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/tasks/" + QString::fromUtf8(ToString(genParams.sub_type));
+    QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/generation/create3DTask" + QString::fromUtf8(
+        ToString(genParams.sub_type));
 
     // 构造扁平 QMap — GenTaskParams 通过 ToJsonString() 序列化后作为字符串值
     QMap<QString, QString> params;
-    params["task_id"] = QString::fromStdString(task_uuid);
-    params["user_account"] = QString::fromStdString(user_account);
-    params["params"] = QString::fromStdString(genParams.ToJsonString());
+    params["task_uuid"] = QString::fromStdString(task_uuid);
+    params["param"] = QString::fromStdString(genParams.ToJsonString());
 
     QMap<QString, QString> headers;
+    headers["Authorization"] = BuildAuthHeader(url, params["param"]);
 
     for (int attempt = 0; attempt <= max_retries; attempt++)
     {
@@ -145,24 +136,44 @@ GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
         HttpClient client(nullptr);
         client.post(url, params, headers, [&](int, int errorCode, QString errorMsg, QJsonObject doc)
         {
-            if (errorCode == 0)
+            if (errorCode == 0 && doc.contains("data"))
             {
-                response.task_id = task_uuid;
-                if (doc.contains("server_task_id"))
-                    response.server_task_id = doc["server_task_id"].toString().toStdString();
-                response.status = static_cast<GenTaskStatus>(doc.value("status").toInt());
-                response.progress = doc.value("progress").toInt();
-                if (doc.contains("result_url"))
-                    response.result_url = doc["result_url"].toString().toStdString();
-                if (doc.contains("preview_url"))
-                    response.preview_url = doc["preview_url"].toString().toStdString();
-                if (doc.contains("error_message"))
-                    response.error_message = doc["error_message"].toString().toStdString();
+                QJsonObject data = doc["data"].toObject();
+                response.task_uuid = task_uuid;
+                if (data.contains("freeze_no"))
+                    response.freeze_no = data["freeze_no"].toString().toStdString();
+                response.status = static_cast<GenTaskStatus>(data.value("status").toInt());
+                response.progress = data.value("progress").toInt();
+                response.available_points = data.value("available_points").toInt();
+                response.frozen_points = data.value("frozen_points").toInt();
+                response.total_balance = data.value("total_balance").toInt();
+                // output 仅 QueryTaskStatus 返回, SubmitTask 为 null
+                if (data.contains("output") && !data["output"].isNull())
+                {
+                    QJsonObject output = data["output"].toObject();
+                    if (output.contains("preview_url"))
+                        response.preview_url = output["preview_url"].toString().toStdString();
+                    // result_url: 优先 textured_model_url[0], 为空则取 geometry_model_url[0]
+                    if (output.contains("textured_model_url"))
+                    {
+                        QJsonArray arr = output["textured_model_url"].toArray();
+                        if (arr.size() > 0 && !arr[0].toString().isEmpty())
+                            response.result_url = arr[0].toString().toStdString();
+                    }
+                    if (response.result_url.empty() && output.contains("geometry_model_url"))
+                    {
+                        QJsonArray arr = output["geometry_model_url"].toArray();
+                        if (arr.size() > 0 && !arr[0].toString().isEmpty())
+                            response.result_url = arr[0].toString().toStdString();
+                    }
+                }
+                if (data.contains("error_message"))
+                    response.error_message = data["error_message"].toString().toStdString();
                 ok = true;
             }
             else
             {
-                response.task_id = task_uuid;
+                response.task_uuid = task_uuid;
                 response.status = GenTaskStatus::IDLE;
                 response.error_message = errorMsg.toStdString();
             }
@@ -178,7 +189,7 @@ GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
     }
 
     GenTaskResponse failResp;
-    failResp.task_id = task_uuid;
+    failResp.task_uuid = task_uuid;
     failResp.status = GenTaskStatus::IDLE;
     failResp.error_message = "submit timeout after " + std::to_string(max_retries + 1) + " attempts";
     return failResp;
@@ -189,14 +200,17 @@ GenTaskResponse GenHttpClient::SubmitTask(const std::string& task_uuid,
 //                   手动计算 Authorization 头 (HttpClient::get 不带鉴权)
 // ============================================================================
 
-GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id,
+GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& freeze_no,
+                                               int provider_id,
                                                int timeout_ms,
                                                int max_retries)
 {
-    QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/status?task_id="
-        + QString::fromStdString(server_task_id);
+    QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/generation/getTaskStatus";
 
-    // HttpClient::get 不带鉴权, 手动计算并通过 headers 传入
+    QMap<QString, QString> params;
+    params["freeze_no"] = QString::fromStdString(freeze_no);
+    params["provider_id"] = QString::number(provider_id);
+
     QMap<QString, QString> headers;
     headers["Authorization"] = BuildAuthHeader(url, "");
 
@@ -210,22 +224,20 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
         {
             if (errorCode == 0)
             {
-                response.task_id = doc.value("task_id").toString().toStdString();
-                if (doc.contains("server_task_id"))
-                    response.server_task_id = doc["server_task_id"].toString().toStdString();
+                response.task_uuid = doc.value("task_uuid").toString().toStdString();
+                if (doc.contains("triverse_task_uuid"))
+                    response.freeze_no = doc["triverse_task_uuid"].toString().toStdString();
                 response.status = static_cast<GenTaskStatus>(doc.value("status").toInt());
                 response.progress = doc.value("progress").toInt();
                 if (doc.contains("result_url"))
                     response.result_url = doc["result_url"].toString().toStdString();
-                if (doc.contains("preview_url"))
-                    response.preview_url = doc["preview_url"].toString().toStdString();
                 if (doc.contains("error_message"))
                     response.error_message = doc["error_message"].toString().toStdString();
+                // 积分字段已迁移到 PointInfoBase, 不再从 Task API 响应中解析
                 ok = true;
             }
             else
             {
-                response.server_task_id = server_task_id;
                 response.status = GenTaskStatus::IDLE;
                 response.error_message = errorMsg.toStdString();
             }
@@ -241,7 +253,6 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
     }
 
     GenTaskResponse failResp;
-
     failResp.status = GenTaskStatus::IDLE;
     failResp.error_message = "query timeout after retries";
     return failResp;
@@ -251,14 +262,14 @@ GenTaskResponse GenHttpClient::QueryTaskStatus(const std::string& server_task_id
 // CancelTask — POST /api/v1/task/cancel (委托 HttpClient::post)
 // ============================================================================
 
-bool GenHttpClient::CancelTask(const std::string& server_task_id,
-                               int timeout_ms,
-                               int max_retries)
-{
+// bool GenHttpClient::CancelTask(const std::string& server_task_id,
+//                                int timeout_ms,
+//                                int max_retries)
+// {
     // QString url = GEN_SERVER_URL + GEN_API_PREFIX + "/task/cancel";
     //
     // QMap<QString, QString> params;
-    // params["task_id"] = QString::fromStdString(server_task_id);
+    // params["task_uuid"] = QString::fromStdString(server_task_id);
     //
     // QMap<QString, QString> headers;
     //
@@ -280,9 +291,9 @@ bool GenHttpClient::CancelTask(const std::string& server_task_id,
     //         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     //     }
     // }
-
-    return false;
-}
+//
+//     return false;
+// }
 
 // ============================================================================
 // SyncPostMultipart — multipart 文件上传 (HttpClient 不支持, 自建实现)
@@ -364,7 +375,7 @@ bool GenHttpClient::CancelTask(const std::string& server_task_id,
 //             QJsonObject doc = QJsonDocument::fromJson(raw).object();
 //             if (doc.value("errorCode").toInt() == 0)
 //             {
-//                 return doc.value("file_key").toString().toStdString();
+//                 return doc.value("upload_file_key").toString().toStdString();
 //             }
 //         }
 //
